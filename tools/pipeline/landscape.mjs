@@ -165,7 +165,7 @@ export function placeProps({ land, trees, treeRows, vending, edges, idx, inBound
   // along the roads
   let lastWay = null, carry = 0, prevPole = null;
   edges.forEach((e, ei) => {
-    if (e.bridge || e.tunnel || e.highway.startsWith('motorway')) return;
+    if ((e.bridge && !e.span) || e.tunnel || e.highway.startsWith('motorway')) return;
     const hw = e.highway.replace('_link', '');
     const pts = [];
     for (let i = 0; i < e.pts.length; i += 3) pts.push([e.pts[i], e.pts[i + 2]]);

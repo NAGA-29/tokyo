@@ -3,18 +3,19 @@
 // All numbers little-endian. Coordinates are world metres (see geo.js), stored as f32.
 //
 //   header   u32 magic 'TKY1' | u16 version | u16 reserved | i32 tx | i32 tz
-//            | u32 nBuildings | u32 nAreas | u32 nProps | u32 nWires
+//            | u32 nBuildings | u32 nAreas | u32 nProps | u32 nWires | u32 nWalls
 //   building u16 usage | u8 storeys | u8 flags | f32 base | f32 height | f32 measuredHeight | polygons
 //   area     u8 kind | u8 reserved | u16 code | polygons
 //   prop     u8 kind | u8 variant | u16 rotation (0..65535 = 0..2 pi, about +y) | f32 x | f32 z | f32 scale
 //   wire     f32 x1 | f32 z1 | f32 x2 | f32 z2        (a span between two utility poles)
+//   wall     f32 x1 | f32 z1 | f32 x2 | f32 z2 | f32 deck   (a parapet along the edge of a bridge deck)
 //   polygons u16 nPolys | per polygon: u16 nRings | per ring: u32 nPts | nPts * (f32 x, f32 z)
 //
 // The first ring of a polygon is its outline (counter-clockwise seen from above), the others holes
 // (clockwise). Rings are open: the last point does not repeat the first.
 
 export const MAGIC = 0x31594b54; // 'TKY1'
-export const VERSION = 2;
+export const VERSION = 3;
 
 export const BFLAG = { LOD2: 1, NO_SOLID: 2 };
 
@@ -61,11 +62,11 @@ class Writer {
 
 const clampInt = (v, max) => Math.max(0, Math.min(max, Math.round(v || 0)));
 
-export function encodeTile({ tx, tz, buildings, areas, props = [], wires = [] }) {
+export function encodeTile({ tx, tz, buildings, areas, props = [], wires = [], walls = [] }) {
   const w = new Writer();
   w.u32(MAGIC); w.u16(VERSION); w.u16(0);
   w.i32(tx); w.i32(tz);
-  w.u32(buildings.length); w.u32(areas.length); w.u32(props.length); w.u32(wires.length);
+  w.u32(buildings.length); w.u32(areas.length); w.u32(props.length); w.u32(wires.length); w.u32(walls.length);
   for (const b of buildings) {
     w.u16(clampInt(b.usage, 65535)); w.u8(clampInt(b.storeys, 255)); w.u8(b.flags || 0);
     w.f32(b.base); w.f32(b.height); w.f32(b.measuredHeight ?? -1);
@@ -82,6 +83,7 @@ export function encodeTile({ tx, tz, buildings, areas, props = [], wires = [] })
     w.f32(p.x); w.f32(p.z); w.f32(p.scale ?? 1);
   }
   for (const [x1, z1, x2, z2] of wires) { w.f32(x1); w.f32(z1); w.f32(x2); w.f32(z2); }
+  for (const wall of walls) for (const v of wall) w.f32(v);
   return w.bytes();
 }
 
@@ -111,7 +113,7 @@ export function decodeTile(arrayBuffer) {
   if (u32() !== MAGIC) throw new Error('not a TKY1 tile');
   const version = u16(); u16();
   if (version !== VERSION) throw new Error(`tile version ${version}, expected ${VERSION}`);
-  const tx = i32(), tz = i32(), nB = u32(), nA = u32(), nP = u32(), nW = u32();
+  const tx = i32(), tz = i32(), nB = u32(), nA = u32(), nP = u32(), nW = u32(), nWalls = u32();
   const buildings = new Array(nB);
   for (let i = 0; i < nB; i++) {
     const usage = u16(), storeys = u8(), flags = u8();
@@ -130,5 +132,7 @@ export function decodeTile(arrayBuffer) {
   }
   const wires = new Float32Array(nW * 4);
   for (let i = 0; i < nW * 4; i++) wires[i] = f32();
-  return { tx, tz, buildings, areas, props, wires };
+  const walls = new Float32Array(nWalls * 5);
+  for (let i = 0; i < nWalls * 5; i++) walls[i] = f32();
+  return { tx, tz, buildings, areas, props, wires, walls };
 }

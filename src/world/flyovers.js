@@ -24,10 +24,15 @@ export async function buildFlyovers(url, ground) {
     const expressway = e.highway.startsWith('motorway');
     // half width; a street-level span (e.span) also carries the sidewalks, and its surface is the ordinary
     // road polygons draped on the deck, so only the structure is built here
-    const lanes = Math.max(1, e.lanes), w = e.span ? lanes * 1.65 + 4.5 : (lanes * 3.3 + (expressway ? 2.2 : 1.4)) / 2;
+    const lanes = Math.max(1, e.lanes), w = e.span ? lanes * 1.65 + 7 : (lanes * 3.3 + (expressway ? 2.2 : 1.4)) / 2;
     for (let i = 0; i + 1 < cs.length; i++) {
       const a = cs[i], b = cs[i + 1], h = Math.max(a.h, b.h);
       if (h <= RAMP_ABOVE) continue;
+      if (e.span) {
+        // girders seen from the tracks below; the road polygons above are single-sided
+        if (Math.min(a.h, b.h) > DECK_ABOVE) sweep(a, b, [[-w, -0.3], [-w, -1.5], [w, -1.5], [w, -0.3]], concrete);
+        continue;
+      }
       sweep(a, b, [[-w + 0.25, 0], [w - 0.25, 0]], asphalt);
       if (!e.span) {
         // lane paint: solid edges, dashed dividers
@@ -51,7 +56,7 @@ export async function buildFlyovers(url, ground) {
       }
     }
     for (const c of cs) {
-      if (c.h > DECK_ABOVE + 1.5 && Math.round(c.s / STEP) % Math.round(PIER_SPACING / STEP) === 1)
+      if (!e.span && c.h > DECK_ABOVE + 1.5 && Math.round(c.s / STEP) % Math.round(PIER_SPACING / STEP) === 1)
         soup.box(c.p, c.t, c.n, 1.1, Math.min(1.5, w * 0.4), c.p[1] - c.h - 1.5, c.p[1] - 1.5, concrete);
     }
   }

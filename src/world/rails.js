@@ -73,6 +73,11 @@ export function sections(pts, ground) {
     }
     s += len;
   }
+  // always end exactly on the last point: the next way starts there, and a dropped partial step would
+  // leave a gap between the two
+  const end = P.at(-1), tail = out.at(-1);
+  if (tail && Math.hypot(end[0] - tail.p[0], end[2] - tail.p[2]) > 0.05)
+    out.push({ p: [...end], t: tail.t, n: tail.n, s, h: end[1] - ground(end[0], end[2]) });
   // smooth the direction across OSM vertices so the track does not kink
   for (let i = 1; i < out.length - 1; i++) {
     const tx = out[i + 1].p[0] - out[i - 1].p[0], tz = out[i + 1].p[2] - out[i - 1].p[2], l = Math.hypot(tx, tz) || 1;

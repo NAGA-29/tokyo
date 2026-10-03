@@ -11,6 +11,7 @@ const elevatable = (e) => !e.tunnel && (e.bridge || e.highway.startsWith('motorw
 // A street bridge whose ends stand this much above the lowest ground beneath it crosses a cutting or a
 // river: it runs level from bank to bank instead of climbing over the dip.
 const SPAN_DIP = 2.5;
+export const BANK = 14; // metres beyond each end of a span that still belong to the bridge approach
 
 // Returns { level: Map node id -> road level, spans: Set of edges that are bank-to-bank bridges }.
 export function profileRoads(edges, pos, ground) {
@@ -18,14 +19,23 @@ export function profileRoads(edges, pos, ground) {
   const g = (id) => { const p = pos(id); return ground(p[0], p[1]); };
   for (const e of edges) {
     if (!e.bridge || e.tunnel || e.highway.startsWith('motorway')) continue;
-    const pts = e.ids.map(pos), ends = [g(e.ids[0]), g(e.ids.at(-1))];
+    // The terrain model is already slumping towards the dip at the bridge ends, so take each bank's level
+    // from the highest ground along the road's line a little further out.
+    const pts = e.ids.map(pos);
+    const bank = (p, q) => { // p: end point, q: its neighbour on the bridge
+      const len = Math.hypot(p[0] - q[0], p[1] - q[1]) || 1, dx = (p[0] - q[0]) / len, dz = (p[1] - q[1]) / len;
+      let top = ground(p[0], p[1]);
+      for (let d = 3.5; d <= BANK; d += 3.5) top = Math.max(top, ground(p[0] + dx * d, p[1] + dz * d));
+      return top;
+    };
+    const ends = [bank(pts[0], pts[1]), bank(pts.at(-1), pts.at(-2))];
     let low = Infinity, total = 0;
     for (let i = 1; i < pts.length; i++) {
       const len = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
       for (let s = 0; s <= len; s += 3) low = Math.min(low, ground(pts[i - 1][0] + ((pts[i][0] - pts[i - 1][0]) * s) / (len || 1), pts[i - 1][1] + ((pts[i][1] - pts[i - 1][1]) * s) / (len || 1)));
       total += len;
     }
-    if (Math.min(...ends) - low > SPAN_DIP) { e.spanLength = total; spans.add(e); }
+    if (Math.min(...ends) - low > SPAN_DIP) { e.spanLength = total; e.spanEnds = ends; spans.add(e); }
   }
   for (const e of edges) {
     if (spans.has(e)) continue;
@@ -38,7 +48,7 @@ export function profileRoads(edges, pos, ground) {
   for (const id of pinned) y.set(id, g(id));
   // bank-to-bank bridges: both ends at their ground level (or whatever joins there), a straight line between
   for (const e of spans) {
-    const a = y.get(e.ids[0]) ?? g(e.ids[0]), b = y.get(e.ids.at(-1)) ?? g(e.ids.at(-1));
+    const [a, b] = e.spanEnds;
     y.set(e.ids[0], a); y.set(e.ids.at(-1), b);
     let walked = 0;
     for (let i = 1; i < e.ids.length - 1; i++) {

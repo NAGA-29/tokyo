@@ -50,7 +50,7 @@ export function buildMarkings({ edges, pos, idx, land, inBounds }) {
   const spoken = new Set(); // road + direction that already carries its speed number
   for (const e of edges) {
     const hw = e.highway.replace('_link', '');
-    if (e.bridge || e.tunnel || hw === 'motorway' || e.highway.endsWith('_link')) continue;
+    if ((e.bridge && !e.span) || e.tunnel || hw === 'motorway' || e.highway.endsWith('_link')) continue;
     if (!MAJOR.has(hw) && e.lanes < 2) continue;
     const pts = e.ids.map(pos);
     const samples = [];

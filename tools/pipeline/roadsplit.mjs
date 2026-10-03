@@ -44,7 +44,7 @@ export function splitOutlineRoads({ outlines, edges, pos, idxRoad }) {
     return null;
   };
   for (const e of edges) {
-    if (e.bridge || e.tunnel || e.highway.startsWith('motorway')) continue;
+    if ((e.bridge && !e.span) || e.tunnel || e.highway.startsWith('motorway')) continue;
     const pts = e.ids.map(pos);
     // width of the right-of-way around this edge
     const widths = [];

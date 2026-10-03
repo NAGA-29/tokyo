@@ -4,6 +4,7 @@ import earcut from 'earcut';
 import { AREA } from '../shared/tileformat.js';
 import { sampleGrid } from '../shared/terrain.js';
 import { KIND, CAT, WALL, GROUND } from './constants.js';
+import { deckOf } from '../shared/decks.js';
 
 // ---------------------------------------------------------------- helpers
 const srgbToLinear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
@@ -91,11 +92,13 @@ const isPaint = (a) => a.kind === AREA.MARK_WHITE || a.kind === AREA.MARK_YELLOW
 const KERB = { color: lin([0.68, 0.68, 0.66]), layer: GROUND.CONCRETE, foot: 0.03 };
 const DRAPE_EDGE = 8; // metres: longer triangle edges are split so the surface follows the terrain
 
-// surface(x, z): the height roads lie on — the terrain, or a bridge deck (src/shared/decks.js).
-export function roadMesh(areas, grid, surface) {
+// surface(x, z, deck): the height roads lie on — the terrain, or a bridge deck (src/shared/decks.js).
+// walls: bridge parapets as rows of [x1, z1, x2, z2, deck].
+export function roadMesh(areas, grid, surface, walls = []) {
   const pos = new Buf(), nor = new Buf(), col = new Buf(), lay = new Buf();
+  let deck = -1; // deck of the area being meshed
   const emit = (p, style) => {
-    const y = surface(p[0], p[1]) + style.lift;
+    const y = surface(p[0], p[1], deck) + style.lift;
     pos.push(p[0], y, p[1]); nor.push(...groundNormal(grid, p[0], p[1])); col.push(...style.color); lay.push(style.layer);
   };
   // Splits every edge longer than DRAPE_EDGE at its midpoint. Whether an edge is split depends only on
@@ -121,11 +124,22 @@ export function roadMesh(areas, grid, surface) {
     if (len < 0.05) return;
     if (long([x0, z0], [x1, z1])) { const [mx, mz] = mid([x0, z0], [x1, z1]); kerb(x0, z0, mx, mz, lift); kerb(mx, mz, x1, z1, lift); return; }
     const n = [-(z1 - z0) / len, 0, (x1 - x0) / len];
-    const ga = surface(x0, z0), gb = surface(x1, z1);
+    const ga = surface(x0, z0, deck), gb = surface(x1, z1, deck);
     const quad = [[x0, ga + KERB.foot, z0], [x1, gb + KERB.foot, z1], [x1, gb + lift, z1], [x0, ga + KERB.foot, z0], [x1, gb + lift, z1], [x0, ga + lift, z0]];
     for (const p of quad) { pos.push(...p); nor.push(...n); col.push(...KERB.color); lay.push(KERB.layer); }
   };
+  // Bridge parapet: a wall from below the deck to a metre above it, visible from both sides.
+  const parapet = (x0, z0, x1, z1) => {
+    const len = Math.hypot(x1 - x0, z1 - z0);
+    if (long([x0, z0], [x1, z1])) { const [mx, mz] = mid([x0, z0], [x1, z1]); parapet(x0, z0, mx, mz); parapet(mx, mz, x1, z1); return; }
+    const n = [-(z1 - z0) / len, 0, (x1 - x0) / len], ya = surface(x0, z0, deck), yb = surface(x1, z1, deck);
+    const a = [x0, ya - 1.7, z0], b = [x1, yb - 1.7, z1], c = [x1, yb + 1.05, z1], d = [x0, ya + 1.05, z0];
+    for (const [quad, sign] of [[[a, b, c, a, c, d], 1], [[b, a, d, b, d, c], -1]])
+      for (const p of quad) { pos.push(...p); nor.push(n[0] * sign, 0, n[2] * sign); col.push(...KERB.color); lay.push(KERB.layer); }
+  };
+  for (let i = 0; i < walls.length; i += 5) { deck = walls[i + 4]; parapet(walls[i], walls[i + 1], walls[i + 2], walls[i + 3]); }
   for (const a of areas) {
+    deck = deckOf(a.code);
     const style = ROAD_STYLE[a.kind] ?? ROAD_STYLE[AREA.OTHER];
     for (const rings of a.polygons) {
       for (const [p, q, r] of triangulate(rings)) subdivide(p, q, r, style, 0);
@@ -399,9 +413,10 @@ export function buildingMesh(buildings, tx, tz) {
 }
 
 export function buildTile(tile, grid, tileSize, surface = (x, z) => sampleGrid(grid, x, z)) {
+  // (the default surface ignores decks: fine for tests, the worker passes makeSurface())
   return {
     terrain: terrainMesh(grid, tile.tx, tile.tz, tileSize),
-    roads: roadMesh(tile.areas.filter((a) => !isPaint(a)), grid, surface),
+    roads: roadMesh(tile.areas.filter((a) => !isPaint(a)), grid, surface, tile.walls),
     paint: roadMesh(tile.areas.filter(isPaint), grid, surface),
     buildings: buildingMesh(tile.buildings, tile.tx, tile.tz),
     info: tile.buildings.map((b) => [b.usage, b.storeys, b.height, b.base]),

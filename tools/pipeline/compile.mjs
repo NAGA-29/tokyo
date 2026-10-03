@@ -19,7 +19,8 @@ import { PolyIndex, readLand, clipRing, placeProps } from './landscape.mjs';
 import { buildMarkings } from './markings.mjs';
 import { splitOutlineRoads } from './roadsplit.mjs';
 import { profileRailways } from './rails.mjs';
-import { profileRoads } from './roadprofile.mjs';
+import { profileRoads, BANK } from './roadprofile.mjs';
+import { DECK_FLAG, projectOnDeck } from '../../src/shared/decks.js';
 
 const TERRAIN_STEP = 5; // metres, matches the GSI 5 m DEM
 
@@ -104,7 +105,7 @@ const ground = (x, z) => sampleGrid(grid, x, z);
 const tiles = new Map();
 const tileFor = (x, z) => {
   const [tx, tz] = tileOf(x, z), k = tileKey(tx, tz);
-  if (!tiles.has(k)) tiles.set(k, { tx, tz, buildings: [], areas: [], props: [], wires: [] });
+  if (!tiles.has(k)) tiles.set(k, { tx, tz, buildings: [], areas: [], props: [], wires: [], walls: [] });
   return tiles.get(k);
 };
 // Point-in-polygon indexes used to place paint, trees and street furniture.
@@ -205,8 +206,9 @@ const { level, spans } = profileRoads(graph.edges, graph.pos, ground);
 const roadsOut = {
   nodes: graph.nodes.map(({ id, p }) => [r2(p[0]), r2(level.get(id) ?? ground(p[0], p[1])), r2(p[1])]),
   edges: graph.edges.map((edge) => {
-    const { ids, way, spanLength, ...e } = edge;
-    return { ...e, way, span: spans.has(edge) ? 1 : 0, pts: ids.flatMap((id) => { const [x, z] = graph.pos(id); return [r2(x), r2(level.get(id)), r2(z)]; }) };
+    edge.span = spans.has(edge) ? 1 : 0; // a street-level bridge: treated as an ordinary road from here on
+    const { ids, way, spanLength, spanEnds, ...e } = edge;
+    return { ...e, way, pts: ids.flatMap((id) => { const [x, z] = graph.pos(id); return [r2(x), r2(level.get(id)), r2(z)]; }) };
   }),
 };
 const byClass = {};
@@ -271,6 +273,41 @@ for (const m of paint.marks) {
   const cx = ring.reduce((s, p) => s + p[0], 0) / 4, cz = ring.reduce((s, p) => s + p[1], 0) / 4;
   if (inBounds(cx, cz)) tileFor(cx, cz).areas.push({ kind: m.kind, code: 0, polygons: [[ring]] });
 }
+// Street-level bridges. Every road polygon touching a bridge's corridor is tied to that deck (the client
+// holds it at deck level between the banks), and the edges of those polygons that face open air over the
+// dip get a parapet.
+// The deck line runs BANK metres past each end, level, to cover the ground that slumps towards the dip.
+const decks = roadsOut.edges.filter((e) => e.span).map((e) => {
+  const p = e.pts, n = p.length;
+  const out = (i, j) => { // point BANK metres beyond point i, away from point j
+    const len = Math.hypot(p[i] - p[j], p[i + 2] - p[j + 2]) || 1;
+    return [r2(p[i] + ((p[i] - p[j]) / len) * BANK), p[i + 1], r2(p[i + 2] + ((p[i + 2] - p[j + 2]) / len) * BANK)];
+  };
+  return { pts: [...out(0, 3), ...p, ...out(n - 3, n - 6)], half: Math.max(1, e.lanes) * 1.65 + 16 };
+});
+const GROUND_KINDS = new Set([AREA.PARK, AREA.WOOD, AREA.WATER, AREA.PITCH]);
+let deckAreas = 0, deckWalls = 0;
+for (const t of tiles.values()) {
+  for (const a of t.areas) {
+    if (GROUND_KINDS.has(a.kind)) continue;
+    const deck = decks.findIndex((d) => a.polygons.some((rings) => rings[0].some(([x, z]) => { const p = projectOnDeck(d, x, z); return p.inside && p.dist <= d.half; })));
+    if (deck < 0) continue;
+    a.code = DECK_FLAG | deck; deckAreas++;
+    if (a.kind !== AREA.ROAD) continue;
+    for (const rings of a.polygons) for (const ring of rings) for (let i = 0; i < ring.length; i++) {
+      const [ax, az] = ring[i], [bx, bz] = ring[(i + 1) % ring.length], len = Math.hypot(bx - ax, bz - az);
+      if (len < 0.3) continue;
+      const mx = (ax + bx) / 2, mz = (az + bz) / 2, p = projectOnDeck(decks[deck], mx, mz);
+      if (!p.inside || p.y - ground(mx, mz) < 1.5) continue;                 // on the bank: no drop here
+      // open air beyond? (probe at three distances: neighbouring polygons often leave a sliver of a gap)
+      const nx = -(bz - az) / len, nz = (bx - ax) / len;
+      if ([0.5, 1.5, 3].some((d) => idx.road.has(mx + nx * d, mz + nz * d)) || len < 1.5) continue;
+      t.walls.push([ax, az, bx, bz, deck]); deckWalls++;
+    }
+  }
+}
+log(`street bridges: ${decks.length} decks, ${deckAreas} polygons on them, ${deckWalls} parapet segments`);
+
 const placed = placeProps({
   land, trees: xz(landRaw.trees), treeRows: landRaw.treeRows.map(xz), vending: xz(landRaw.vending),
   edges: roadsOut.edges, idx, inBounds,
@@ -305,8 +342,8 @@ const manifest = {
   meshes: area.meshes,
   terrain: { file: 'terrain.bin', x0: r2(grid.x0), z0: r2(grid.z0), step: grid.step, w: grid.w, h: grid.h, min: r2(gMin), max: r2(gMax) },
   roads: 'roads.json', rails: 'rails.json',
-  // street-level bridge decks: road surfaces and street objects follow these instead of the terrain (src/shared/decks.js)
-  decks: roadsOut.edges.filter((e) => e.span).map((e) => ({ pts: e.pts, half: Math.max(1, e.lanes) * 1.65 + 24 })), // generous: bridges are often wider than the carriageway (plazas, wide sidewalks)
+  // street-level bridge decks: road polygons marked with a deck, and street objects, follow these instead of the terrain (src/shared/decks.js)
+  decks,
   tiles: tileList,
   attribution: [
     '3D city model: Project PLATEAU, MLIT Japan (CC BY 4.0 compatible PLATEAU terms)',
