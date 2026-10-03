@@ -64,7 +64,6 @@ export function parkedVehicles() {
 function carMaterial(lit = true) {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.35 });
   m.onBeforeCompile = (shader) => {
-    shader.uniforms.uCloud = shared.uCloud;
     shader.uniforms.uNight = shared.uNight;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute float aGlow;\nvarying float vGlow;')
