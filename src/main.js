@@ -125,10 +125,16 @@ controls.update();
 
 // ---------------------------------------------------------------- input
 const keys = new Set();
+const MOVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
 addEventListener('keydown', (e) => {
+  const el = document.activeElement, typing = el?.tagName === 'INPUT' && (el.type === 'text' || el.type === 'number');
+  if (typing) return; // a number being typed into the panel
+  // A panel control that was clicked keeps the keyboard: the arrow keys would then step its slider or its
+  // city list instead of moving the view. Movement keys always belong to the scene.
+  if (MOVE_KEYS.has(e.code)) { e.preventDefault(); if (el && el !== document.body) el.blur(); }
   if (e.code === 'KeyN') env.toggle();
   keys.add(e.code);
-});
+}, { capture: true });
 addEventListener('keyup', (e) => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
 
@@ -139,7 +145,7 @@ function keyboardPan(dt) {
   if (!f && !r) return;
   const fwd = new THREE.Vector3().subVectors(controls.target, camera.position).setY(0).normalize();
   const right = new THREE.Vector3().crossVectors(fwd, THREE.Object3D.DEFAULT_UP);
-  const speed = Math.max(20, camera.position.distanceTo(controls.target)) * (keys.has('ShiftLeft') ? 2.5 : 0.9);
+  const speed = Math.max(20, camera.position.distanceTo(controls.target)) * (keys.has('ShiftLeft') || keys.has('ShiftRight') ? 2.5 : 0.9);
   const move = fwd.multiplyScalar(f).addScaledVector(right, r).normalize().multiplyScalar(speed * dt);
   controls.target.add(move);
   camera.position.add(move);
