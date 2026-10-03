@@ -1,6 +1,6 @@
 // Procedural Tokyo client: streams the compiled city and renders it. Free camera for now; the car comes next.
 //
-// URL parameters: ?area=shibuya  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0
+// URL parameters: ?area=shibuya  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0  ?ortho=0
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -17,6 +17,7 @@ import { buildRailways } from './world/rails.js';
 import { buildFlyovers } from './world/flyovers.js';
 import { Traffic } from './world/traffic.js';
 import { buildStructures } from './world/structures.js';
+import { loadOrtho } from './world/ortho.js';
 import { Environment } from './world/environment.js';
 
 const params = new URLSearchParams(location.search);
@@ -66,6 +67,7 @@ const signs = new Signs();
 const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 3000 });
 const manifest = await streamer.init();
 const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
+if (params.get('ortho') !== '0') loadOrtho(`ortho/${AREA}`, proj, manifest.bounds, renderer); // fills in when the tiles arrive
 const railways = await buildRailways(`tiles/${AREA}/${manifest.rails}`, (x, z) => streamer.ground(x, z), streamer.cover);
 scene.add(railways);
 scene.add(await buildFlyovers(`tiles/${AREA}/${manifest.roads}`, (x, z) => streamer.ground(x, z)));

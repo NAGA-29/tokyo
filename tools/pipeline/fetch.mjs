@@ -2,10 +2,11 @@
 //   PLATEAU CityGML  buildings (bldg) and road surfaces (tran), per 3rd-level mesh
 //   OpenStreetMap    drivable road network and railways (Overpass API)
 //   GSI DEM          5 m terrain tiles (dem5a), 10 m tiles (dem10b) to fill gaps
+//   GSI aerial photo seamlessphoto tiles, into public/ortho/<area>/ (the client drapes them on the ground)
 // Usage: node tools/pipeline/fetch.mjs [--area=shibuya] [--force]
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveArea } from './config.mjs';
+import { resolveArea, ROOT } from './config.mjs';
 import { demTileRange, DEM_SOURCES } from './terrain.mjs';
 
 const area = resolveArea();
@@ -178,9 +179,23 @@ async function fetchDem() {
   }
 }
 
+// Aerial photo: zoom 17 is about 1 m per pixel here, 170 tiles for the area.
+async function fetchOrtho() {
+  const z = 17, dir = path.join(ROOT, 'public/ortho', area.id), { x0, x1, y0, y1 } = demTileRange(area.bbox, z);
+  const jobs = [];
+  for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++)
+    jobs.push({ url: `https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/${z}/${x}/${y}.jpg`, file: path.join(dir, `${z}_${x}_${y}.jpg`) });
+  const todo = jobs.filter((j) => !exists(j.file));
+  log(`aerial photo: ${jobs.length} tiles, ${todo.length} to download`);
+  await pool(todo, 4, async (j) => { try { await download(j.url, j.file); } catch (e) { log(`  ${e.message} (left as a gap)`); } });
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'index.json'), JSON.stringify({ z, x0, x1, y0, y1, attribution: 'Aerial photo: Geospatial Information Authority of Japan (GSI) seamlessphoto' }));
+}
+
 log(`area ${area.id}: meshes ${area.meshes.join(' ')}`);
 log(`bbox lat ${area.bbox.south.toFixed(5)}..${area.bbox.north.toFixed(5)} lon ${area.bbox.west.toFixed(5)}..${area.bbox.east.toFixed(5)}`);
 await fetchOsm();
 await fetchDem();
+await fetchOrtho();
 await fetchPlateau();
 log('done');

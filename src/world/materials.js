@@ -11,6 +11,8 @@ import * as THREE from 'three';
 export const shared = {
   uNight: { value: 0 }, // 0 day .. 1 night
   uTime: { value: 0 },  // seconds, for wind and signals
+  // aerial photo over the area: texture, and its rectangle in world x/z as (minX, minZ, sizeX, sizeZ)
+  uOrtho: { value: null }, uOrthoRect: { value: new THREE.Vector4(0, 0, 1, 1) }, uOrthoOn: { value: 0 },
 };
 
 
@@ -200,6 +202,9 @@ uniform sampler2DArray uGroundAlb;
 uniform sampler2DArray uGroundNor;
 uniform float uGroundScale[4];
 uniform float uFixedLayer;
+uniform sampler2D uOrtho;
+uniform vec4 uOrthoRect;
+uniform float uOrthoOn;
 varying float vLayer;
 varying vec3 vWPos;
 varying vec3 vWNrm;
@@ -226,6 +231,15 @@ const GROUND_MAIN = /* glsl */ `
   gNm = texture(uGroundNor, vec3(st / sc, layer)).xyz * 2.0 - 1.0;
   gNm = normalize(vec3(gNm.xy * 0.8, gNm.z));
   gRough = layer < 0.5 ? 0.86 - 0.12 * blotch : 0.93;
+  // the open ground (not roads, which have their own surface) shows the aerial photo: car parks, yards, gardens
+  if (uFixedLayer >= 0.0 && uOrthoOn > 0.5) {
+    vec2 ouv = (vWPos.xz - uOrthoRect.xy) / uOrthoRect.zw;
+    if (ouv.x > 0.0 && ouv.x < 1.0 && ouv.y > 0.0 && ouv.y < 1.0) {
+      vec3 photo = texture2D(uOrtho, vec2(ouv.x, 1.0 - ouv.y)).rgb;
+      diffuseColor.rgb = photo * (0.9 + 0.2 * (mix(a, b, 0.4).g - 0.5));
+      gNm = vec3(0.0, 0.0, 1.0);
+    }
+  }
   if (water) {
     diffuseColor.rgb = tint * (0.9 + 0.2 * blotch);
     gNm = normalize(vec3((vnoise(st * 0.9) - 0.5) * 0.08, (vnoise(st * 0.9 + 31.7) - 0.5) * 0.08, 1.0));
@@ -240,6 +254,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
     Object.assign(shader.uniforms, {
       uGroundAlb: { value: tex.ground.albedo }, uGroundNor: { value: tex.ground.normal },
       uGroundScale: { value: tex.ground.scales }, uFixedLayer: { value: fixedLayer },
+      uOrtho: shared.uOrtho, uOrthoRect: shared.uOrthoRect, uOrthoOn: shared.uOrthoOn,
     });
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\nattribute float aLayer;\nvarying float vLayer;\n${WORLD_VARYINGS_VERT}`)
@@ -250,7 +265,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = gRough;')
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + APPLY_NORMAL);
   };
-  m.customProgramCacheKey = () => 'ground-v1';
+  m.customProgramCacheKey = () => 'ground-v2';
   return m;
 }
 

@@ -7,3 +7,5 @@ data/preview/
 dist/
 # CC0 textures - re-create with `node tools/assets/fetch_textures.mjs`
 public/textures/
+# GSI aerial photo tiles - re-create with `npm run fetch`
+public/ortho/
