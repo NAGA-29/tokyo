@@ -18,6 +18,7 @@
     "earcut": "^3.2.4",
     "n8ao": "^2.0.1",
     "pngjs": "^7.0.0",
+    "polygon-clipping": "^0.15.7",
     "postprocessing": "^6.39.5",
     "three": "^0.186.1"
   },

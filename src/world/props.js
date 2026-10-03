@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Tree } from '@dgreenheck/ez-tree';
-import { PROP } from '../shared/tileformat.js';
+import { PROP, DECAL } from '../shared/tileformat.js';
 import { shared } from './materials.js';
 
 const TREE_LOD_DISTANCE = 190; // metres from the camera to a tile centre; beyond it trees are simple blobs
@@ -96,6 +96,58 @@ function glowTexture() {
   grad.addColorStop(0, 'rgba(255,255,255,1)'); grad.addColorStop(0.35, 'rgba(255,255,255,0.45)'); grad.addColorStop(1, 'rgba(255,255,255,0)');
   g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
   return new THREE.CanvasTexture(c);
+}
+
+// Road symbols: one atlas cell per DECAL variant; [width, length] on the road in metres.
+const DECAL_COLS = 4, DECAL_ROWS = 3, CELL_W = 256, CELL_H = 512;
+const DECAL_SIZE = (v) => (v <= DECAL.THROUGH_RIGHT ? [1.7, 5] : v === DECAL.STOP ? [1.6, 5.4] : [2.1, 4.6]);
+function decalTexture() {
+  const c = document.createElement('canvas');
+  c.width = DECAL_COLS * CELL_W; c.height = DECAL_ROWS * CELL_H;
+  const g = c.getContext('2d');
+  const cell = (v, draw) => {
+    g.save();
+    g.translate((v % DECAL_COLS) * CELL_W, Math.floor(v / DECAL_COLS) * CELL_H);
+    g.beginPath(); g.rect(0, 0, CELL_W, CELL_H); g.clip();
+    draw();
+    g.restore();
+  };
+  // Arrows are drawn in metres on a 1.7 x 5 m cell: the far end (direction of travel) is up.
+  const arrow = (through, turn) => () => {
+    g.scale(CELL_W / 1.7, CELL_H / 5);
+    g.fillStyle = g.strokeStyle = '#fff'; g.lineWidth = 0.17; g.lineCap = 'butt'; g.lineJoin = 'round';
+    const x = turn === 0 ? 0.85 : turn < 0 ? 1.15 : 0.55; // shaft position leaves room for the branch
+    const head = (tx, ty, dx, dy, len, wid) => { // triangle with its tip at (tx, ty) pointing along (dx, dy)
+      g.beginPath(); g.moveTo(tx, ty);
+      g.lineTo(tx - dx * len - dy * wid, ty - dy * len + dx * wid); g.lineTo(tx - dx * len + dy * wid, ty - dy * len - dx * wid);
+      g.closePath(); g.fill();
+    };
+    if (through) { g.beginPath(); g.moveTo(x, 4.9); g.lineTo(x, 1.7); g.stroke(); head(x, 0.1, 0, -1, 1.7, 0.33); }
+    if (turn) {
+      const y = through ? 2.9 : 1.9, ex = x + turn * 0.25;
+      g.beginPath(); g.moveTo(x, 4.9); g.lineTo(x, y + 0.5); g.quadraticCurveTo(x, y, ex, y - 0.25); g.stroke();
+      head(x + turn * 0.9, y - 0.95, turn * 0.68, -0.73, 1.05, 0.3);
+    }
+  };
+  cell(DECAL.THROUGH, arrow(true, 0)); cell(DECAL.LEFT, arrow(false, -1)); cell(DECAL.RIGHT, arrow(false, 1));
+  cell(DECAL.THROUGH_LEFT, arrow(true, -1)); cell(DECAL.THROUGH_RIGHT, arrow(true, 1));
+  // Text is stretched along the road, as painted, so it reads from a low viewpoint.
+  const font = (px) => `900 ${px}px "Yu Gothic", "Meiryo", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif`;
+  const fit = (text, x, y, w, h, color) => {
+    g.save();
+    g.font = font(200); g.textAlign = 'center'; g.textBaseline = 'alphabetic'; g.fillStyle = color;
+    const m = g.measureText(text), tw = m.width, th = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+    g.translate(x + w / 2, y + h); g.scale(w / tw, h / th);
+    g.fillText(text, 0, -m.actualBoundingBoxDescent);
+    g.restore();
+  };
+  cell(DECAL.STOP, () => [...'止まれ'].forEach((ch, i) => fit(ch, 14, 10 + i * 168, CELL_W - 28, 150, '#fff')));
+  for (const [v, text] of [[DECAL.SPEED_20, '20'], [DECAL.SPEED_30, '30'], [DECAL.SPEED_40, '40'], [DECAL.SPEED_50, '50'], [DECAL.SPEED_60, '60']])
+    cell(v, () => [...text].forEach((ch, i) => fit(ch, 10 + i * 124, 12, 112, CELL_H - 24, '#f2a31b')));
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 8;
+  return t;
 }
 
 // Lenses of the traffic signals: unlit discs that cycle green -> yellow -> red from uTime.
@@ -215,6 +267,10 @@ export class Props {
       }),
       lens: lensMaterial(),
       poolCool: null,
+      decal: new THREE.MeshStandardMaterial({
+        map: decalTexture(), transparent: true, depthWrite: false, roughness: 0.8,
+        polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -10,
+      }),
       wire: new THREE.LineBasicMaterial({ color: 0x14161a }),
     };
     this.mats.poolCool = this.mats.pool.clone();
@@ -280,6 +336,8 @@ export class Props {
         const body = instanced(rows, this.models.vending, this.mats.vending, { lift: 0.02 });
         rows.forEach((i, n) => body.setColorAt(n, new THREE.Color().setRGB(...VENDING_BODY[props[i + 1] % 4], THREE.SRGBColorSpace)));
         instanced(rows, this.models.quad, this.mats.panel, { lift: 0.02, shadow: false, local: [0, 0.97, 0.365], scale: () => [0.94, 1.66, 1] });
+      } else if (kind === PROP.DECAL) {
+        // built below as one mesh
       } else if (kind === PROP.SIGNAL) {
         instanced(rows, this.models.signal, this.mats.metal, { lift: 0.15 });
         // three lenses per head; crossing directions alternate phase
@@ -293,6 +351,34 @@ export class Props {
           mesh.geometry.setAttribute('aLens', new THREE.InstancedBufferAttribute(a, 2));
         }
       }
+    }
+
+    // road symbols: quads laid on the ground in four strips so they follow the slope
+    const decals = by.get(PROP.DECAL * 16);
+    if (decals) {
+      const STRIPS = 4, pos = [], uv = [], nor = [];
+      for (const i of decals) {
+        const variant = props[i + 1], [w, len] = DECAL_SIZE(variant), x = props[i + 3], z = props[i + 4];
+        const dx = Math.sin(props[i + 2]), dz = Math.cos(props[i + 2]), rx = -dz, rz = dx; // travel direction, its right
+        const u0 = (variant % DECAL_COLS) / DECAL_COLS, v1 = 1 - Math.floor(variant / DECAL_COLS) / DECAL_ROWS;
+        const corner = (s, t) => { // s: -1 left .. 1 right, t: 0 near .. 1 far
+          const px = x + rx * s * w / 2 + dx * (t - 0.5) * len, pz = z + rz * s * w / 2 + dz * (t - 0.5) * len;
+          pos.push(px, ground(px, pz) + 0.1, pz); nor.push(0, 1, 0);
+          uv.push(u0 + ((s + 1) / 2) / DECAL_COLS, v1 - (1 - t) / DECAL_ROWS);
+        };
+        for (let k = 0; k < STRIPS; k++) {
+          const a = k / STRIPS, b = (k + 1) / STRIPS;
+          corner(-1, a); corner(1, a); corner(1, b); corner(-1, a); corner(1, b); corner(-1, b);
+        }
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      const mesh = new THREE.Mesh(g, this.mats.decal);
+      mesh.receiveShadow = true;
+      mesh.renderOrder = 2;
+      group.add(mesh);
     }
 
     // wires: catenaries between pole tops

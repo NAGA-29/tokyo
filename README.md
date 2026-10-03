@@ -17,7 +17,8 @@ Streams the 256 m tiles around the camera; meshing runs in Web Workers (`src/wor
   siding); windows fitted per wall with frames, mullions and interior-mapped rooms that light up at night; parapets,
   rooftop equipment, balconies on apartment blocks, pitched roofs on houses, shop sign bands.
 - **Ground**: terrain, PLATEAU road surfaces with kerbs, parks, woods and water from OSM, lane lines, zebra crossings
-  and stop lines.
+  and stop lines, lane arrows, 止まれ at side streets and painted speed limits. Roads PLATEAU maps only as an
+  outline are split into carriageway and sidewalk from the OSM centrelines (`tools/pipeline/roadsplit.mjs`).
 - **Street objects** (`src/world/props.js`): trees (ez-tree up close, simple shapes far away), utility poles with
   wires, street lights with light pools at night, vending machines, traffic signals that cycle.
 - **Atmosphere** (`sky.js`, `environment.js`): procedural sky with clouds, image-based ambient light and reflections,

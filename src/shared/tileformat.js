@@ -22,7 +22,14 @@ export const BFLAG = { LOD2: 1, NO_SOLID: 2 };
 export const AREA = { ROAD: 0, CARRIAGEWAY: 1, SIDEWALK: 2, ISLAND: 3, OTHER: 4, PARK: 5, WOOD: 6, WATER: 7, PITCH: 8, MARK_WHITE: 9, MARK_YELLOW: 10 };
 
 // Point objects placed by the compiler; the client instances a model per kind.
-export const PROP = { TREE: 0, POLE: 1, LIGHT: 2, VENDING: 3, SIGNAL: 4 };
+export const PROP = { TREE: 0, POLE: 1, LIGHT: 2, VENDING: 3, SIGNAL: 4, DECAL: 5 };
+
+// Painted symbols on the road (PROP.DECAL variants). `rot` is the direction of travel that reads them.
+export const DECAL = {
+  THROUGH: 0, LEFT: 1, RIGHT: 2, THROUGH_LEFT: 3, THROUGH_RIGHT: 4,
+  STOP: 5,                                              // 止まれ
+  SPEED_20: 6, SPEED_30: 7, SPEED_40: 8, SPEED_50: 9, SPEED_60: 10,
+};
 
 class Writer {
   constructor(size = 1 << 16) { this.buf = new ArrayBuffer(size); this.dv = new DataView(this.buf); this.o = 0; }

@@ -16,6 +16,7 @@ import { readOsm, buildRoadGraph, buildRailways } from './osm.mjs';
 import { buildHeightGrid, sampleGrid } from './terrain.mjs';
 import { PolyIndex, readLand, clipRing, placeProps } from './landscape.mjs';
 import { buildMarkings } from './markings.mjs';
+import { splitOutlineRoads } from './roadsplit.mjs';
 
 const TERRAIN_STEP = 5; // metres, matches the GSI 5 m DEM
 
@@ -152,6 +153,7 @@ log(`  usage codes: ${Object.entries(bstats.usage).sort((a, b) => b[1] - a[1]).m
 
 const seenRoads = new Set();
 const rstats = { roads: 0, outlines: 0, areas: [0, 0, 0, 0, 0] };
+const outlineOnly = []; // roads without a carriageway / sidewalk split: polygons [outer, ...holes]
 for (const f of gmlFiles('tran')) {
   for (const r of readRoads(path.join(plateauDir, f))) {
     if (seenRoads.has(r.id)) continue;
@@ -165,8 +167,7 @@ for (const f of gmlFiles('tran')) {
       if (kind === AREA.ROAD) rstats.outlines++; else rstats.areas[kind]++;
       const index = kind === AREA.ROAD ? idx.road : kind === AREA.CARRIAGEWAY ? idx.carriageway : kind === AREA.SIDEWALK ? idx.sidewalk : null;
       if (index) for (const rings of polygons) index.add(rings);
-      // roads mapped only as an outline: treat the whole outline as carriageway
-      if (kind === AREA.ROAD && !r.areas.length) for (const rings of polygons) idx.carriageway.add(rings);
+      if (kind === AREA.ROAD && !r.areas.length) outlineOnly.push(...polygons);
     };
     push(AREA.ROAD, r.func ?? 0, r.outline);
     for (const a of r.areas) push(a.kind, a.code, a.polygons);
@@ -195,6 +196,19 @@ log(`  ${Object.entries(byClass).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${
 log(`  bridges ${roadsOut.edges.filter((e) => e.bridge).length}, tunnels ${roadsOut.edges.filter((e) => e.tunnel).length}, oneway ${roadsOut.edges.filter((e) => e.oneway).length}`);
 const rails = buildRailways(osm, proj.project, inBounds).map(({ pts, ...r }) => ({ ...r, pts: withY(pts) }));
 log(`railways (OSM): ${rails.length} lines (${rails.filter((r) => r.bridge).length} elevated sections)`);
+
+// Roads PLATEAU maps only as an outline get their carriageway from the OSM centrelines; the rest is sidewalk.
+const split = splitOutlineRoads({ outlines: outlineOnly, edges: graph.edges, pos: graph.pos, idxRoad: idx.road });
+for (const [kind, polys, index] of [[AREA.CARRIAGEWAY, split.carriageway, idx.carriageway], [AREA.SIDEWALK, split.sidewalk, idx.sidewalk]]) {
+  for (const rings of polys) {
+    const polygon = rings.map((r) => r.map(([x, z]) => [r2(x), r2(z)]));
+    index.add(polygon);
+    const [cx, cz] = centroidOf([polygon]);
+    tileFor(Math.min(Math.max(cx, minX), maxX - 0.01), Math.min(Math.max(cz, minZ), maxZ - 0.01)).areas.push({ kind, code: 0, polygons: [polygon] });
+  }
+}
+log(`outline-only roads: ${outlineOnly.length} polygons -> ${split.carriageway.length} carriageway, ${split.sidewalk.length} sidewalk pieces` +
+  ` (${split.untouched} without an OSM road, ${split.failed} failed to clip)`);
 
 // ---------------------------------------------------------------- land cover, paint, props
 const landRaw = readLand(path.join(area.rawDir, 'osm_land.json'));

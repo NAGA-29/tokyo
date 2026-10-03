@@ -39,7 +39,9 @@ function roadAttrs(t) {
   return {
     highway: t.highway, oneway, lanes,
     lanesForward: intTag(t['lanes:forward']), lanesBackward: intTag(t['lanes:backward']),
-    maxspeed: intTag(t.maxspeed) ?? DEFAULT_SPEED[hw] ?? 30,
+    maxspeed: intTag(t.maxspeed) ?? DEFAULT_SPEED[hw] ?? 30, maxspeedTagged: intTag(t.maxspeed) != null,
+    // lane arrows, left to right in the direction of travel ("left;through|through|right")
+    turnLanes: t['turn:lanes'] ?? null, turnLanesForward: t['turn:lanes:forward'] ?? null, turnLanesBackward: t['turn:lanes:backward'] ?? null,
     width: Number.parseFloat(t.width) || null,
     layer: intTag(t.layer) ?? 0,
     bridge: t.bridge && t.bridge !== 'no' ? 1 : 0,

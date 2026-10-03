@@ -1,15 +1,32 @@
 // Road paint and traffic signals. Lane lines are laid out from the *measured* carriageway: at each
 // sample the distance to the kerb on both sides (PLATEAU carriageway polygons) gives the true centre
 // and width, so paint does not inherit the offset of the OSM centreline.
-import { AREA, PROP } from '../../src/shared/tileformat.js';
+import { AREA, PROP, DECAL } from '../../src/shared/tileformat.js';
 import { hash, forEachAlong } from './landscape.mjs';
 
 const STEP = 2.5;          // sample spacing along a road (m); dashes are 2 samples on, 2 off (5 m / 5 m)
 const LINE = 0.15;         // paint width (m)
 const MAJOR = new Set(['trunk', 'primary', 'secondary', 'tertiary']);
 
+// OSM turn value -> arrow. Unknown values (merge lanes and the like) get no arrow.
+const TURN = {
+  '': DECAL.THROUGH, none: DECAL.THROUGH, through: DECAL.THROUGH, left: DECAL.LEFT, right: DECAL.RIGHT,
+  slight_left: DECAL.LEFT, slight_right: DECAL.RIGHT,
+  'left;through': DECAL.THROUGH_LEFT, 'through;left': DECAL.THROUGH_LEFT, through_left: DECAL.THROUGH_LEFT,
+  'through;right': DECAL.THROUGH_RIGHT, 'right;through': DECAL.THROUGH_RIGHT, through_right: DECAL.THROUGH_RIGHT,
+};
+// Untagged approaches, by lane count: the usual Japanese layout.
+const defaultTurns = (n) => (n === 2 ? [DECAL.THROUGH_LEFT, DECAL.THROUGH_RIGHT]
+  : [DECAL.THROUGH_LEFT, ...Array(n - 2).fill(DECAL.THROUGH), DECAL.RIGHT]);
+const SPEED = { 20: DECAL.SPEED_20, 30: DECAL.SPEED_30, 40: DECAL.SPEED_40, 50: DECAL.SPEED_50, 60: DECAL.SPEED_60 };
+
 export function buildMarkings({ edges, pos, idx, land, inBounds }) {
   const marks = [], props = [];
+  const signalled = new Set(land.signals);
+  // A symbol painted on the road at (x, z), read by traffic heading along (dx, dz).
+  const decal = (variant, x, z, dx, dz) => {
+    if (inBounds(x, z) && idx.carriageway.has(x, z)) props.push({ kind: PROP.DECAL, variant, rot: Math.atan2(dx, dz), x, z, scale: 1 });
+  };
   const quad = (kind, a, b, c, d) => marks.push({ kind, ring: [a, b, c, d] });
   const reach = (x, z, nx, nz, side, max = 18) => {
     for (let d = 0.5; d <= max; d += 0.25) if (!idx.carriageway.has(x + nx * d * side, z + nz * d * side)) return d;
@@ -30,6 +47,7 @@ export function buildMarkings({ edges, pos, idx, land, inBounds }) {
   };
 
   // ---- lane lines
+  const spoken = new Set(); // road + direction that already carries its speed number
   for (const e of edges) {
     const hw = e.highway.replace('_link', '');
     if (e.bridge || e.tunnel || hw === 'motorway' || e.highway.endsWith('_link')) continue;
@@ -72,6 +90,79 @@ export function buildMarkings({ edges, pos, idx, land, inBounds }) {
         if (l.dashed && Math.floor(a.n / 2) % 2) continue;
         const p = (s, o) => [s.x + s.nx * o, s.z + s.nz * o];
         quad(l.kind, p(a, l.o - LINE / 2), p(b, l.o - LINE / 2), p(b, l.o + LINE / 2), p(a, l.o + LINE / 2));
+      }
+    }
+
+    // Symbols in the lanes. Lanes of one direction fill the road from the left kerb (left-hand traffic);
+    // `fwd` is travel along the edge, otherwise against it.
+    const lanesDir = e.oneway ? lanes : Math.floor(lanes / 2);
+    for (const fwd of [true, false]) {
+      if (fwd ? e.oneway === -1 : e.oneway === 1) continue;
+      if (lanesDir < 1) continue;
+      const sign = fwd ? 1 : -1;
+      // lane j (0 = leftmost) centre, at sample i
+      const lane = (i, j) => {
+        const s = samples[i], o = -median / 2 + (j + 0.5) * lw;
+        return [s.x + s.nx * sign * o, s.z + s.nz * sign * o, s.nz * sign, -s.nx * sign]; // x, z, travel dx, dz
+      };
+      // arrows before a junction
+      const end = fwd ? e.ids.at(-1) : e.ids[0];
+      if (lanesDir >= 2 && (degree.get(end) ?? 0) >= 3) {
+        const tagged = (e.oneway ? e.turnLanes : fwd ? e.turnLanesForward : e.turnLanesBackward)?.split('|').map((t) => TURN[t.trim()]);
+        const turns = tagged?.length === lanesDir ? tagged : defaultTurns(lanesDir);
+        for (const back of [26, 56]) {
+          if (back > 30 && samples.length * STEP < 110) continue;
+          const i = fwd ? samples.length - 1 - Math.round(back / STEP) : Math.round(back / STEP);
+          if (i < 1 || i >= samples.length - 1 || !ok[i]) continue;
+          turns.forEach((turn, j) => { if (turn != null) decal(turn, ...lane(i, j)); });
+        }
+      }
+      // the speed limit, once per road and direction, in the left lane
+      const speed = e.maxspeedTagged && SPEED[e.maxspeed], key = e.way + (fwd ? 'f' : 'b');
+      if (speed != null && !spoken.has(key) && samples.length * STEP > 70) {
+        const i = samples.length >> 1;
+        if (ok[i]) { spoken.add(key); decal(speed, ...lane(i, 0)); }
+      }
+    }
+  }
+
+  // ---- 止まれ where a side street meets a main road without signals
+  const pointBack = (pts, fromEnd, dist) => { // point `dist` metres before one end of a polyline, with the travel direction
+    const p = fromEnd ? [...pts].reverse() : pts;
+    let left = dist;
+    for (let i = 1; i < p.length; i++) {
+      const len = Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]);
+      if (len >= left && len > 1e-6) {
+        const t = left / len;
+        return [p[i - 1][0] + (p[i][0] - p[i - 1][0]) * t, p[i - 1][1] + (p[i][1] - p[i - 1][1]) * t, (p[i - 1][0] - p[i][0]) / len, (p[i - 1][1] - p[i][1]) / len];
+      }
+      left -= len;
+    }
+    return null;
+  };
+  const SIDE = new Set(['residential', 'unclassified', 'living_street']);
+  for (const e of edges) {
+    if (!SIDE.has(e.highway) || e.bridge || e.tunnel) continue;
+    const pts = e.ids.map(pos);
+    for (const atEnd of [true, false]) {
+      if (atEnd ? e.oneway === -1 : e.oneway === 1) continue; // nobody arrives at this end
+      const id = atEnd ? e.ids.at(-1) : e.ids[0];
+      if ((degree.get(id) ?? 0) < 3 || signalled.has(id)) continue;
+      if (!(at.get(id) ?? []).some((o) => o.e !== e && MAJOR.has(o.e.highway.replace('_link', '')))) continue;
+      const text = pointBack(pts, atEnd, 11), line = pointBack(pts, atEnd, 6.5);
+      if (!text || !line) continue;
+      for (const [x, z, dx, dz, isLine] of [[...text, false], [...line, true]]) {
+        const nx = -dz, nz = dx; // right of travel
+        if (!idx.carriageway.has(x, z)) continue;
+        const R = reach(x, z, nx, nz, 1, 8), L = reach(x, z, nx, nz, -1, 8);
+        if (R == null || L == null) continue;
+        const w = R + L, cx = x + nx * (R - L) / 2, cz = z + nz * (R - L) / 2;
+        // narrow or one-way streets use the whole width, wider ones the left half
+        const whole = e.oneway || w < 5.4, off = whole ? 0 : -w / 4, half = (whole ? w / 2 : w / 4) - 0.25;
+        const px = cx + nx * off, pz = cz + nz * off;
+        if (isLine) quad(AREA.MARK_WHITE, [px - nx * half - dx * 0.2, pz - nz * half - dz * 0.2], [px + nx * half - dx * 0.2, pz + nz * half - dz * 0.2],
+          [px + nx * half + dx * 0.2, pz + nz * half + dz * 0.2], [px - nx * half + dx * 0.2, pz - nz * half + dz * 0.2]);
+        else if (half * 2 > 1.7) decal(DECAL.STOP, px, pz, dx, dz);
       }
     }
   }
