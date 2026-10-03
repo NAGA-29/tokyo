@@ -12,6 +12,7 @@ import { createMaterials } from './world/materials.js';
 import { loadTextures } from './world/textures.js';
 import { Streamer } from './world/streamer.js';
 import { Props } from './world/props.js';
+import { Signs } from './world/signs.js';
 import { buildRailways } from './world/rails.js';
 import { buildFlyovers } from './world/flyovers.js';
 import { Environment } from './world/environment.js';
@@ -59,7 +60,8 @@ composer.addPass(new OutputPass());
 
 const materials = createMaterials(await loadTextures(renderer));
 const props = new Props();
-const streamer = new Streamer(scene, materials, props, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 1500 });
+const signs = new Signs();
+const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 1500 });
 const manifest = await streamer.init();
 const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
 const railways = await buildRailways(`tiles/${AREA}/${manifest.rails}`, (x, z) => streamer.ground(x, z), streamer.cover);
@@ -133,6 +135,7 @@ function frame() {
 
   streamer.update(controls.target, camera.position);
   props.update(dt);
+  signs.update();
   railways.userData.trains.update(dt, env.night);
   env.update(dt);
   env.follow(controls.target, camera);

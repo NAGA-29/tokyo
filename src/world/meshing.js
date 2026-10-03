@@ -422,5 +422,6 @@ export function buildTile(tile, grid, tileSize, surface = (x, z) => sampleGrid(g
     info: tile.buildings.map((b) => [b.usage, b.storeys, b.height, b.base]),
     props: Float32Array.from(tile.props.flatMap((p) => [p.kind, p.variant, p.rot, p.x, p.z, p.scale])),
     wires: tile.wires,
+    signs: tile.signs, // plain objects; the text is drawn on the main thread
   };
 }

@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { tileKey } from '../shared/geo.js';
 import { sampleGrid } from '../shared/terrain.js';
 import { makeSurface, makeCover } from '../shared/decks.js';
+import { SIGN_LOD_DISTANCE } from './signs.js';
 
 const WORKERS = Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) >> 1));
 const MAX_IN_FLIGHT = WORKERS * 2;
@@ -18,10 +19,11 @@ function geometry(arrays, attrs) {
 }
 
 export class Streamer {
-  constructor(scene, materials, props, { base, radius = 1100, hysteresis = 250 } = {}) {
+  constructor(scene, materials, props, signs, { base, radius = 1100, hysteresis = 250 } = {}) {
     this.scene = scene;
     this.materials = materials;
     this.props = props;
+    this.signs = signs;
     this.base = base;
     this.radius = radius;
     this.hysteresis = hysteresis;
@@ -56,16 +58,24 @@ export class Streamer {
   update(focus, eye = focus) {
     const size = this.manifest.tileSize;
     for (const [key, t] of this.tiles) {
-      if (t.state !== 'ready' || !t.trees) continue;
-      // Distance from the eye to the nearest point of the tile, so trees next to the camera are never the
-      // simple ones; a margin on the way out stops a tile flickering at the threshold.
+      if (t.state !== 'ready' || (!t.trees && !t.signs)) continue;
+      // Distance from the eye to the nearest point of the tile, so things next to the camera are never the
+      // simple versions; a margin on the way out stops a tile flickering at the threshold.
       const tl = this.available.get(key), x0 = tl.x * size, z0 = tl.z * size;
       const dx = Math.max(x0 - eye.x, 0, eye.x - (x0 + size)), dz = Math.max(z0 - eye.z, 0, eye.z - (z0 + size));
       const dy = Math.max(0, eye.y - this.ground(x0 + size / 2, z0 + size / 2) - 25);
-      // a tile full of trees (a wood) keeps its detailed ones closer: thousands of them are too much to draw
-      const d = Math.hypot(dx, dy, dz), limit = this.props.constructor.lodDistance * (t.trees.count > 120 ? 0.5 : 1);
-      const near = t.trees.near.visible ? d < limit * 1.25 : d < limit;
-      t.trees.near.visible = near; t.trees.far.visible = !near;
+      const d = Math.hypot(dx, dy, dz);
+      if (t.trees) {
+        // a tile full of trees (a wood) keeps its detailed ones closer: thousands of them are too much to draw
+        const limit = this.props.constructor.lodDistance * (t.trees.count > 120 ? 0.5 : 1);
+        const near = t.trees.near.visible ? d < limit * 1.25 : d < limit;
+        t.trees.near.visible = near; t.trees.far.visible = !near;
+      }
+      if (t.signs) {
+        // sign text is drawn into a texture when the tile comes near, and freed when it is far again
+        const near = t.signNear ? d < SIGN_LOD_DISTANCE * 1.3 : d < SIGN_LOD_DISTANCE;
+        if (near !== t.signNear) { t.signNear = near; t.signs.setNear(near); }
+      }
     }
     const dist = (tl) => Math.hypot((tl.x + 0.5) * size - focus.x, (tl.z + 0.5) * size - focus.z);
     // unload
@@ -95,7 +105,7 @@ export class Streamer {
     const t = this.tiles.get(msg.key);
     if (msg.type === 'error') { console.warn(`tile ${msg.key}: ${msg.message}`); this.tiles.delete(msg.key); return; }
     if (!t) return; // unloaded while in flight
-    const { terrain, roads, paint, buildings, info, props, wires } = msg.mesh;
+    const { terrain, roads, paint, buildings, info, props, wires, signs: signList } = msg.mesh;
     const group = new THREE.Group();
     group.name = `tile ${msg.key}`;
 
@@ -119,6 +129,11 @@ export class Streamer {
       trees.near.visible = false; // update() picks the level of detail on the next frame
       group.add(trees.group);
     }
+    let signs = null;
+    if (signList.length) {
+      signs = this.signs.build(signList);
+      group.add(signs.group);
+    }
     if (buildings.position.length) {
       const m = new THREE.Mesh(
         geometry(buildings, [['position', 3], ['normal', 3], ['color', 3], ['aFacade', 4], ['aBldg', 4]]),
@@ -130,7 +145,7 @@ export class Streamer {
       group.add(m);
     }
     const tris = terrain.index.length / 3 + roads.position.length / 9 + buildings.triangles;
-    Object.assign(t, { state: 'ready', group, trees, buildings: info.length, tris });
+    Object.assign(t, { state: 'ready', group, trees, signs, signNear: false, buildings: info.length, tris });
     this.scene.add(group);
     this.stats.loaded++; this.stats.buildings += info.length; this.stats.triangles += tris;
   }
@@ -138,6 +153,7 @@ export class Streamer {
   unload(key) {
     const t = this.tiles.get(key);
     this.scene.remove(t.group);
+    t.signs?.dispose();
     // prop models are shared between tiles; only per-tile geometry is freed
     t.group.traverse((o) => { if (o.isInstancedMesh) o.dispose(); else if (!o.isGroup) o.geometry?.dispose(); });
     this.tiles.delete(key);
