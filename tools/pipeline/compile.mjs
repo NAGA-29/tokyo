@@ -140,7 +140,6 @@ for (const f of gmlFiles('bldg')) {
     if (b.lod2) bstats.lod2++;
     bstats.heights.push(height);
     bstats.usage[b.usage ?? 0] = (bstats.usage[b.usage ?? 0] ?? 0) + 1;
-    for (const rings of polys) idx.building.add(rings);
     tileFor(cx, cz).buildings.push({ usage: b.usage, storeys: b.storeys, flags, base: r2(base), height: r2(height), measuredHeight: b.measuredHeight, polygons: polys });
   }
   log(`  ${f}: ${list.length} buildings`);
@@ -178,6 +177,25 @@ for (const f of gmlFiles('tran')) {
 }
 log(`roads (PLATEAU): ${rstats.roads} roads, ${rstats.outlines} outlines; detailed areas: carriageway ${rstats.areas[AREA.CARRIAGEWAY]}, ` +
   `sidewalk ${rstats.areas[AREA.SIDEWALK]}, island ${rstats.areas[AREA.ISLAND]}, other ${rstats.areas[AREA.OTHER]}`);
+
+// PLATEAU's LOD1 "buildings" include structures that are not buildings: expressway and railway decks,
+// footbridges, ventilation shafts. Extruded from the ground they become blocks standing in the road.
+// They carry no use and no storey count; drop those that lie in a road outline (flyovers and viaducts
+// are built from the road and rail data instead).
+let structures = 0;
+for (const t of tiles.values()) {
+  t.buildings = t.buildings.filter((b) => {
+    const anonymous = (b.usage === 454 || b.usage === 461 || !b.usage) && !(b.storeys > 0 && b.storeys < 255);
+    if (anonymous) {
+      const ring = b.polygons[0][0], [cx, cz] = centroidOf(b.polygons);
+      const inRoad = ring.filter(([x, z]) => idx.road.has(x, z)).length / ring.length;
+      if (idx.road.has(cx, cz) && inRoad > 0.7) { structures++; return false; }
+    }
+    for (const rings of b.polygons) idx.building.add(rings);
+    return true;
+  });
+}
+log(`buildings: dropped ${structures} unnamed structures standing in a road`);
 
 // ---------------------------------------------------------------- OSM
 const osm = readOsm(path.join(area.rawDir, 'osm.json'));
