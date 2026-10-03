@@ -1,0 +1,318 @@
+// Street furniture and vegetation: the models (built procedurally once) and the per-tile instancing.
+// Local frame of every model: +y up, origin on the ground; `rot` from the tile turns local +z to the
+// direction given by the compiler (see tools/pipeline/landscape.mjs and markings.mjs).
+import * as THREE from 'three';
+import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
+import { Tree } from '@dgreenheck/ez-tree';
+import { PROP } from '../shared/tileformat.js';
+import { shared } from './materials.js';
+
+const TREE_LOD_DISTANCE = 190; // metres from the camera to a tile centre; beyond it trees are simple blobs
+
+// ---------------------------------------------------------------- geometry helpers
+function colored(geo, rgb) {
+  const g = geo.index ? geo.toNonIndexed() : geo, n = g.attributes.position.count, c = new Float32Array(n * 3);
+  const col = new THREE.Color().setRGB(...rgb, THREE.SRGBColorSpace);
+  for (let i = 0; i < n; i++) { c[i * 3] = col.r; c[i * 3 + 1] = col.g; c[i * 3 + 2] = col.b; }
+  g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  g.deleteAttribute('uv');
+  return g;
+}
+const box = (w, h, d, x, y, z, rgb) => colored(new THREE.BoxGeometry(w, h, d).translate(x, y, z), rgb);
+const tube = (r0, r1, h, x, y, z, rgb, seg = 8) => colored(new THREE.CylinderGeometry(r1, r0, h, seg).translate(x, y + h / 2, z), rgb);
+
+const CONCRETE = [0.6, 0.6, 0.58], STEEL = [0.36, 0.38, 0.4], DARK = [0.16, 0.17, 0.18];
+
+// Japanese utility pole: concrete mast, two crossarms, a street lamp on a short arm (local +x),
+// optionally a pole-top transformer.
+const POLE_LAMP = { x: 1.0, y: 5.6 };
+function poleGeometry(transformer) {
+  const parts = [
+    colored(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 5).rotateZ(Math.PI / 2).translate(0.5, POLE_LAMP.y + 0.08, 0), STEEL),
+    box(0.5, 0.09, 0.2, POLE_LAMP.x, POLE_LAMP.y + 0.04, 0, [0.7, 0.71, 0.72]),
+    tube(0.17, 0.12, 10.2, 0, 0, 0, CONCRETE),
+    box(1.9, 0.09, 0.09, 0, 9.6, 0, STEEL), box(1.5, 0.09, 0.09, 0, 8.9, 0, STEEL),
+    box(0.5, 0.07, 0.07, 0.25, 7.1, 0, STEEL),
+  ];
+  for (const x of [-0.85, 0, 0.85]) parts.push(tube(0.04, 0.03, 0.16, x, 9.64, 0, [0.85, 0.85, 0.82], 6));
+  if (transformer) parts.push(tube(0.3, 0.3, 0.85, 0.42, 7.7, 0, [0.5, 0.52, 0.53], 10), box(0.5, 0.06, 0.4, 0.3, 7.66, 0, STEEL));
+  return mergeGeometries(parts);
+}
+export const WIRE_HEIGHTS = [[-0.85, 9.8], [0, 9.8], [0.85, 9.8], [-0.65, 9.05], [0.65, 9.05], [0.45, 7.15]]; // [lateral offset, height]
+
+// Street light: tapered mast with an arm towards the road (+z) and a flat LED head.
+function lightGeometry() {
+  return mergeGeometries([
+    tube(0.11, 0.07, 8.6, 0, 0, 0, STEEL),
+    colored(new THREE.CylinderGeometry(0.045, 0.045, 2.1, 6).rotateX(Math.PI / 2).translate(0, 8.6, 1.0), STEEL),
+    box(0.3, 0.1, 0.75, 0, 8.58, 2.25, [0.7, 0.71, 0.72]),
+  ]);
+}
+const LAMP = { y: 8.5, z: 2.25 };
+
+// Signal mast: pole at the kerb, arm over the road (local -x), horizontal three-lens head facing +z.
+const SIGNAL = { arm: 3.4, y: 5.6 };
+function signalGeometry() {
+  const { arm, y } = SIGNAL;
+  return mergeGeometries([
+    tube(0.12, 0.09, 6.3, 0, 0, 0, STEEL),
+    colored(new THREE.CylinderGeometry(0.05, 0.05, arm, 6).rotateZ(Math.PI / 2).translate(-arm / 2, y + 0.45, 0), STEEL),
+    box(1.3, 0.46, 0.22, -arm + 0.35, y, 0, [0.72, 0.73, 0.72]),
+    box(1.34, 0.05, 0.3, -arm + 0.35, y + 0.25, 0.13, DARK), // visor
+  ]);
+}
+
+function vendingGeometry() {
+  return mergeGeometries([box(1.02, 1.83, 0.72, 0, 0.915, 0, [1, 1, 1]), box(1.06, 0.1, 0.76, 0, 0.05, 0, DARK)]);
+}
+
+// Front panel of a vending machine: rows of drinks behind glass, price strips, the delivery flap.
+function vendingTexture() {
+  const c = document.createElement('canvas');
+  c.width = 128; c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#f4f4f0'; g.fillRect(0, 0, 128, 256);
+  g.fillStyle = '#dfe6ea'; g.fillRect(8, 10, 112, 150);
+  const drinks = ['#c8102e', '#f2a900', '#1d6fb8', '#2e8b57', '#111', '#e85d04', '#fff', '#7b2d8b', '#6b3e26'];
+  for (let row = 0; row < 3; row++)
+    for (let i = 0; i < 9; i++) {
+      g.fillStyle = drinks[(i * 7 + row * 4) % drinks.length];
+      g.fillRect(12 + i * 12, 16 + row * 50, 8, 30);
+      g.fillStyle = '#333'; g.fillRect(12 + i * 12, 48 + row * 50, 8, 4);
+      g.fillStyle = i % 3 ? '#2a6cff' : '#e03131'; g.fillRect(13 + i * 12, 53 + row * 50, 6, 3);
+    }
+  g.fillStyle = '#c9c9c4'; g.fillRect(8, 168, 112, 30);
+  g.fillStyle = '#222'; g.fillRect(84, 174, 28, 18); g.fillRect(20, 212, 88, 26);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const VENDING_BODY = [[0.92, 0.92, 0.9], [0.75, 0.1, 0.12], [0.12, 0.3, 0.62], [0.9, 0.86, 0.72]];
+
+function glowTexture() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d'), grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grad.addColorStop(0, 'rgba(255,255,255,1)'); grad.addColorStop(0.35, 'rgba(255,255,255,0.45)'); grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
+  return new THREE.CanvasTexture(c);
+}
+
+// Lenses of the traffic signals: unlit discs that cycle green -> yellow -> red from uTime.
+function lensMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0 } },
+    vertexShader: /* glsl */ `
+      attribute vec2 aLens; // x: 0 green, 1 yellow, 2 red; y: phase 0 or 1 (crossing directions alternate)
+      varying vec2 vLens; varying vec2 vUv;
+      void main() { vLens = aLens; vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0); }`,
+    fragmentShader: /* glsl */ `
+      uniform float uTime; varying vec2 vLens; varying vec2 vUv;
+      void main() {
+        float t = mod(uTime + vLens.y * 32.0, 64.0);            // 0-27 green, 27-30 yellow, 30-64 red
+        float state = t < 27.0 ? 0.0 : t < 30.0 ? 1.0 : 2.0;
+        float on = 1.0 - step(0.5, abs(state - vLens.x));
+        vec3 c = vLens.x < 0.5 ? vec3(0.0, 1.0, 0.62) : vLens.x < 1.5 ? vec3(1.0, 0.7, 0.0) : vec3(1.0, 0.08, 0.05);
+        float d = length(vUv - 0.5) * 2.0;
+        if (d > 1.0) discard;
+        gl_FragColor = vec4(c * mix(0.06, 2.6, on) * (1.0 - 0.35 * d), 1.0);
+      }`,
+  });
+}
+
+// ---------------------------------------------------------------- trees
+// Variants 0-1 are street trees, 2-3 park trees. `height` is the model height in metres at scale 1.
+const TREES = [
+  { preset: 'Ash Medium', seed: 11, height: 9, tint: 0xb5c890 },
+  { preset: 'Oak Small', seed: 23, height: 8, tint: 0xc0d09a },
+  { preset: 'Oak Medium', seed: 5, height: 13, tint: 0x9fb87f },
+  { preset: 'Oak Large', seed: 42, height: 17, tint: 0x8fae78 },
+];
+
+// Leaves: ez-tree's own leaf material moves vertices without the instance matrix, so it cannot be
+// instanced. This one keeps its texture and adds a sway that works per instance.
+function leafMaterial(map, tint) {
+  const m = new THREE.MeshStandardMaterial({ map, color: tint, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.85 });
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = shared.uTime;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vec3 swayAt = (instanceMatrix * vec4(transformed, 1.0)).xyz;
+        #else
+          vec3 swayAt = transformed;
+        #endif
+        float sway = 0.6 * sin(uTime * 1.3 + swayAt.x * 0.35 + swayAt.z * 0.27) + 0.3 * sin(uTime * 2.9 + swayAt.x * 1.1 + swayAt.y);
+        transformed.xz += uv.y * sway * 0.07;`);
+  };
+  m.customProgramCacheKey = () => 'leaves-v1';
+  return m;
+}
+
+function buildTree(def) {
+  const tree = new Tree();
+  tree.loadPreset(def.preset);
+  const o = tree.options;
+  o.seed = def.seed;
+  // fewer, larger leaf cards: thousands of trees are drawn, not one hero tree
+  o.leaves.count = Math.max(3, Math.round(o.leaves.count * 0.3));
+  o.leaves.size *= 1.7;
+  o.leaves.billboard = 'single';
+  // thinner meshes: the presets are tuned for a single hero tree, we draw thousands
+  for (const k of Object.keys(o.branch.sections)) o.branch.sections[k] = Math.max(3, Math.round(o.branch.sections[k] * 0.5));
+  for (const k of Object.keys(o.branch.segments)) o.branch.segments[k] = Math.max(3, Math.round(o.branch.segments[k] * 0.6));
+  tree.generate();
+  const size = new THREE.Box3().setFromObject(tree).getSize(new THREE.Vector3());
+  const s = def.height / size.y;
+  const prep = (mesh) => { const g = mesh.geometry.clone(); g.scale(s, s, s); g.computeBoundingSphere(); return g; };
+  return {
+    radius: (Math.max(size.x, size.z) * s) / 2, height: def.height,
+    branches: prep(tree.branchesMesh), leaves: prep(tree.leavesMesh),
+    branchMat: new THREE.MeshStandardMaterial({ map: tree.branchesMesh.material.map, roughness: 0.95 }),
+    leafMat: leafMaterial(tree.leavesMesh.material.map, def.tint),
+  };
+}
+
+// Far trees: a smooth lumpy crown on a stick (unit height, unit width), coloured per vertex.
+function blobTreeGeometry() {
+  const crown = mergeVertices(new THREE.IcosahedronGeometry(0.5, 2).deleteAttribute('uv').deleteAttribute('normal'));
+  const p = crown.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const k = 0.8 + 0.2 * Math.sin(x * 9.1 + z * 5.3) * Math.sin(y * 7.7 + x * 3.1) + 0.12 * Math.sin(z * 15.0 + y * 11.0);
+    p.setXYZ(i, x * k, y * k * 0.8 + 0.62, z * k);
+  }
+  crown.computeVertexNormals();
+  const g = crown.toNonIndexed(), n = g.attributes.position.count, c = new Float32Array(n * 3);
+  // darker underneath, lighter on top, like a lit canopy
+  for (let i = 0; i < n; i++) {
+    const t = THREE.MathUtils.clamp((g.attributes.position.getY(i) - 0.25) / 0.75, 0, 1);
+    c[i * 3] = 0.012 + 0.03 * t; c[i * 3 + 1] = 0.032 + 0.07 * t; c[i * 3 + 2] = 0.008 + 0.014 * t;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(c, 3));
+  return mergeGeometries([g, tube(0.035, 0.03, 0.35, 0, 0, 0, [0.25, 0.2, 0.16], 5)]);
+}
+
+// ---------------------------------------------------------------- per-tile instancing
+export class Props {
+  constructor() {
+    const std = (extra) => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.1, ...extra });
+    this.trees = TREES.map(buildTree);
+    this.models = {
+      pole: [poleGeometry(false), poleGeometry(true)], light: lightGeometry(), signal: signalGeometry(), vending: vendingGeometry(),
+      blob: blobTreeGeometry(), lamp: new THREE.BoxGeometry(0.24, 0.03, 0.6), quad: new THREE.PlaneGeometry(1, 1),
+      pool: new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), lens: new THREE.CircleGeometry(0.15, 16),
+    };
+    this.mats = {
+      metal: std(), blob: std({ roughness: 0.95, metalness: 0 }),
+      vending: new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.2 }),
+      panel: new THREE.MeshBasicMaterial({ map: vendingTexture() }),
+      lamp: new THREE.MeshBasicMaterial({ color: 0xfff2d8 }),
+      pool: new THREE.MeshBasicMaterial({
+        map: glowTexture(), color: 0xffd9a0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+        depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8, fog: false,
+      }),
+      lens: lensMaterial(),
+      poolCool: null,
+      wire: new THREE.LineBasicMaterial({ color: 0x14161a }),
+    };
+    this.mats.poolCool = this.mats.pool.clone();
+    this.mats.poolCool.color.set(0xdfe8ff); // white LED lamps on the back streets
+    this.time = 0;
+  }
+
+  update(dt) {
+    this.time += dt;
+    const night = shared.uNight.value;
+    shared.uTime.value = this.time;
+    this.mats.lens.uniforms.uTime.value = this.time;
+    for (const m of [this.mats.pool, this.mats.poolCool]) { m.opacity = night * 0.5; m.visible = night > 0.02; }
+    this.mats.lamp.color.setRGB(0.35 + 2.4 * night, 0.34 + 2.2 * night, 0.32 + 1.8 * night);
+    this.mats.panel.color.setScalar(0.85 + 1.1 * night);
+  }
+
+  // props: Float32Array of [kind, variant, rot, x, z, scale] rows; wires: Float32Array of [x1, z1, x2, z2] rows.
+  // Returns { group, near, far } — `near` holds the full trees, `far` the blobs.
+  build(props, wires, ground) {
+    const group = new THREE.Group(), near = new THREE.Group(), far = new THREE.Group();
+    group.add(near, far);
+    const by = new Map();
+    for (let i = 0; i < props.length; i += 6) {
+      const key = props[i] * 16 + (props[i] === PROP.TREE || props[i] === PROP.POLE ? props[i + 1] : 0);
+      if (!by.has(key)) by.set(key, []);
+      by.get(key).push(i);
+    }
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), v = new THREE.Vector3(), s = new THREE.Vector3();
+    // An InstancedMesh with one matrix per prop: `local` offsets the part within the prop's frame.
+    const instanced = (rows, geo, mat, { parent = group, shadow = true, lift = 0, local = null, scale = null } = {}) => {
+      const mesh = new THREE.InstancedMesh(geo, mat, rows.length);
+      rows.forEach((i, n) => {
+        const x = props[i + 3], z = props[i + 4], k = scale ? scale(i) : props[i + 5];
+        q.setFromAxisAngle(up, props[i + 2]);
+        v.set(x, ground(x, z) + lift, z);
+        if (local) v.add(new THREE.Vector3(...local).applyQuaternion(q));
+        if (Array.isArray(k)) s.set(...k); else s.setScalar(k);
+        mesh.setMatrixAt(n, m.compose(v, q, s));
+      });
+      mesh.castShadow = shadow; mesh.receiveShadow = shadow;
+      mesh.computeBoundingSphere();
+      parent.add(mesh);
+      return mesh;
+    };
+
+    for (const [key, rows] of by) {
+      const kind = key >> 4, variant = key & 15;
+      if (kind === PROP.TREE) {
+        const t = this.trees[variant % this.trees.length];
+        instanced(rows, t.branches, t.branchMat, { parent: near });
+        instanced(rows, t.leaves, t.leafMat, { parent: near });
+        instanced(rows, this.models.blob, this.mats.blob, { parent: far, shadow: false, scale: (i) => [t.radius * 1.75 * props[i + 5], t.height * props[i + 5], t.radius * 1.75 * props[i + 5]] });
+      } else if (kind === PROP.POLE) {
+        instanced(rows, this.models.pole[variant % 2], this.mats.metal);
+        instanced(rows, this.models.lamp, this.mats.lamp, { shadow: false, local: [POLE_LAMP.x, POLE_LAMP.y - 0.02, 0], scale: () => [1.6, 1, 0.3] });
+        instanced(rows, this.models.pool, this.mats.poolCool, { lift: 0.2, shadow: false, local: [POLE_LAMP.x + 0.6, 0, 0], scale: () => 13 });
+      } else if (kind === PROP.LIGHT) {
+        instanced(rows, this.models.light, this.mats.metal, { lift: 0.15 });
+        instanced(rows, this.models.lamp, this.mats.lamp, { lift: 0.15, shadow: false, local: [0, LAMP.y, LAMP.z] });
+        instanced(rows, this.models.pool, this.mats.pool, { lift: 0.34, shadow: false, local: [0, 0, LAMP.z + 1], scale: () => 17 });
+      } else if (kind === PROP.VENDING) {
+        const body = instanced(rows, this.models.vending, this.mats.vending, { lift: 0.02 });
+        rows.forEach((i, n) => body.setColorAt(n, new THREE.Color().setRGB(...VENDING_BODY[props[i + 1] % 4], THREE.SRGBColorSpace)));
+        instanced(rows, this.models.quad, this.mats.panel, { lift: 0.02, shadow: false, local: [0, 0.97, 0.365], scale: () => [0.94, 1.66, 1] });
+      } else if (kind === PROP.SIGNAL) {
+        instanced(rows, this.models.signal, this.mats.metal, { lift: 0.15 });
+        // three lenses per head; crossing directions alternate phase
+        for (let lens = 0; lens < 3; lens++) {
+          const mesh = instanced(rows, this.models.lens, this.mats.lens, {
+            lift: 0.15, shadow: false, local: [-SIGNAL.arm + 0.35 + (lens - 1) * -0.4, SIGNAL.y, 0.115], scale: () => 1,
+          });
+          const a = new Float32Array(rows.length * 2);
+          rows.forEach((i, n) => { a[n * 2] = lens; a[n * 2 + 1] = Math.round(props[i + 2] / (Math.PI / 2)) % 2; });
+          mesh.geometry = mesh.geometry.clone();
+          mesh.geometry.setAttribute('aLens', new THREE.InstancedBufferAttribute(a, 2));
+        }
+      }
+    }
+
+    // wires: catenaries between pole tops
+    if (wires.length) {
+      const SEG = 6, pts = [];
+      for (let i = 0; i < wires.length; i += 4) {
+        const x1 = wires[i], z1 = wires[i + 1], x2 = wires[i + 2], z2 = wires[i + 3];
+        const len = Math.hypot(x2 - x1, z2 - z1) || 1, nx = -(z2 - z1) / len, nz = (x2 - x1) / len;
+        const y1 = ground(x1, z1), y2 = ground(x2, z2), sag = len * 0.022;
+        for (const [off, h] of WIRE_HEIGHTS)
+          for (let k = 0; k < SEG; k++)
+            for (const t of [k / SEG, (k + 1) / SEG])
+              pts.push(x1 + (x2 - x1) * t + nx * off, y1 + (y2 - y1) * t + h - sag * 4 * t * (1 - t), z1 + (z2 - z1) * t + nz * off);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+      near.add(new THREE.LineSegments(g, this.mats.wire)); // hair-thin: only worth drawing close up
+    }
+    return { group, near, far };
+  }
+
+  static lodDistance = TREE_LOD_DISTANCE;
+}

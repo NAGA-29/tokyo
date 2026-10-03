@@ -1,0 +1,9 @@
+node_modules/
+# raw downloads (PLATEAU CityGML, OSM, GSI DEM) — re-create with `npm run fetch`
+data/raw/
+# compiled city — re-create with `npm run compile`
+public/tiles/
+data/preview/
+dist/
+# CC0 textures - re-create with `node tools/assets/fetch_textures.mjs`
+public/textures/

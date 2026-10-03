@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Procedural Tokyo</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0c1220; }
+      canvas { display: block; }
+      #hud {
+        position: fixed; top: 12px; left: 12px; padding: 10px 12px; max-width: 340px;
+        font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; color: #e8ecf2;
+        background: rgba(10, 14, 22, 0.66); border-radius: 6px; pointer-events: none; white-space: pre;
+      }
+      #credits {
+        position: fixed; right: 8px; bottom: 6px; font: 11px system-ui, sans-serif; color: rgba(255, 255, 255, 0.75);
+        text-shadow: 0 1px 2px #000;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="hud">loading…</div>
+    <div id="credits"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

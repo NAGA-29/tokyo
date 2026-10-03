@@ -1,0 +1,27 @@
+{
+  "name": "procedural-tokyo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A driving game in a Tokyo compiled from public data (PLATEAU, OpenStreetMap, GSI) with procedural detail",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "fetch": "node tools/pipeline/fetch.mjs",
+    "compile": "node --max-old-space-size=4096 tools/pipeline/compile.mjs",
+    "preview": "node tools/pipeline/preview.mjs",
+    "test": "node tools/tests/tileformat.test.mjs"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@dgreenheck/ez-tree": "^1.1.0",
+    "earcut": "^3.2.4",
+    "n8ao": "^2.0.1",
+    "pngjs": "^7.0.0",
+    "postprocessing": "^6.39.5",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.2"
+  }
+}
