@@ -133,8 +133,12 @@ export function buildExtras({ ways, points }, { idx, ground, inBounds, rails, ro
     } else if (t.building === 'roof' && w.closed && !hidden(t)) {
       const ring = openRing(w.pts), cx = ring.reduce((s, p) => s + p[0], 0) / ring.length, cz = ring.reduce((s, p) => s + p[1], 0) / ring.length;
       if (!inBounds(cx, cz)) continue;
+      // A roof far above the ground is part of a larger structure (the platforms in the legs of Tokyo Tower),
+      // not a canopy standing on posts.
+      const height = num(t.height) ?? 4.4;
+      if (height > 12) continue;
       const base = Math.max(...ring.map(([x, z]) => ground(x, z)));
-      out.structures.canopies.push({ ring: ring.map(([x, z]) => [r2(x), r2(z)]), y: r2(base + (num(t.height) ?? 4.4)) });
+      out.structures.canopies.push({ ring: ring.map(([x, z]) => [r2(x), r2(z)]), y: r2(base + height) });
       tally('canopy');
     }
   }
