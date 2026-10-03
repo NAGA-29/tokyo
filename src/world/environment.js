@@ -1,13 +1,13 @@
-// Sky, sun, image-based ambient light, fog and the day/night blend.
+// Sky, sun, image-based ambient light and the day/night blend. (No fog: the whole area is loaded and seen clearly.)
 import * as THREE from 'three';
 import { createSky, SKY } from './sky.js';
 import { shared } from './materials.js';
 
 const SHADOW_SIZE = 4096;
 
-const DAY = { fog: SKY.horizon, hemi: 0.55, sun: 3.4, sunColor: new THREE.Color(0xfff0dc), env: 1.0, exposure: 0.82, bloom: 0.12 };
+const DAY = { hemi: 0.55, sun: 3.4, sunColor: new THREE.Color(0xfff0dc), env: 1.0, exposure: 0.82, bloom: 0.12 };
 const NIGHT = {
-  fog: new THREE.Color().setRGB(0.02, 0.02, 0.028), hemi: 0.42, sun: 0.32, sunColor: new THREE.Color(0x9fb4e0),
+  hemi: 0.42, sun: 0.32, sunColor: new THREE.Color(0x9fb4e0),
   env: 1.0, exposure: 1.15, bloom: 0.45,
 };
 
@@ -45,7 +45,6 @@ export class Environment {
     this.sun.shadow.normalBias = 0.5;
     scene.add(this.sun, this.sun.target);
 
-    scene.fog = new THREE.Fog(DAY.fog.clone(), 500, 4200);
     this.apply();
   }
 
@@ -95,7 +94,6 @@ export class Environment {
   apply() {
     const t = this.night, lerp = (a, b) => a + (b - a) * t;
     this.sky.material.uniforms.uNight.value = t;
-    this.scene.fog.color.copy(DAY.fog).lerp(NIGHT.fog, t);
     this.hemi.intensity = lerp(DAY.hemi, NIGHT.hemi);
     this.sun.intensity = lerp(DAY.sun, NIGHT.sun);
     this.sun.color.copy(DAY.sunColor).lerp(NIGHT.sunColor, t);

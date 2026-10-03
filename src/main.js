@@ -1,6 +1,6 @@
 // Procedural Tokyo client: streams the compiled city and renders it. Free camera for now; the car comes next.
 //
-// URL parameters: ?area=shibuya  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=1100  ?traffic=0
+// URL parameters: ?area=shibuya  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -62,7 +62,7 @@ composer.addPass(new OutputPass());
 const materials = createMaterials(await loadTextures(renderer));
 const props = new Props();
 const signs = new Signs();
-const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 1500 });
+const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 3000 });
 const manifest = await streamer.init();
 const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
 const railways = await buildRailways(`tiles/${AREA}/${manifest.rails}`, (x, z) => streamer.ground(x, z), streamer.cover);
