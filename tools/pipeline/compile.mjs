@@ -3,7 +3,8 @@
 //   terrain.bin     Float32 height grid (TP metres), row-major, rows run north -> south (+z)
 //   t_<x>_<z>.bin   per 256 m tile: buildings, ground surfaces (roads, paint, parks, water), props (trees,
 //                   poles, lights, signals) and wires (format: src/shared/tileformat.js)
-//   roads.json      drivable road graph from OSM (junction nodes + polyline edges with ground heights)
+//   roads.json      drivable road graph from OSM (junction nodes + polyline edges; y = road level, above the
+//                   ground on bridges and the elevated expressway)
 //   rails.json      surface and elevated railway lines from OSM, with their height profile (y = track bed)
 // Usage: node tools/pipeline/compile.mjs [--area=shibuya]
 import fs from 'node:fs';
@@ -18,6 +19,7 @@ import { PolyIndex, readLand, clipRing, placeProps } from './landscape.mjs';
 import { buildMarkings } from './markings.mjs';
 import { splitOutlineRoads } from './roadsplit.mjs';
 import { profileRailways } from './rails.mjs';
+import { profileRoads } from './roadprofile.mjs';
 
 const TERRAIN_STEP = 5; // metres, matches the GSI 5 m DEM
 
@@ -180,10 +182,11 @@ log(`roads (PLATEAU): ${rstats.roads} roads, ${rstats.outlines} outlines; detail
 // ---------------------------------------------------------------- OSM
 const osm = readOsm(path.join(area.rawDir, 'osm.json'));
 const graph = buildRoadGraph(osm, proj.project, inBounds);
-const withY = (pts) => pts.flatMap(([x, z]) => [r2(x), r2(ground(x, z)), r2(z)]);
+// road level per node: the ground, or above it on bridges and the elevated expressway
+const level = profileRoads(graph.edges, graph.pos, ground);
 const roadsOut = {
-  nodes: graph.nodes.map(({ p }) => [r2(p[0]), r2(ground(p[0], p[1])), r2(p[1])]),
-  edges: graph.edges.map(({ ids, way, ...e }) => ({ ...e, way, pts: withY(ids.map(graph.pos)) })),
+  nodes: graph.nodes.map(({ id, p }) => [r2(p[0]), r2(level.get(id) ?? ground(p[0], p[1])), r2(p[1])]),
+  edges: graph.edges.map(({ ids, way, ...e }) => ({ ...e, way, pts: ids.flatMap((id) => { const [x, z] = graph.pos(id); return [r2(x), r2(level.get(id)), r2(z)]; }) })),
 };
 const byClass = {};
 let km = 0;

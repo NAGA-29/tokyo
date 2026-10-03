@@ -8,7 +8,7 @@ const VIADUCT_ABOVE = 2.0; // rail level this far above the ground gets a deck o
 const PIER_SPACING = 16, MAST_SPACING = 40;
 
 // Flat list of triangles with a colour per vertex; normals come from the faces.
-class Soup {
+export class Soup {
   constructor() { this.pos = []; this.col = []; this.uv = []; }
   quad(a, b, c, d, color, uvs) { this.tri(a, b, c, color, uvs && [uvs[0], uvs[1], uvs[2]]); this.tri(a, c, d, color, uvs && [uvs[0], uvs[2], uvs[3]]); }
   tri(a, b, c, color, uvs) {
@@ -56,7 +56,7 @@ function bedTexture() {
 
 // Cross-sections every STEP metres along a polyline of [x, y, z] triples:
 // { p: [x, y, z], t: unit tangent, n: unit right, s: distance along, h: height above the ground }.
-function sections(pts, ground) {
+export function sections(pts, ground) {
   const P = [];
   for (let i = 0; i < pts.length; i += 3) P.push([pts[i], pts[i + 1], pts[i + 2]]);
   const out = [];
