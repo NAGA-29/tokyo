@@ -170,6 +170,10 @@ export function buildMarkings({ edges, pos, idx, land, inBounds }) {
   // ---- zebra crossings (Japanese style: bars parallel to the traffic) and stop lines
   const zebraAt = [];
   const zebra = (path) => {
+    // A crossing runs from kerb to kerb. A path whose ends both lie out in the carriageway (inside a bus
+    // terminal, a car park) would leave a few stripes floating in the asphalt: skip it.
+    const beyond = (p, q) => { const l = Math.hypot(p[0] - q[0], p[1] - q[1]) || 1; return idx.carriageway.has(p[0] + ((p[0] - q[0]) / l) * 2, p[1] + ((p[1] - q[1]) / l) * 2); };
+    if (path.length < 2 || (beyond(path[0], path[1]) && beyond(path.at(-1), path.at(-2)))) return;
     const run = [];
     forEachAlong(path, 0.9, (x, z, dx, dz) => {
       if (!inBounds(x, z) || !idx.carriageway.has(x, z)) return;

@@ -294,7 +294,8 @@ for (const t of tiles.values()) {
     if (deck < 0) continue;
     a.code = DECK_FLAG | deck; deckAreas++;
     if (a.kind !== AREA.ROAD) continue;
-    for (const rings of a.polygons) for (const ring of rings) for (let i = 0; i < ring.length; i++) {
+    // outer rings only: a hole in a road outline is a median or a pier, not the edge of the bridge
+    for (const [ring] of a.polygons) for (let i = 0; i < ring.length; i++) {
       const [ax, az] = ring[i], [bx, bz] = ring[(i + 1) % ring.length], len = Math.hypot(bx - ax, bz - az);
       if (len < 0.3) continue;
       const mx = (ax + bx) / 2, mz = (az + bz) / 2, p = projectOnDeck(decks[deck], mx, mz);

@@ -46,9 +46,11 @@ export function profileRailways(lines, ground, inBounds) {
     }
   };
   // Tracks running side by side share one formation: every node takes the highest level found within
-  // NEIGHBOUR metres, so parallel tracks do not end up on separate decks at slightly different heights.
-  const where = new Map(), cells = new Map();
-  for (const l of kept) l.ids.forEach((id, i) => where.set(id, l.pts[i]));
+  // NEIGHBOUR metres among nodes of the same kind (same bridge flag and layer), so parallel tracks do not
+  // end up on separate decks at slightly different heights. A line crossing overhead is another kind and
+  // is left alone: the Ginza Line bridge must not pull the JR tracks below it up to its level.
+  const where = new Map(), cells = new Map(), kind = new Map();
+  for (const l of kept) l.ids.forEach((id, i) => { where.set(id, l.pts[i]); kind.set(id, l.bridge * 16 + l.layer); });
   for (const [id, [x, z]] of where) {
     const k = Math.floor(x / NEIGHBOUR) + ',' + Math.floor(z / NEIGHBOUR);
     if (!cells.has(k)) cells.set(k, []);
@@ -62,7 +64,7 @@ export function profileRailways(lines, ground, inBounds) {
       for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++)
         for (const o of cells.get(i + ',' + j) ?? []) {
           const p = where.get(o);
-          if (Math.hypot(p[0] - x, p[1] - z) <= NEIGHBOUR) top = Math.max(top, y.get(o));
+          if (kind.get(o) === kind.get(id) && Math.hypot(p[0] - x, p[1] - z) <= NEIGHBOUR) top = Math.max(top, y.get(o));
         }
       next.set(id, top);
     }

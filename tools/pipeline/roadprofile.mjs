@@ -5,7 +5,10 @@
 const CLEARANCE = [0, 7, 11, 15.5, 20]; // road level above the ground under a bridge, by layer
 const MAX_GRADE = 0.06;
 
-const elevatable = (e) => !e.tunnel && (e.bridge || e.highway.startsWith('motorway'));
+// Lifted clear of the streets: the expressway and its ramps, and bridges tagged as an upper level. An
+// ordinary road bridge is never lifted: it either spans a dip from bank to bank or lies on the ground.
+const flyover = (e) => e.bridge && !e.tunnel && (e.highway.startsWith('motorway') || e.layer >= 2);
+const elevatable = (e) => !e.tunnel && (flyover(e) || e.highway.startsWith('motorway'));
 
 // edges: graph edges ({ ids, bridge, tunnel, layer, highway }); pos: node id -> [x, z]; ground(x, z).
 // A street bridge whose ends stand this much above the lowest ground beneath it crosses a cutting or a
@@ -39,7 +42,7 @@ export function profileRoads(edges, pos, ground) {
   }
   for (const e of edges) {
     if (spans.has(e)) continue;
-    const lift = e.bridge && !e.tunnel ? CLEARANCE[Math.max(1, Math.min(4, e.layer))] : 0;
+    const lift = flyover(e) ? CLEARANCE[Math.max(1, Math.min(4, e.layer))] : 0;
     for (const id of e.ids) {
       y.set(id, Math.max(y.get(id) ?? -Infinity, g(id) + lift));
       if (!elevatable(e) && !e.tunnel) pinned.add(id);
