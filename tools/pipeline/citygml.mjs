@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import { AREA } from '../../src/shared/tileformat.js';
 
 // Yields the text of every <tag ...>...</tag> element in `s` (non-nested tags only).
-function* elements(s, tag, from = 0, to = s.length) {
+export function* elements(s, tag, from = 0, to = s.length) {
   const open = `<${tag}`, close = `</${tag}>`;
   let i = s.indexOf(open, from);
   while (i !== -1 && i < to) {
@@ -16,7 +16,7 @@ function* elements(s, tag, from = 0, to = s.length) {
     i = s.indexOf(open, j);
   }
 }
-const first = (s, tag) => { for (const e of elements(s, tag)) return e; return null; };
+export const first = (s, tag) => { for (const e of elements(s, tag)) return e; return null; };
 const text = (s, tag) => {
   const e = first(s, tag);
   return e ? e.slice(e.indexOf('>') + 1, e.lastIndexOf('<')).trim() : null;

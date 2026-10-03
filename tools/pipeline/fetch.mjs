@@ -18,7 +18,7 @@ const OVERPASS = [
   'https://overpass.kumi.systems/api/interpreter',
   'https://overpass.private.coffee/api/interpreter',
 ];
-const PLATEAU_TYPES = ['bldg', 'tran'];
+const PLATEAU_TYPES = ['bldg', 'tran', 'brid', 'frn', 'veg'];
 
 const t0 = Date.now();
 const log = (...a) => console.log(((Date.now() - t0) / 1000).toFixed(1).padStart(6) + 's', ...a);

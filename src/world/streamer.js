@@ -96,7 +96,8 @@ export class Streamer {
       this.tiles.set(key, { state: 'loading' });
       this.inFlight++;
       const w = this.workers[this.nextWorker++ % this.workers.length];
-      w.postMessage({ type: 'tile', key, url: new URL(`${this.base}/${tl.file}`, location.href).href, tileSize: size });
+      const url = (file) => new URL(`${this.base}/${file}`, location.href).href;
+      w.postMessage({ type: 'tile', key, url: url(tl.file), meshUrl: tl.mesh && url(tl.mesh), tileSize: size });
     }
   }
 
@@ -105,7 +106,7 @@ export class Streamer {
     const t = this.tiles.get(msg.key);
     if (msg.type === 'error') { console.warn(`tile ${msg.key}: ${msg.message}`); this.tiles.delete(msg.key); return; }
     if (!t) return; // unloaded while in flight
-    const { terrain, roads, paint, buildings, info, props, wires, signs: signList } = msg.mesh;
+    const { terrain, roads, paint, buildings, info, props, wires, signs: signList, models } = msg.mesh;
     const group = new THREE.Group();
     group.name = `tile ${msg.key}`;
 
@@ -142,6 +143,11 @@ export class Streamer {
       m.castShadow = true;
       m.receiveShadow = true;
       m.userData = { tile: msg.key, info, ends: buildings.ends };
+      group.add(m);
+    }
+    if (models) { // PLATEAU's own models of bridges, street furniture and trees
+      const m = new THREE.Mesh(geometry(models, [['position', 3], ['normal', 3], ['color', 3]]), this.materials.models);
+      m.castShadow = m.receiveShadow = true;
       group.add(m);
     }
     const tris = terrain.index.length / 3 + roads.position.length / 9 + buildings.triangles;

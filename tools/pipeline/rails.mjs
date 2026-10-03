@@ -8,11 +8,15 @@ const BED = 0.45;                     // ballast and rail above the formation
 const NEIGHBOUR = 22;                 // metres: tracks this close run at the same level
 const DENSIFY = 6;                    // metres between height samples along a line
 const MOUTH = 30;                     // metres before a tunnel mouth where the terrain is not the track bed
+const DECK_BED = 0.15;                // rail bed above a surveyed bridge deck
+const DECK_RUN = 15;                  // metres: a deck shorter than this along the track is something crossing it
 
 // lines: [{ ids: [node id], pts: [[x, z]], bridge, layer, ... }]; ground(x, z) -> terrain height.
 // Returns the lines with pts as flat [x, y, z, ...], y = top of rail bed.
 // unreliable(x, z): true where the terrain height is not the track bed (under a road bridge).
-export function profileRailways(lines, ground, inBounds, unreliable = () => false) {
+// deckTop(x, z): height of the surveyed bridge deck there (PLATEAU), if any. Each line also gets
+// deck: [[from, to]], the stretches (metres along it) where the track lies on such a deck.
+export function profileRailways(lines, ground, inBounds, unreliable = () => false, deckTop = () => null) {
   // keep the stretch inside the area, plus one point beyond each end
   const kept = [];
   for (const l of lines) {
@@ -57,9 +61,24 @@ export function profileRailways(lines, ground, inBounds, unreliable = () => fals
       while (b < n && g[b] == null) b++;
       const fill = a >= 0 && b < n ? g[a] + ((g[b] - g[a]) * (along[i] - along[a])) / (along[b] - along[a] || 1)
         : a >= 0 ? g[a] : b < n ? g[b] : ground(l.pts[i][0], l.pts[i][1]);
-      l.ids.forEach((id, k) => { if (k === i) y.set(id, Math.max(y.get(id) ?? -Infinity, fill + lift + BED)); });
+      g[i] = fill; // (later gaps interpolate from it too, which is what carrying the level across means)
     }
-    l.ids.forEach((id, i) => { if (g[i] != null) y.set(id, Math.max(y.get(id) ?? -Infinity, g[i] + lift + BED)); });
+    // Where the track runs on a surveyed deck, that is its height: a viaduct the terrain model does not show,
+    // or a bridge whose real clearance replaces the guess. The deck must be the track's own — at a plausible
+    // height, and long enough along the line not to be a footbridge crossing it.
+    const top = l.pts.map(([x, z], i) => {
+      const t = l.layer <= 1 ? deckTop(x, z) : null;
+      return t != null && t > g[i] + (l.bridge ? -2.5 : 1) && t < g[i] + (lift || 7) + 2 ? t : null;
+    });
+    for (let i = 0; i < n; i++) {
+      if (top[i] == null) continue;
+      let j = i;
+      while (j + 1 < n && top[j + 1] != null && Math.abs(top[j + 1] - top[j]) < 0.8) j++;
+      if (along[j] - along[i] < DECK_RUN) for (let k = i; k <= j; k++) top[k] = null;
+      i = j;
+    }
+    l.onDeck = top.map((t) => t != null);
+    l.ids.forEach((id, i) => y.set(id, Math.max(y.get(id) ?? -Infinity, top[i] != null ? top[i] + DECK_BED : g[i] + lift + BED)));
   }
   const segments = [];
   for (const l of kept) for (let i = 1; i < l.ids.length; i++) {
@@ -110,8 +129,21 @@ export function profileRailways(lines, ground, inBounds, unreliable = () => fals
     const p = l.pts[i], q = l.pts[j], len = Math.hypot(p[0] - q[0], p[1] - q[1]) || 1;
     return [r2(p[0]), r2(y.get(l.ids[i])), r2(p[1]), r2((p[0] - q[0]) / len), r2((p[1] - q[1]) / len), 1];
   };
-  return kept.filter((l) => l.pts.length >= 2).map(({ ids, pts, tunnelStart, tunnelEnd, ...l }) => ({
-    ...l, pts: pts.flatMap(([x, z], i) => [r2(x), r2(y.get(ids[i])), r2(z)]),
+  // stretches still at deck height after grading: there the client leaves out its own viaduct
+  const deckRuns = (l) => {
+    const runs = [];
+    let s = 0, from = null;
+    l.pts.forEach(([x, z], i) => {
+      if (i) s += Math.hypot(x - l.pts[i - 1][0], z - l.pts[i - 1][1]);
+      const on = l.onDeck[i] && Math.abs(y.get(l.ids[i]) - DECK_BED - deckTop(x, z)) < 0.7;
+      if (on && from == null) from = s;
+      if (!on && from != null) { runs.push([r2(from), r2(s)]); from = null; }
+    });
+    if (from != null) runs.push([r2(from), r2(s)]);
+    return runs;
+  };
+  return kept.filter((l) => l.pts.length >= 2).map(({ ids, pts, tunnelStart, tunnelEnd, onDeck, ...l }) => ({
+    ...l, pts: pts.flatMap(([x, z], i) => [r2(x), r2(y.get(ids[i])), r2(z)]), deck: deckRuns({ ids, pts, onDeck }),
     portals: [...(tunnelStart ? [mouth({ ids, pts }, 0, 1)] : []), ...(tunnelEnd ? [mouth({ ids, pts }, pts.length - 1, pts.length - 2)] : [])],
   }));
 }

@@ -119,6 +119,8 @@ export async function buildRailways(url, ground, cover = ground) {
     return false;
   };
   tracks.forEach((cs, li) => cs.forEach((c) => { c.left = beside(c, li, -1); c.right = beside(c, li, 1); }));
+  // on a bridge that the tiles bring as a model (line.deck: stretches in metres along the line): track only
+  tracks.forEach((cs, li) => cs.forEach((c) => { c.deck = (lines[li].deck ?? []).some(([from, to]) => c.s >= from - 0.5 && c.s <= to + 0.5); }));
 
   lines.forEach((line, li) => {
     const cs = tracks[li];
@@ -130,6 +132,7 @@ export async function buildRailways(url, ground, cover = ground) {
         sweep(structure, a, b, [[c - 0.035, 0.0], [c - 0.035, 0.16], [c + 0.035, 0.16], [c + 0.035, 0.0]], steel);
       // per side (s = -1 left, 1 right): open to a neighbouring track, or closed by a parapet / wall
       const open = { '-1': a.left && b.left, 1: a.right && b.right };
+      if (a.deck && b.deck) continue;
       if (h > VIADUCT_ABOVE) {
         sweep(structure, a, b, [[-(open[-1] ? 2.6 : 2.2), -0.9], [open[1] ? 2.6 : 2.2, -0.9]], concrete); // underside
         for (const s of [-1, 1]) {
@@ -162,7 +165,7 @@ export async function buildRailways(url, ground, cover = ground) {
     const electrified = line.railway !== 'subway'; // the Ginza Line runs on a third rail
     let mastPrev = null;
     cs.forEach((c, i) => {
-      if (c.h > VIADUCT_ABOVE + 0.5 && Math.round(c.s / STEP) % Math.round(PIER_SPACING / STEP) === 0)
+      if (!c.deck && c.h > VIADUCT_ABOVE + 0.5 && Math.round(c.s / STEP) % Math.round(PIER_SPACING / STEP) === 0)
         structure.box(c.p, c.t, c.n, 0.7, 1.3, c.p[1] - c.h - 1.5, c.p[1] - 0.9, concrete);
       if (electrified && headroom(c) < 7) { mastPrev = wire(mastPrev, c); return; } // under a bridge: no mast
       if (electrified && (Math.round(c.s / STEP) % Math.round(MAST_SPACING / STEP) === 0 || i === cs.length - 1)) {
