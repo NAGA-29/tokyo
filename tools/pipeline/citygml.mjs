@@ -62,6 +62,9 @@ export function readBuildings(file) {
       storeys: num(text(b, 'bldg:storeysAboveGround')),
       measuredHeight: num(text(b, 'bldg:measuredHeight')),
       lod2: b.includes('<bldg:lod2Solid') || b.includes('<bldg:lod2MultiSurface'),
+      // LOD2 shell: [{ roof: boolean, rings: [outer, ...holes] }], rings of [lon, lat, h]
+      surfaces: [['bldg:RoofSurface', true], ['bldg:WallSurface', false]].flatMap(([tag, roof]) =>
+        [...elements(b, tag)].flatMap((s) => polygons(s).map((rings) => ({ roof, rings })))),
       parts: b.includes('<bldg:BuildingPart'),
       solid, lod0,
     });

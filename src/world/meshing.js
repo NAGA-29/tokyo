@@ -258,7 +258,7 @@ export function buildingMesh(buildings, tx, tz) {
       }
     }
     const wallTop = roof ? top - rise : top;
-    const wallH = wallTop - b.base;
+    let wallH = wallTop - b.base; // (per wall for LOD2 shells)
     const parapet = roof ? 0 : cat === CAT.HOUSE ? 0.3 : b.height > 30 ? 1.2 : 0.75;
     const floors = b.storeys > 0 ? b.storeys : Math.max(1, Math.round(wallH / 3.2));
     const floorH = Math.min(6, Math.max(2.5, wallH / floors));
@@ -287,6 +287,55 @@ export function buildingMesh(buildings, tx, tz) {
       quad(P(1, -1, y0), P(1, 1, y0), P(1, 1, y1), P(1, -1, y1), [dx, 0, dz], c, KIND.SOLID, layer);
       quad(P(-1, -1, y0), P(-1, 1, y0), P(-1, 1, y1), P(-1, -1, y1), [-dx, 0, -dz], c, KIND.SOLID, layer);
     };
+
+    // ---- LOD2: PLATEAU's own walls and roof planes replace everything generated below
+    if (b.surfaces?.length) {
+      const roofCol = lin(cat === CAT.HOUSE ? PITCHED_ROOFS[Math.floor(rnd() * PITCHED_ROOFS.length)] : [0.5, 0.5, 0.49]);
+      const flatCol = lin((() => { const g = 0.5 + 0.2 * rnd(); return [g, g, g * 0.97]; })());
+      for (const { roof: isRoof, rings } of b.surfaces) {
+        // Newell normal of the outline; CityGML surfaces face outwards
+        const o = rings[0], n = o.length / 3;
+        let nx = 0, ny = 0, nz = 0;
+        for (let i = 0; i < n; i++) {
+          const j = (i + 1) % n, px = o[i * 3], py = o[i * 3 + 1], pz = o[i * 3 + 2], qx = o[j * 3], qy = o[j * 3 + 1], qz = o[j * 3 + 2];
+          nx += (py - qy) * (pz + qz); ny += (pz - qz) * (px + qx); nz += (px - qx) * (py + qy);
+        }
+        const nl = Math.hypot(nx, ny, nz);
+        if (nl < 1e-6) continue;
+        nx /= nl; ny /= nl; nz /= nl;
+        const steep = Math.abs(ny) < 0.5;
+        // 2D frame for triangulation: (along the wall, height) for walls, the ground plan for roofs
+        const hl = Math.hypot(nx, nz) || 1, tx = nz / hl, tz = -nx / hl;
+        const flat = [], holes = [], verts = [];
+        let s0 = Infinity, s1 = -Infinity, y1 = -Infinity;
+        rings.forEach((r, ri) => {
+          if (ri) holes.push(flat.length / 2);
+          for (let i = 0; i < r.length; i += 3) {
+            const s = r[i] * tx + r[i + 2] * tz;
+            if (steep) flat.push(s, r[i + 1]); else flat.push(r[i], r[i + 2]);
+            verts.push([r[i], r[i + 1], r[i + 2], s]);
+            s0 = Math.min(s0, s); s1 = Math.max(s1, s); y1 = Math.max(y1, r[i + 1]);
+          }
+        });
+        const wall = !isRoof && steep, len = s1 - s0;
+        const bays = wall && len >= 1.8 ? Math.max(1, Math.round(len / BAY[cat])) : 0, bay = bays ? len / bays : 0;
+        const kind = wall ? KIND.WALL : ny > 0.985 ? KIND.FLAT_ROOF : steep ? KIND.SOLID : KIND.PITCHED_ROOF;
+        const color = wall || kind === KIND.SOLID ? wallCol : kind === KIND.FLAT_ROOF ? flatCol : roofCol;
+        const layer = wall || kind === KIND.SOLID ? wallLayer : kind === KIND.FLAT_ROOF ? WALL.ROOF : WALL.SIDING;
+        wallH = y1 - b.base; // windows stop under this wall's own top
+        const idx = earcut(flat, holes, 2), N = [nx, ny, nz];
+        for (let i = 0; i < idx.length; i += 3) {
+          let p = verts[idx[i]], q = verts[idx[i + 1]], r = verts[idx[i + 2]];
+          // keep the triangle facing the same way as the surface
+          const cx = (q[1] - p[1]) * (r[2] - p[2]) - (q[2] - p[2]) * (r[1] - p[1]), cy = (q[2] - p[2]) * (r[0] - p[0]) - (q[0] - p[0]) * (r[2] - p[2]),
+            cz = (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+          if (cx * nx + cy * ny + cz * nz < 0) [q, r] = [r, q];
+          for (const v of [p, q, r]) vtx(v[0], v[1], v[2], N, color, bays ? ((v[3] - s0) / len) * bays : 0, v[1] - b.base, kind, bay, layer);
+        }
+      }
+      ends.push(pos.length / 3);
+      return;
+    }
 
     // ---- walls, parapet, flat roof
     const inner = wallCol.map((c) => c * 0.8);

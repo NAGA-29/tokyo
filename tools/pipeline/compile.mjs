@@ -143,7 +143,18 @@ for (const f of gmlFiles('bldg')) {
     if (b.lod2) bstats.lod2++;
     bstats.heights.push(height);
     bstats.usage[b.usage ?? 0] = (bstats.usage[b.usage ?? 0] ?? 0) + 1;
-    tileFor(cx, cz).buildings.push({ usage: b.usage, storeys: b.storeys, flags, base: r2(base), height: r2(height), measuredHeight: b.measuredHeight, polygons: polys });
+    // LOD2 shell in world coordinates (closing points dropped; degenerate rings discarded)
+    const surfaces = [];
+    for (const s of b.surfaces) {
+      const rings = s.rings.map((ring) => {
+        const pts = ring.map(([lon, lat, h]) => { const [x, z] = proj.project(lon, lat); return [r2(x), r2(h), r2(z)]; });
+        if (pts.length > 1 && pts[0].every((v, k) => Math.abs(v - pts.at(-1)[k]) < 0.02)) pts.pop();
+        return pts;
+      }).filter((r) => r.length >= 3 && r.length < 65000);
+      if (rings.length && rings.length < 256 && surfaces.length < 65000) surfaces.push({ roof: s.roof, rings });
+    }
+    bstats.surfaces = (bstats.surfaces ?? 0) + surfaces.length;
+    tileFor(cx, cz).buildings.push({ usage: b.usage, storeys: b.storeys, flags, base: r2(base), height: r2(height), measuredHeight: b.measuredHeight, polygons: polys, surfaces });
   }
   log(`  ${f}: ${list.length} buildings`);
 }
@@ -151,6 +162,7 @@ const pct = (arr, p) => { const s = [...arr].sort((a, b) => a - b); return s[Mat
 const nB = bstats.read - bstats.dup - bstats.dropped;
 log(`buildings: ${nB} kept from ${bstats.files} files (${bstats.dup} duplicates across ward files, ${bstats.dropped} dropped, ` +
   `${bstats.noSolid} without LOD1 solid, ${bstats.lod2} with LOD2)`);
+log(`  LOD2 shells: ${bstats.surfaces} surfaces`);
 log(`  height median ${pct(bstats.heights, 0.5).toFixed(1)} m, p95 ${pct(bstats.heights, 0.95).toFixed(1)} m, max ${pct(bstats.heights, 1).toFixed(1)} m`);
 const absDiff = bstats.baseDiff.map(Math.abs);
 log(`  building base vs DEM: median |d| ${pct(absDiff, 0.5).toFixed(2)} m, p95 ${pct(absDiff, 0.95).toFixed(2)} m`);
