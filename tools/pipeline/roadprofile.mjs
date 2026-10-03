@@ -7,7 +7,7 @@ const MAX_GRADE = 0.06;
 
 // Lifted clear of the streets: the expressway and its ramps, and bridges tagged as an upper level. An
 // ordinary road bridge is never lifted: it either spans a dip from bank to bank or lies on the ground.
-const flyover = (e) => e.bridge && !e.tunnel && (e.highway.startsWith('motorway') || e.layer >= 2);
+export const flyover = (e) => e.bridge && !e.tunnel && (e.highway.startsWith('motorway') || e.layer >= 2);
 const elevatable = (e) => !e.tunnel && (flyover(e) || e.highway.startsWith('motorway'));
 
 // edges: graph edges ({ ids, bridge, tunnel, layer, highway }); pos: node id -> [x, z]; ground(x, z).

@@ -19,9 +19,13 @@ export async function buildFlyovers(url, ground) {
 
   for (const e of edges) {
     if (e.tunnel) continue;
-    const cs = sections(e.pts, ground);
-    if (!cs.some((c) => c.h > RAMP_ABOVE)) continue;
     const expressway = e.highway.startsWith('motorway');
+    // Structures are built for flyovers, for the expressway ramps that climb up to them, and (underside
+    // only) for street-level spans. Every other road is the ground surface from the tiles, even where its
+    // level and the terrain disagree by a little.
+    if (!e.flyover && !e.span && !expressway) continue;
+    const cs = sections(e.pts, ground);
+    if (!cs.some((c) => c.h > (e.flyover || e.span ? RAMP_ABOVE : 1.5))) continue;
     // half width; a street-level span (e.span) also carries the sidewalks, and its surface is the ordinary
     // road polygons draped on the deck, so only the structure is built here
     const lanes = Math.max(1, e.lanes), w = e.span ? lanes * 1.65 + 7 : (lanes * 3.3 + (expressway ? 2.2 : 1.4)) / 2;

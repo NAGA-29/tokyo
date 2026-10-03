@@ -19,8 +19,8 @@ import { PolyIndex, readLand, clipRing, placeProps } from './landscape.mjs';
 import { buildMarkings } from './markings.mjs';
 import { splitOutlineRoads } from './roadsplit.mjs';
 import { profileRailways } from './rails.mjs';
-import { profileRoads, BANK } from './roadprofile.mjs';
-import { DECK_FLAG, projectOnDeck } from '../../src/shared/decks.js';
+import { profileRoads, flyover, BANK } from './roadprofile.mjs';
+import { DECK_FLAG, CORRIDOR_MARGIN, projectOnDeck } from '../../src/shared/decks.js';
 
 const TERRAIN_STEP = 5; // metres, matches the GSI 5 m DEM
 
@@ -207,6 +207,7 @@ const roadsOut = {
   nodes: graph.nodes.map(({ id, p }) => [r2(p[0]), r2(level.get(id) ?? ground(p[0], p[1])), r2(p[1])]),
   edges: graph.edges.map((edge) => {
     edge.span = spans.has(edge) ? 1 : 0; // a street-level bridge: treated as an ordinary road from here on
+    edge.flyover = flyover(edge) ? 1 : 0; // carried on its own structure above the streets
     const { ids, way, spanLength, spanEnds, ...e } = edge;
     return { ...e, way, pts: ids.flatMap((id) => { const [x, z] = graph.pos(id); return [r2(x), r2(level.get(id)), r2(z)]; }) };
   }),
@@ -221,7 +222,39 @@ for (const e of graph.edges) {
 log(`road graph (OSM): ${roadsOut.nodes.length} nodes, ${roadsOut.edges.length} edges, ${km.toFixed(1)} km`);
 log(`  ${Object.entries(byClass).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(', ')}`);
 log(`  bridges ${roadsOut.edges.filter((e) => e.bridge).length}, tunnels ${roadsOut.edges.filter((e) => e.tunnel).length}, oneway ${roadsOut.edges.filter((e) => e.oneway).length}`);
-const rails = profileRailways(buildRailways(osm, proj.project, inBounds), ground, inBounds);
+// The deck line runs BANK metres past each end, level, to cover the ground that slumps towards the dip.
+const decks = roadsOut.edges.filter((e) => e.span).map((e) => {
+  const p = e.pts, n = p.length;
+  const out = (i, j) => { // point BANK metres beyond point i, away from point j
+    const len = Math.hypot(p[i] - p[j], p[i + 2] - p[j + 2]) || 1;
+    return [r2(p[i] + ((p[i] - p[j]) / len) * BANK), p[i + 1], r2(p[i + 2] + ((p[i + 2] - p[j + 2]) / len) * BANK)];
+  };
+  return { pts: [...out(0, 3), ...p, ...out(n - 3, n - 6)], half: Math.max(1, e.lanes) * 1.65 + CORRIDOR_MARGIN };
+});
+// Under a road bridge the terrain model shows the bridge, not the track bed below it.
+const underBridge = (x, z) => decks.some((d) => { const p = projectOnDeck(d, x, z); return p.inside && p.dist <= d.half - CORRIDOR_MARGIN + 6; });
+const rails = profileRailways(buildRailways(osm, proj.project, inBounds), ground, inBounds, underBridge);
+// Station buildings stand over the tracks, but PLATEAU gives them as solid blocks. Record where each track
+// crosses a building outline so the client can put a tunnel mouth there: [x, y, z, dirX, dirZ], pointing in.
+let portals = 0;
+for (const line of rails) {
+  const p = line.pts; // (line.portals already holds the tunnel mouths)
+  for (let i = 3; i < p.length; i += 3) {
+    const len = Math.hypot(p[i] - p[i - 3], p[i + 2] - p[i - 1]);
+    if (len < 0.01) continue;
+    const at = (d) => [p[i - 3] + ((p[i] - p[i - 3]) * d) / len, p[i - 2] + ((p[i + 1] - p[i - 2]) * d) / len, p[i - 1] + ((p[i + 2] - p[i - 1]) * d) / len];
+    let was = idx.building.has(p[i - 3], p[i - 1]);
+    for (let d = 0.5; d <= len; d += 0.5) {
+      const q = at(Math.min(d, len)), now = idx.building.has(q[0], q[2]);
+      if (now !== was) {
+        const s = now ? 1 : -1; // direction pointing into the building
+        line.portals.push([r2(q[0]), r2(q[1]), r2(q[2]), r2((s * (p[i] - p[i - 3])) / len), r2((s * (p[i + 2] - p[i - 1])) / len)]);
+        portals++; was = now;
+      }
+    }
+  }
+}
+log(`railways: ${portals} portals where tracks pass through buildings`);
 log(`railways (OSM): ${rails.length} lines (${rails.filter((r) => r.bridge).length} elevated sections)`);
 
 // Roads PLATEAU maps only as an outline get their carriageway from the OSM centrelines; the rest is sidewalk.
@@ -276,15 +309,6 @@ for (const m of paint.marks) {
 // Street-level bridges. Every road polygon touching a bridge's corridor is tied to that deck (the client
 // holds it at deck level between the banks), and the edges of those polygons that face open air over the
 // dip get a parapet.
-// The deck line runs BANK metres past each end, level, to cover the ground that slumps towards the dip.
-const decks = roadsOut.edges.filter((e) => e.span).map((e) => {
-  const p = e.pts, n = p.length;
-  const out = (i, j) => { // point BANK metres beyond point i, away from point j
-    const len = Math.hypot(p[i] - p[j], p[i + 2] - p[j + 2]) || 1;
-    return [r2(p[i] + ((p[i] - p[j]) / len) * BANK), p[i + 1], r2(p[i + 2] + ((p[i + 2] - p[j + 2]) / len) * BANK)];
-  };
-  return { pts: [...out(0, 3), ...p, ...out(n - 3, n - 6)], half: Math.max(1, e.lanes) * 1.65 + 16 };
-});
 const GROUND_KINDS = new Set([AREA.PARK, AREA.WOOD, AREA.WATER, AREA.PITCH]);
 let deckAreas = 0, deckWalls = 0;
 for (const t of tiles.values()) {
@@ -300,9 +324,10 @@ for (const t of tiles.values()) {
       if (len < 0.3) continue;
       const mx = (ax + bx) / 2, mz = (az + bz) / 2, p = projectOnDeck(decks[deck], mx, mz);
       if (!p.inside || p.y - ground(mx, mz) < 1.5) continue;                 // on the bank: no drop here
-      // open air beyond? (probe at three distances: neighbouring polygons often leave a sliver of a gap)
+      // Open air beyond? PLATEAU's road polygons leave gaps of a few metres in the middle of a bridge, so
+      // an edge counts as the side of the bridge only if no road surface follows within 9 m.
       const nx = -(bz - az) / len, nz = (bx - ax) / len;
-      if ([0.5, 1.5, 3].some((d) => idx.road.has(mx + nx * d, mz + nz * d)) || len < 1.5) continue;
+      if ([0.5, 1.5, 3, 5, 7, 9].some((d) => idx.road.has(mx + nx * d, mz + nz * d)) || len < 1.5) continue;
       t.walls.push([ax, az, bx, bz, deck]); deckWalls++;
     }
   }

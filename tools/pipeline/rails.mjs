@@ -6,27 +6,60 @@ const CLEARANCE = { 1: 6.2, 2: 12 };  // rail level above the ground under a bri
 const MAX_GRADE = 0.03;               // 3 %
 const BED = 0.45;                     // ballast and rail above the formation
 const NEIGHBOUR = 22;                 // metres: tracks this close run at the same level
+const DENSIFY = 6;                    // metres between height samples along a line
+const MOUTH = 30;                     // metres before a tunnel mouth where the terrain is not the track bed
 
 // lines: [{ ids: [node id], pts: [[x, z]], bridge, layer, ... }]; ground(x, z) -> terrain height.
 // Returns the lines with pts as flat [x, y, z, ...], y = top of rail bed.
-export function profileRailways(lines, ground, inBounds) {
+// unreliable(x, z): true where the terrain height is not the track bed (under a road bridge).
+export function profileRailways(lines, ground, inBounds, unreliable = () => false) {
   // keep the stretch inside the area, plus one point beyond each end
   const kept = [];
   for (const l of lines) {
     let run = null;
     l.pts.forEach((p, i) => {
       if (inBounds(p[0], p[1])) {
-        if (!run) { run = { ...l, ids: [], pts: [] }; if (i > 0) { run.ids.push(l.ids[i - 1]); run.pts.push(l.pts[i - 1]); } kept.push(run); }
+        if (!run) { run = { ...l, ids: [], pts: [], tunnelStart: l.tunnelStart && i === 0, tunnelEnd: false }; if (i > 0) { run.ids.push(l.ids[i - 1]); run.pts.push(l.pts[i - 1]); } kept.push(run); }
         run.ids.push(l.ids[i]); run.pts.push(p);
+        run.tunnelEnd = l.tunnelEnd && i === l.pts.length - 1;
       } else if (run) { run.ids.push(l.ids[i]); run.pts.push(p); run = null; }
     });
   }
 
-  // one height per OSM node, shared by the lines that meet there
+  // OSM nodes can be 50 m apart; a straight line between two of them cuts through any rise in the ground.
+  // Add points every DENSIFY metres (ids "way:segment:step"), each with its own ground height.
+  for (const l of kept) {
+    const ids = [l.ids[0]], pts = [l.pts[0]];
+    for (let i = 1; i < l.pts.length; i++) {
+      const a = l.pts[i - 1], b = l.pts[i], n = Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / DENSIFY);
+      for (let k = 1; k < n; k++) { ids.push(`${l.way}:${l.ids[i - 1]}:${k}`); pts.push([a[0] + ((b[0] - a[0]) * k) / n, a[1] + ((b[1] - a[1]) * k) / n]); }
+      ids.push(l.ids[i]); pts.push(b);
+    }
+    l.ids = ids; l.pts = pts;
+  }
+
+  // one height per node, shared by the lines that meet there
   const y = new Map();
   for (const l of kept) {
     const lift = l.bridge ? CLEARANCE[Math.max(1, Math.min(2, l.layer))] : 0;
-    l.ids.forEach((id, i) => y.set(id, Math.max(y.get(id) ?? -Infinity, ground(l.pts[i][0], l.pts[i][1]) + lift + BED)));
+    // Ground under each point — except under a road bridge and near a tunnel mouth, where the terrain
+    // model shows what is above the track. There the level is carried across from the open track either side.
+    const n = l.pts.length, g = l.pts.map(([x, z]) => (unreliable(x, z) ? null : ground(x, z)));
+    const along = [0];
+    for (let i = 1; i < n; i++) along.push(along[i - 1] + Math.hypot(l.pts[i][0] - l.pts[i - 1][0], l.pts[i][1] - l.pts[i - 1][1]));
+    for (let i = 0; i < n; i++) {
+      if ((l.tunnelStart && along[i] < MOUTH) || (l.tunnelEnd && along[n - 1] - along[i] < MOUTH)) g[i] = null;
+    }
+    for (let i = 0; i < n; i++) {
+      if (g[i] != null) continue;
+      let a = i - 1, b = i + 1;
+      while (a >= 0 && g[a] == null) a--;
+      while (b < n && g[b] == null) b++;
+      const fill = a >= 0 && b < n ? g[a] + ((g[b] - g[a]) * (along[i] - along[a])) / (along[b] - along[a] || 1)
+        : a >= 0 ? g[a] : b < n ? g[b] : ground(l.pts[i][0], l.pts[i][1]);
+      l.ids.forEach((id, k) => { if (k === i) y.set(id, Math.max(y.get(id) ?? -Infinity, fill + lift + BED)); });
+    }
+    l.ids.forEach((id, i) => { if (g[i] != null) y.set(id, Math.max(y.get(id) ?? -Infinity, g[i] + lift + BED)); });
   }
   const segments = [];
   for (const l of kept) for (let i = 1; i < l.ids.length; i++) {
@@ -72,7 +105,13 @@ export function profileRailways(lines, ground, inBounds) {
   };
   limitGrade(); levelNeighbours(); limitGrade();
   const r2 = (v) => Math.round(v * 100) / 100;
-  return kept.filter((l) => l.pts.length >= 2).map(({ ids, pts, ...l }) => ({
+  // Tunnel mouths where a line goes underground: [x, y, z, dirX, dirZ, 1], the direction pointing into the tunnel.
+  const mouth = (l, i, j) => {
+    const p = l.pts[i], q = l.pts[j], len = Math.hypot(p[0] - q[0], p[1] - q[1]) || 1;
+    return [r2(p[0]), r2(y.get(l.ids[i])), r2(p[1]), r2((p[0] - q[0]) / len), r2((p[1] - q[1]) / len), 1];
+  };
+  return kept.filter((l) => l.pts.length >= 2).map(({ ids, pts, tunnelStart, tunnelEnd, ...l }) => ({
     ...l, pts: pts.flatMap(([x, z], i) => [r2(x), r2(y.get(ids[i])), r2(z)]),
+    portals: [...(tunnelStart ? [mouth({ ids, pts }, 0, 1)] : []), ...(tunnelEnd ? [mouth({ ids, pts }, pts.length - 1, pts.length - 2)] : [])],
   }));
 }

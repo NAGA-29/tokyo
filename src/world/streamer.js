@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { tileKey } from '../shared/geo.js';
 import { sampleGrid } from '../shared/terrain.js';
-import { makeSurface } from '../shared/decks.js';
+import { makeSurface, makeCover } from '../shared/decks.js';
 
 const WORKERS = Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) >> 1));
 const MAX_IN_FLIGHT = WORKERS * 2;
@@ -37,6 +37,7 @@ export class Streamer {
     this.grid = { x0: t.x0, z0: t.z0, step: t.step, w: t.w, h: t.h, data };
     const decks = this.manifest.decks ?? [];
     this.surface = makeSurface(this.grid, decks);
+    this.cover = makeCover(this.grid, decks);
     this.available = new Map(this.manifest.tiles.map((tl) => [tileKey(tl.x, tl.z), tl]));
     this.workers = Array.from({ length: WORKERS }, () => {
       const w = new Worker(new URL('./tileWorker.js', import.meta.url), { type: 'module' });

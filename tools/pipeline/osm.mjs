@@ -106,8 +106,13 @@ export function buildRoadGraph({ nodes, ways }, project, inBounds) {
   return { nodes: outNodes, edges, pos };
 }
 
+// Returns the visible lines; a line whose first / last node continues underground gets tunnelStart / tunnelEnd.
 export function buildRailways({ nodes, ways }, project, inBounds) {
-  const out = [];
+  const out = [], underground = new Set();
+  for (const w of ways) {
+    const t = w.tags ?? {};
+    if (t.railway && !t.highway && t.tunnel && t.tunnel !== 'no') for (const id of w.nodes) underground.add(id);
+  }
   for (const w of ways) {
     const t = w.tags ?? {};
     if (!t.railway || t.highway) continue;
@@ -119,6 +124,7 @@ export function buildRailways({ nodes, ways }, project, inBounds) {
       way: w.id, railway: t.railway, name: t.name ?? null,
       layer: intTag(t.layer) ?? 0, bridge: t.bridge && t.bridge !== 'no' ? 1 : 0,
       tracks: intTag(t.tracks) ?? 1, ids, pts,
+      tunnelStart: underground.has(ids[0]), tunnelEnd: underground.has(ids.at(-1)),
     });
   }
   return out;

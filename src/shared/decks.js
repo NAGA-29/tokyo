@@ -26,6 +26,21 @@ export function projectOnDeck(deck, x, z) {
 
 // Returns surface(x, z): the height to stand on — the level of the highest deck whose corridor contains
 // the point, blended back to the terrain over FADE metres beside the corridor; the terrain elsewhere.
+// What is overhead at (x, z), for things that pass underneath (railway tracks): the terrain itself, or a
+// bridge deck. Unlike the surface, a deck counts only over its real width — its corridor is CORRIDOR_MARGIN
+// wider than the bridge so that sidewalks and plazas are held level, and must not roof the open track beside it.
+export const CORRIDOR_MARGIN = 16;
+export function makeCover(grid, decks) {
+  return (x, z) => {
+    let y = sampleGrid(grid, x, z);
+    for (const d of decks) {
+      const p = projectOnDeck(d, x, z);
+      if (p.inside && p.dist <= d.half - CORRIDOR_MARGIN + 3.5) y = Math.max(y, p.y);
+    }
+    return y;
+  };
+}
+
 const FADE = 8; // metres over which a deck's level blends back into the terrain beside its corridor
 
 export function makeSurface(grid, decks) {
