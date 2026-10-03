@@ -1,6 +1,6 @@
 // Procedural Tokyo client: streams the compiled city and renders it. Free camera for now; the car comes next.
 //
-// URL parameters: ?area=shibuya  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0  ?ortho=0
+// URL parameters: ?area=shibuya  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0  ?ortho=0  ?clouds=0.5
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -20,6 +20,9 @@ import { Traffic } from './world/traffic.js';
 import { buildStructures } from './world/structures.js';
 import { loadOrtho } from './world/ortho.js';
 import { Environment } from './world/environment.js';
+import { Clouds, installCloudShadows } from './world/clouds.js';
+
+installCloudShadows(); // (before any material is compiled)
 
 const params = new URLSearchParams(location.search);
 const AREA = params.get('area') || 'shibuya';
@@ -51,6 +54,9 @@ controls.enableZoom = false; // the wheel is handled below, with inertia
 
 const env = new Environment(scene, renderer);
 if (params.get('night') === '1') env.setNight(1);
+const clouds = new Clouds();
+if (params.get('clouds') != null) { clouds.cover = Number(params.get('clouds')); clouds.apply(); }
+scene.add(clouds.mesh);
 
 const composer = new EffectComposer(renderer);
 // Renders the scene and adds ambient occlusion: contact shading between buildings and the ground.
@@ -112,6 +118,10 @@ controls.update();
   gui.add(state, 'traffic');
   gui.add(state, 'trains');
   gui.add(state, 'photo').name('aerial photo').listen();
+  const sky = gui.addFolder('Clouds');
+  sky.add(clouds, 'cover', 0, 1, 0.05).onChange(() => clouds.apply());
+  sky.add(clouds, 'shadow', 0, 1, 0.05).name('shadow strength').onChange(() => clouds.apply());
+  sky.add(clouds, 'speed', 0, 10, 0.5).name('wind');
   const walls = gui.addFolder('Wall photos');
   walls.add(shared.uPhotoMix, 'value', 0, 1, 0.05).name('amount');
   walls.add(shared.uPhotoRange.value, 'x', 0, 1000, 10).name('from (m)');
@@ -215,6 +225,7 @@ function frame() {
   railways.userData.trains.update(dt, env.night);
   if (traffic.group.parent) traffic.update(dt, controls.target);
   env.update(dt);
+  clouds.update(dt, camera);
   env.follow(controls.target, camera);
   bloom.strength = env.bloom;
   composer.render();
@@ -234,4 +245,4 @@ function frame() {
 }
 requestAnimationFrame(frame);
 
-window.__app = { scene, camera, controls, streamer, env, renderer, materials, ao, bloom, traffic };
+window.__app = { scene, camera, controls, streamer, env, renderer, materials, ao, bloom, traffic, clouds };

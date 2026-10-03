@@ -60,6 +60,7 @@ export class Ads {
     // uv: position within the board (0-1); aAd: x poster index, y 1 for a screen, z seed
     this.material = new THREE.MeshStandardMaterial({ map: atlas(), roughness: 0.5 });
     this.material.onBeforeCompile = (shader) => {
+    shader.uniforms.uCloud = shared.uCloud;
       shader.uniforms.uNight = shared.uNight;
       shader.uniforms.uTime = shared.uTime;
       shader.vertexShader = shader.vertexShader

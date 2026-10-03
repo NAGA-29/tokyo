@@ -15,6 +15,8 @@ export const shared = {
   uOrtho: { value: null }, uOrthoRect: { value: new THREE.Vector4(0, 0, 1, 1) }, uOrthoOn: { value: 0 },
   // wall photos: the distances (m) between which a facade goes from generated to photo, and how much photo at most
   uPhotoRange: { value: new THREE.Vector2(140, 420) }, uPhotoMix: { value: 1 },
+  // clouds (src/world/clouds.js): drift x, drift z, cover, shadow strength
+  uCloud: { value: new THREE.Vector4(0, 0, 0, 0) },
 };
 
 
@@ -207,6 +209,7 @@ function facadeMaterial(tex) {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.0 });
   m.userData.photo = { value: NO_PHOTO }; m.userData.photoOn = { value: 0 };
   m.onBeforeCompile = (shader) => {
+    shader.uniforms.uCloud = shared.uCloud;
     Object.assign(shader.uniforms, {
       uPhoto: m.userData.photo, uPhotoOn: m.userData.photoOn, uPhotoRange: shared.uPhotoRange, uPhotoMix: shared.uPhotoMix,
       uNight: shared.uNight, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
@@ -284,6 +287,7 @@ const GROUND_MAIN = /* glsl */ `
 function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
   const m = new THREE.MeshStandardMaterial({ roughness: 0.92, ...params });
   m.onBeforeCompile = (shader) => {
+    shader.uniforms.uCloud = shared.uCloud;
     Object.assign(shader.uniforms, {
       uGroundAlb: { value: tex.ground.albedo }, uGroundNor: { value: tex.ground.normal },
       uGroundScale: { value: tex.ground.scales }, uFixedLayer: { value: fixedLayer },

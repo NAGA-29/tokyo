@@ -325,6 +325,7 @@ const TREES = [
 function leafMaterial(map, tint, recolor = false) {
   const m = new THREE.MeshStandardMaterial({ map, color: tint, alphaTest: 0.18, side: THREE.DoubleSide, roughness: 0.85 });
   m.onBeforeCompile = (shader) => {
+    shader.uniforms.uCloud = shared.uCloud;
     if (recolor) shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
       vec4 leaf = texture2D(map, vMapUv);
       diffuseColor.rgb *= 0.55 + 0.7 * dot(leaf.rgb, vec3(0.3, 0.6, 0.1));
