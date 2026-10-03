@@ -37,7 +37,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 1, 12000);
+const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 1, 60000);
 const controls = new MapControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.12;
@@ -55,6 +55,14 @@ const signs = new Signs();
 const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 3000 });
 const manifest = await streamer.init();
 const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
+// Beyond the area: plain ground in the grey of the area's own unbuilt land, out to the haze of the horizon.
+{
+  const b = manifest.bounds, plain = new THREE.Mesh(new THREE.CircleGeometry(50000, 64).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x8a8a86, roughness: 0.95, metalness: 0 }));
+  plain.position.set((b.minX + b.maxX) / 2, manifest.terrain.min - 1, (b.minZ + b.maxZ) / 2); // just under the lowest ground
+  plain.receiveShadow = true;
+  plain.name = 'plain';
+  scene.add(plain);
+}
 // post-processing: ambient occlusion, sky, aerial perspective, volumetric clouds, bloom, tone mapping
 const atmosphere = new Atmosphere(renderer, scene, camera, manifest.origin, manifest.bounds);
 env.sky.visible = false; // the atmosphere draws the sky (the environment map keeps its own)
