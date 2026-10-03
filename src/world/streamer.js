@@ -52,8 +52,13 @@ export class Streamer {
     const size = this.manifest.tileSize;
     for (const [key, t] of this.tiles) {
       if (t.state !== 'ready' || !t.trees) continue;
-      const tl = this.available.get(key);
-      const near = Math.hypot((tl.x + 0.5) * size - eye.x, (tl.z + 0.5) * size - eye.z) < this.props.constructor.lodDistance;
+      // Distance from the eye to the nearest point of the tile, so trees next to the camera are never the
+      // simple ones; a margin on the way out stops a tile flickering at the threshold.
+      const tl = this.available.get(key), x0 = tl.x * size, z0 = tl.z * size;
+      const dx = Math.max(x0 - eye.x, 0, eye.x - (x0 + size)), dz = Math.max(z0 - eye.z, 0, eye.z - (z0 + size));
+      const dy = Math.max(0, eye.y - this.ground(x0 + size / 2, z0 + size / 2) - 25);
+      const d = Math.hypot(dx, dy, dz), limit = this.props.constructor.lodDistance;
+      const near = t.trees.near.visible ? d < limit * 1.25 : d < limit;
       t.trees.near.visible = near; t.trees.far.visible = !near;
     }
     const dist = (tl) => Math.hypot((tl.x + 0.5) * size - focus.x, (tl.z + 0.5) * size - focus.z);
@@ -105,7 +110,7 @@ export class Streamer {
     let trees = null;
     if (props.length || wires.length) {
       trees = this.props.build(props, wires, (x, z) => this.ground(x, z));
-      trees.far.visible = false;
+      trees.near.visible = false; // update() picks the level of detail on the next frame
       group.add(trees.group);
     }
     if (buildings.position.length) {

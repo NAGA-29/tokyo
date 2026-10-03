@@ -7,7 +7,7 @@ import { Tree } from '@dgreenheck/ez-tree';
 import { PROP, DECAL } from '../shared/tileformat.js';
 import { shared } from './materials.js';
 
-const TREE_LOD_DISTANCE = 190; // metres from the camera to a tile centre; beyond it trees are simple blobs
+const TREE_LOD_DISTANCE = 160; // metres from the camera to the nearest point of a tile; beyond it trees are simple shapes
 
 // ---------------------------------------------------------------- geometry helpers
 function colored(geo, rgb) {
@@ -182,9 +182,11 @@ const TREES = [
 ];
 
 // Leaves: ez-tree's own leaf material moves vertices without the instance matrix, so it cannot be
-// instanced. This one keeps its texture and adds a sway that works per instance.
+// instanced. This one keeps its texture and adds a sway that works per instance. The alpha cutoff is
+// low on purpose: minified, the texture's averaged alpha drops, and at 0.5 the canopy would vanish
+// a few tens of metres away.
 function leafMaterial(map, tint) {
-  const m = new THREE.MeshStandardMaterial({ map, color: tint, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.85 });
+  const m = new THREE.MeshStandardMaterial({ map, color: tint, alphaTest: 0.18, side: THREE.DoubleSide, roughness: 0.85 });
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = shared.uTime;
     shader.vertexShader = shader.vertexShader
@@ -208,9 +210,8 @@ function buildTree(def) {
   const o = tree.options;
   o.seed = def.seed;
   // fewer, larger leaf cards: thousands of trees are drawn, not one hero tree
-  o.leaves.count = Math.max(3, Math.round(o.leaves.count * 0.3));
-  o.leaves.size *= 1.7;
-  o.leaves.billboard = 'single';
+  o.leaves.count = Math.max(4, Math.round(o.leaves.count * 0.55));
+  o.leaves.size *= 1.45;
   // thinner meshes: the presets are tuned for a single hero tree, we draw thousands
   for (const k of Object.keys(o.branch.sections)) o.branch.sections[k] = Math.max(3, Math.round(o.branch.sections[k] * 0.5));
   for (const k of Object.keys(o.branch.segments)) o.branch.segments[k] = Math.max(3, Math.round(o.branch.segments[k] * 0.6));
