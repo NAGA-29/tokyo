@@ -1,13 +1,9 @@
 // Procedural Tokyo client: streams the compiled city and renders it. Free camera for now; the car comes next.
 //
-// URL parameters: ?area=shibuya  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0  ?ortho=0
+// URL parameters: ?area=shibuya  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0  ?ortho=0  ?clouds=0.4 (cover)
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { N8AOPass } from 'n8ao';
 import GUI from 'lil-gui';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { makeProjection } from './shared/geo.js';
 import { createMaterials, shared } from './world/materials.js';
 import { loadTextures } from './world/textures.js';
@@ -20,6 +16,7 @@ import { Traffic } from './world/traffic.js';
 import { buildStructures } from './world/structures.js';
 import { loadOrtho } from './world/ortho.js';
 import { Environment } from './world/environment.js';
+import { Atmosphere } from './world/atmosphere.js';
 
 const params = new URLSearchParams(location.search);
 const AREA = params.get('area') || 'shibuya';
@@ -52,22 +49,17 @@ controls.enableZoom = false; // the wheel is handled below, with inertia
 const env = new Environment(scene, renderer);
 if (params.get('night') === '1') env.setNight(1);
 
-const composer = new EffectComposer(renderer);
-// Renders the scene and adds ambient occlusion: contact shading between buildings and the ground.
-const ao = new N8AOPass(scene, camera, innerWidth, innerHeight);
-Object.assign(ao.configuration, { aoRadius: 7, distanceFalloff: 1, intensity: 2.6, halfRes: true, gammaCorrection: false });
-ao.configuration.color = new THREE.Color(0.02, 0.02, 0.03);
-composer.addPass(ao);
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.2, 0.5, 0.85);
-composer.addPass(bloom);
-composer.addPass(new OutputPass());
-
 const materials = createMaterials(await loadTextures(renderer));
 const props = new Props();
 const signs = new Signs();
 const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 3000 });
 const manifest = await streamer.init();
 const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
+// post-processing: ambient occlusion, sky, aerial perspective, volumetric clouds, bloom, tone mapping
+const atmosphere = new Atmosphere(renderer, scene, camera, manifest.origin, manifest.bounds);
+env.sky.visible = false; // the atmosphere draws the sky (the environment map keeps its own)
+const ao = atmosphere.ao;
+if (params.get('clouds') != null) atmosphere.coverage = Number(params.get('clouds'));
 let orthoLoaded = false; // fills in when the tiles arrive
 if (params.get('ortho') !== '0') loadOrtho(`ortho/${AREA}`, proj, manifest.bounds, renderer).then((ok) => { orthoLoaded = ok; });
 const railways = await buildRailways(`tiles/${AREA}/${manifest.rails}`, (x, z) => streamer.ground(x, z), streamer.cover);
@@ -86,6 +78,7 @@ camera.position.copy(controls.target).add(new THREE.Vector3().setFromSphericalCo
 controls.update();
 
 // ---------------------------------------------------------------- control panel
+let guiState;
 {
   // the compiled areas (tools/pipeline/compile.mjs keeps the list); another city is another page load
   const areas = await fetch('tiles/areas.json').then((r) => (r.ok ? r.json() : null)).catch(() => null) ?? [{ id: AREA, name: manifest.name }];
@@ -98,9 +91,10 @@ controls.update();
     get photo() { return shared.uOrthoOn.value > 0; }, set photo(v) { shared.uOrthoOn.value = v && orthoLoaded ? 1 : 0; },
     get shadows() { return env.sun.castShadow; }, set shadows(v) { env.sun.castShadow = v; },
     get occlusion() { return ao.configuration.intensity > 0; }, set occlusion(v) { ao.configuration.intensity = v ? AO : 0; },
-    get bloom() { return bloom.enabled; }, set bloom(v) { bloom.enabled = v; },
+    bloom: true,
     get radius() { return streamer.radius; }, set radius(v) { streamer.radius = v; },
   };
+  guiState = state;
   const gui = new GUI({ title: 'Scene' });
   gui.add(state, 'city', Object.fromEntries(areas.map((a) => [a.name, a.id]))).onChange((id) => {
     const url = new URL(location.href);
@@ -112,6 +106,12 @@ controls.update();
   gui.add(state, 'traffic');
   gui.add(state, 'trains');
   gui.add(state, 'photo').name('aerial photo').listen();
+  const sky = gui.addFolder('Clouds');
+  sky.add(atmosphere, 'coverage', 0, 1, 0.05);
+  sky.add(atmosphere, 'base', 200, 2000, 50).name('base altitude (m)');
+  sky.add(atmosphere, 'overCity').name('over the city only');
+  sky.add(atmosphere, 'quality', ['low', 'medium', 'high', 'ultra']);
+  sky.add(atmosphere.clouds.localWeatherVelocity, 'x', 0, 0.02, 0.0005).name('wind');
   const walls = gui.addFolder('Wall photos');
   walls.add(shared.uPhotoMix, 'value', 0, 1, 0.05).name('amount');
   walls.add(shared.uPhotoRange.value, 'x', 0, 1000, 10).name('from (m)');
@@ -189,7 +189,7 @@ addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
-  composer.setSize(innerWidth, innerHeight);
+  atmosphere.setSize(innerWidth, innerHeight);
 });
 
 // ---------------------------------------------------------------- loop
@@ -216,8 +216,9 @@ function frame() {
   if (traffic.group.parent) traffic.update(dt, controls.target);
   env.update(dt);
   env.follow(controls.target, camera);
-  bloom.strength = env.bloom;
-  composer.render();
+  atmosphere.bloom.intensity = guiState.bloom ? env.bloom * 3 : 0;
+  atmosphere.update(env.sunDir, env.night);
+  atmosphere.render(dt);
 
   frames++; fpsTime += dt;
   if (fpsTime >= 0.5) { fps = frames / fpsTime; frames = 0; fpsTime = 0; }
@@ -234,4 +235,4 @@ function frame() {
 }
 requestAnimationFrame(frame);
 
-window.__app = { scene, camera, controls, streamer, env, renderer, materials, ao, bloom, traffic };
+window.__app = { scene, camera, controls, streamer, env, renderer, materials, ao, atmosphere, traffic };
