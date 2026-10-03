@@ -94,6 +94,28 @@ const OSM_QUERIES = {
   way["footway"="crossing"]({bb});
   node["amenity"="vending_machine"]({bb});
 );`,
+  // everything else that is drawn, with geometry: the pedestrian network, platforms, car parks, barriers,
+  // waterways, canopies, gates and small mapped objects
+  'osm_extra.json': `(
+  way["highway"~"^(footway|path|pedestrian|steps|cycleway)$"]({bb});
+  way["railway"="platform"]({bb});
+  way["public_transport"="platform"]({bb});
+  way["amenity"="parking"]({bb});
+  way["barrier"~"^(fence|hedge|wall|retaining_wall|guard_rail)$"]({bb});
+  way["waterway"~"^(river|stream|canal|ditch)$"]({bb});
+  way["man_made"~"^(bridge|ceremonial_gate)$"]({bb});
+  way["building"="roof"]({bb});
+  way["leisure"="swimming_pool"]({bb});
+  node["highway"="stop"]({bb});
+  node["railway"="level_crossing"]({bb});
+  node["man_made"="ceremonial_gate"]({bb});
+  node["emergency"="fire_hydrant"]({bb});
+  node["tourism"="information"]["information"~"^(map|board)$"]({bb});
+  node["leisure"="picnic_table"]({bb});
+  node["playground"]({bb});
+  way["building"]["building:colour"]({bb});
+  way["building"]["building:material"]({bb});
+);`,
   // named places (shops, restaurants, offices, named buildings) and street furniture, as points:
   // "out center" gives ways and relations a single coordinate
   'osm_poi.json': `(

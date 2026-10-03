@@ -10,7 +10,8 @@
 //   area     u8 kind | u8 reserved | u16 code | polygons
 //   prop     u8 kind | u8 variant | u16 rotation (0..65535 = 0..2 pi, about +y) | f32 x | f32 z | f32 scale
 //   wire     f32 x1 | f32 z1 | f32 x2 | f32 z2        (a span between two utility poles)
-//   wall     f32 x1 | f32 z1 | f32 x2 | f32 z2 | f32 deck   (a parapet along the edge of a bridge deck)
+//   wall     f32 x1 | f32 z1 | f32 x2 | f32 z2 | f32 deck   (a parapet along the edge of bridge deck `deck`;
+//            deck < 0: a barrier of type -deck on the ground, see BARRIER)
 //   sign     u8 style | u8 colour | u16 reserved | f32 x | f32 y | f32 z | f32 nx | f32 nz | f32 w | f32 h
 //            | u16 byte length | UTF-8 text       (x, y, z: centre; nx, nz: outward normal of the wall)
 //   polygons u16 nPolys | per polygon: u16 nRings | per ring: u32 nPts | nPts * (f32 x, f32 z)
@@ -24,13 +25,22 @@ export const VERSION = 5;
 export const BFLAG = { LOD2: 1, NO_SOLID: 2 };
 
 // Ground surface kinds. For roads, `code` keeps the PLATEAU function code for finer styling later.
-export const AREA = { ROAD: 0, CARRIAGEWAY: 1, SIDEWALK: 2, ISLAND: 3, OTHER: 4, PARK: 5, WOOD: 6, WATER: 7, PITCH: 8, MARK_WHITE: 9, MARK_YELLOW: 10 };
+export const AREA = { ROAD: 0, CARRIAGEWAY: 1, SIDEWALK: 2, ISLAND: 3, OTHER: 4, PARK: 5, WOOD: 6, WATER: 7, PITCH: 8, MARK_WHITE: 9, MARK_YELLOW: 10,
+  // footpaths (code 1: unpaved), outdoor stairs, car parks, tactile paving, swimming pools, pedestrian plazas
+  PATH: 11, STEPS: 12, PARKING: 13, TACTILE: 14, POOL: 15, PLAZA: 16,
+};
+// PITCH areas carry the sport in `code`.
+export const SPORT = { OTHER: 0, TENNIS: 1, TURF: 2, DIRT: 3 };
+// Barriers travel in the wall list with a negative type instead of a deck index.
+export const BARRIER = { FENCE: 2, WALL: 3, RETAINING: 4, HEDGE: 5, GUARD_RAIL: 6 };
 
 // Point objects placed by the compiler; the client instances a model per kind.
 export const PROP = {
   TREE: 0, POLE: 1, LIGHT: 2, VENDING: 3, SIGNAL: 4, DECAL: 5,
   // mapped street furniture (tools/pipeline/furniture.mjs)
   BUS_STOP: 6, BENCH: 7, BOLLARD: 8, POST_BOX: 9, PHONE: 10, SUBWAY: 11, STATUE: 12, BIKES: 13, SHRINE: 14,
+  // tools/pipeline/extras.mjs. PARKED: variant = vehicle type + 4 * colour.
+  PARKED: 15, HYDRANT: 16, INFO: 17, TABLE: 18, PLAY: 19, TORII: 20, RAIL_CROSSING: 21,
 };
 
 // Painted symbols on the road (PROP.DECAL variants). `rot` is the direction of travel that reads them.

@@ -6,6 +6,7 @@ import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometr
 import { Tree } from '@dgreenheck/ez-tree';
 import { PROP, DECAL } from '../shared/tileformat.js';
 import { shared } from './materials.js';
+import { parkedVehicles } from './traffic.js';
 
 const TREE_LOD_DISTANCE = 160; // metres from the camera to the nearest point of a tile; beyond it trees are simple shapes
 
@@ -144,6 +145,56 @@ const shrineGeometry = () => mergeGeometries([
   box(0.3, 0.7, 0.3, 0, 0.35, -0.9, STONE), box(0.42, 0.3, 0.42, 0, 0.85, -0.9, STONE), box(0.56, 0.1, 0.56, 0, 1.05, -0.9, STONE),
 ]);
 
+// ---- more mapped objects (tools/pipeline/extras.mjs)
+// A fire hydrant marker: the round red 消火栓 sign on a pole.
+const hydrantGeometry = () => mergeGeometries([
+  tube(0.035, 0.035, 2.6, 0, 0, 0, [0.85, 0.85, 0.82]),
+  colored(new THREE.CylinderGeometry(0.3, 0.3, 0.04, 18).rotateX(Math.PI / 2).translate(0, 2.4, 0), RED),
+  colored(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 16).rotateX(Math.PI / 2).translate(0, 2.4, 0), [0.95, 0.95, 0.92]),
+]);
+const infoGeometry = () => mergeGeometries([
+  tube(0.04, 0.04, 1.9, -0.55, 0, 0, STEEL), tube(0.04, 0.04, 1.9, 0.55, 0, 0, STEEL),
+  box(1.3, 0.95, 0.06, 0, 1.4, 0, [0.9, 0.9, 0.86]), box(1.1, 0.75, 0.07, 0, 1.4, 0, [0.35, 0.55, 0.45]),
+]);
+const tableGeometry = () => mergeGeometries([
+  box(1.6, 0.06, 0.75, 0, 0.74, 0, WOOD), box(1.6, 0.05, 0.28, 0, 0.44, 0.62, WOOD), box(1.6, 0.05, 0.28, 0, 0.44, -0.62, WOOD),
+  box(0.08, 0.74, 1.4, -0.6, 0.37, 0, STEEL), box(0.08, 0.74, 1.4, 0.6, 0.37, 0, STEEL),
+]);
+// Playground equipment: 0 a slide, 1 a swing.
+function playGeometry(variant) {
+  if (variant === 1) return mergeGeometries([
+    tube(0.04, 0.04, 2.2, -1.2, 0, 0, [0.2, 0.45, 0.75]), tube(0.04, 0.04, 2.2, 1.2, 0, 0, [0.2, 0.45, 0.75]),
+    box(2.5, 0.07, 0.07, 0, 2.2, 0, [0.2, 0.45, 0.75]),
+    ...[-0.5, 0.5].flatMap((x) => [box(0.02, 1.6, 0.02, x - 0.18, 1.4, 0, DARK), box(0.02, 1.6, 0.02, x + 0.18, 1.4, 0, DARK), box(0.42, 0.04, 0.2, x, 0.6, 0, [0.85, 0.2, 0.15])]),
+  ]);
+  return mergeGeometries([
+    box(0.9, 0.08, 0.9, 0, 1.5, -1.0, [0.9, 0.7, 0.1]), ...[[-0.4, -1.4], [0.4, -1.4], [-0.4, -0.6], [0.4, -0.6]].map(([x, z]) => tube(0.04, 0.04, 1.5, x, 0, z, [0.2, 0.45, 0.75])),
+    colored(new THREE.BoxGeometry(0.6, 0.05, 2.6).rotateX(-0.55).translate(0, 0.78, 0.55), [0.85, 0.2, 0.15]),
+  ]);
+}
+// Torii, 5 m between the pillars at scale 1: two pillars, the tie beam, and the lintel with its upturned ends.
+const toriiGeometry = () => {
+  const wood = [0.42, 0.3, 0.2];
+  return mergeGeometries([
+    tube(0.3, 0.26, 5.6, -2.5, 0, 0, wood, 14), tube(0.3, 0.26, 5.6, 2.5, 0, 0, wood, 14),
+    box(6.0, 0.36, 0.3, 0, 4.4, 0, wood), box(7.0, 0.42, 0.5, 0, 5.75, 0, wood), box(7.4, 0.2, 0.62, 0, 6.05, 0, wood),
+    colored(new THREE.BoxGeometry(0.9, 0.2, 0.62).rotateZ(0.22).translate(-3.9, 6.18, 0), wood),
+    colored(new THREE.BoxGeometry(0.9, 0.2, 0.62).rotateZ(-0.22).translate(3.9, 6.18, 0), wood),
+  ]);
+};
+// Level crossing: a warning mast each side of the road with the X sign and lamps, and the barrier arm raised.
+const railCrossingGeometry = () => {
+  const yellow = [0.92, 0.75, 0.1];
+  const parts = [];
+  for (const [x, z, s] of [[-3.6, -4.5, 1], [3.6, 4.5, -1]]) {
+    parts.push(tube(0.06, 0.06, 3.6, x, 0, z, yellow),
+      colored(new THREE.BoxGeometry(1.3, 0.14, 0.04).rotateZ(0.6).translate(x, 3.0, z), yellow), colored(new THREE.BoxGeometry(1.3, 0.14, 0.04).rotateZ(-0.6).translate(x, 3.0, z), yellow),
+      box(0.18, 0.18, 0.1, x - 0.25, 2.3, z, RED), box(0.18, 0.18, 0.1, x + 0.25, 2.3, z, RED),
+      colored(new THREE.BoxGeometry(0.07, 4.2, 0.07).rotateZ(0.25 * s).translate(x - 0.55 * s, 2.9, z), yellow), box(0.3, 1.0, 0.3, x, 0.5, z, [0.25, 0.25, 0.25]));
+  }
+  return mergeGeometries(parts);
+};
+
 function vendingGeometry() {
   return mergeGeometries([box(1.02, 1.83, 0.72, 0, 0.915, 0, [1, 1, 1]), box(1.06, 0.1, 0.76, 0, 0.05, 0, DARK)]);
 }
@@ -261,15 +312,23 @@ const TREES = [
   { preset: 'Oak Small', seed: 23, height: 8, tint: 0xc0d09a },
   { preset: 'Oak Medium', seed: 5, height: 13, tint: 0x9fb87f },
   { preset: 'Oak Large', seed: 42, height: 17, tint: 0x8fae78 },
+  // by genus (OSM): 4 ginkgo — tall and narrow, fresh green; 5 cherry — low and spreading, in blossom
+  { preset: 'Aspen Medium', seed: 7, height: 13, tint: 0xa9c24f, recolor: true },
+  { preset: 'Ash Small', seed: 31, height: 7, tint: 0xf4b6cf, recolor: true },
 ];
 
 // Leaves: ez-tree's own leaf material moves vertices without the instance matrix, so it cannot be
 // instanced. This one keeps its texture and adds a sway that works per instance. The alpha cutoff is
 // low on purpose: minified, the texture's averaged alpha drops, and at 0.5 the canopy would vanish
 // a few tens of metres away.
-function leafMaterial(map, tint) {
+// recolor: use only the brightness and outline of the leaf texture, and the tint as the colour (blossom).
+function leafMaterial(map, tint, recolor = false) {
   const m = new THREE.MeshStandardMaterial({ map, color: tint, alphaTest: 0.18, side: THREE.DoubleSide, roughness: 0.85 });
   m.onBeforeCompile = (shader) => {
+    if (recolor) shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
+      vec4 leaf = texture2D(map, vMapUv);
+      diffuseColor.rgb *= 0.55 + 0.7 * dot(leaf.rgb, vec3(0.3, 0.6, 0.1));
+      diffuseColor.a *= leaf.a;`);
     shader.uniforms.uTime = shared.uTime;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nuniform float uTime;')
@@ -282,7 +341,7 @@ function leafMaterial(map, tint) {
         float sway = 0.6 * sin(uTime * 1.3 + swayAt.x * 0.35 + swayAt.z * 0.27) + 0.3 * sin(uTime * 2.9 + swayAt.x * 1.1 + swayAt.y);
         transformed.xz += uv.y * sway * 0.07;`);
   };
-  m.customProgramCacheKey = () => 'leaves-v1';
+  m.customProgramCacheKey = () => (recolor ? 'leaves-recolor-v1' : 'leaves-v1');
   return m;
 }
 
@@ -305,7 +364,7 @@ function buildTree(def) {
     radius: (Math.max(size.x, size.z) * s) / 2, height: def.height,
     branches: prep(tree.branchesMesh), leaves: prep(tree.leavesMesh),
     branchMat: new THREE.MeshStandardMaterial({ map: tree.branchesMesh.material.map, roughness: 0.95 }),
-    leafMat: leafMaterial(tree.leavesMesh.material.map, def.tint),
+    leafMat: leafMaterial(tree.leavesMesh.material.map, def.tint, def.recolor),
   };
 }
 
@@ -344,7 +403,8 @@ export class Props {
       [PROP.BUS_STOP]: [busStopGeometry(false), busStopGeometry(true)], [PROP.BENCH]: [benchGeometry()],
       [PROP.BOLLARD]: [bollardGeometry()], [PROP.POST_BOX]: [postBoxGeometry()], [PROP.PHONE]: [phoneGeometry()],
       [PROP.SUBWAY]: [subwayGeometry()], [PROP.STATUE]: [0, 1, 2].map(statueGeometry), [PROP.BIKES]: [bikesGeometry()],
-      [PROP.SHRINE]: [shrineGeometry()],
+      [PROP.SHRINE]: [shrineGeometry()], [PROP.HYDRANT]: [hydrantGeometry()], [PROP.INFO]: [infoGeometry()], [PROP.TABLE]: [tableGeometry()],
+      [PROP.PLAY]: [playGeometry(0), playGeometry(1)], [PROP.TORII]: [toriiGeometry()], [PROP.RAIL_CROSSING]: [railCrossingGeometry()],
     };
     this.mats = {
       metal: std(), blob: std({ roughness: 0.95, metalness: 0 }),
@@ -385,7 +445,8 @@ export class Props {
     group.add(near, far);
     const by = new Map();
     for (let i = 0; i < props.length; i += 6) {
-      const key = props[i] * 16 + (props[i] === PROP.TREE || props[i] === PROP.POLE || this.furniture[props[i]] ? props[i + 1] : 0);
+      // one instanced mesh per kind and model; parked cars share a model per vehicle type (their variant also carries the colour)
+      const key = props[i] * 16 + (props[i] === PROP.PARKED ? props[i + 1] & 3 : props[i] === PROP.TREE || props[i] === PROP.POLE || this.furniture[props[i]] ? props[i + 1] : 0);
       if (!by.has(key)) by.set(key, []);
       by.get(key).push(i);
     }
@@ -426,6 +487,9 @@ export class Props {
         const body = instanced(rows, this.models.vending, this.mats.vending, { lift: 0.02 });
         rows.forEach((i, n) => body.setColorAt(n, new THREE.Color().setRGB(...VENDING_BODY[props[i + 1] % 4], THREE.SRGBColorSpace)));
         instanced(rows, this.models.quad, this.mats.panel, { lift: 0.02, shadow: false, local: [0, 0.97, 0.365], scale: () => [0.94, 1.66, 1] });
+      } else if (kind === PROP.PARKED) {
+        const kit = parkedVehicles(), mesh = instanced(rows, kit.models[variant % kit.models.length], kit.material, { lift: 0.05 });
+        rows.forEach((i, n) => mesh.setColorAt(n, new THREE.Color(kit.colors[(props[i + 1] >> 2) % kit.colors.length])));
       } else if (this.furniture[kind]) {
         const models = this.furniture[kind];
         instanced(rows, models[variant % models.length], this.mats.metal, { lift: 0.12 });

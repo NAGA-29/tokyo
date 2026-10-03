@@ -1,7 +1,7 @@
 // Green space, water and street objects: OSM areas -> ground polygons, and the placement of props
 // (trees, utility poles and their wires, street lights, vending machines).
 import fs from 'node:fs';
-import { AREA, PROP } from '../../src/shared/tileformat.js';
+import { AREA, PROP, SPORT } from '../../src/shared/tileformat.js';
 
 // ---------------------------------------------------------------- spatial index
 // Point-in-polygon queries over many polygons ([outer, ...holes], rings of [x, z]).
@@ -49,6 +49,11 @@ function landKind(t) {
   return null;
 }
 
+const sportOf = (t) => (/tennis/.test(t.sport ?? '') ? SPORT.TENNIS : /soccer|futsal|multi|american_football|rugby/.test(t.sport ?? '') ? SPORT.TURF
+  : /baseball|softball/.test(t.sport ?? '') ? SPORT.DIRT : SPORT.OTHER);
+// Tree models by genus: 1 ginkgo, 2 cherry, 0 anything else (see TREES in src/world/props.js).
+const genusOf = (t) => { const g = `${t.genus ?? ''} ${t.species ?? ''} ${t['species:ja'] ?? ''}`.toLowerCase(); return /ginkgo|イチョウ/.test(g) ? 1 : /cerasus|prunus|サクラ|桜/.test(g) ? 2 : 0; };
+
 // Joins the outer member ways of a multipolygon relation into closed rings of node ids.
 function stitch(ways) {
   const rings = [], pool = ways.map((w) => [...w]);
@@ -85,21 +90,21 @@ export function readLand(file) {
       if (kind == null) continue;
       const outers = e.members.filter((m) => m.type === 'way' && m.role !== 'inner' && ways.has(m.ref)).map((m) => ways.get(m.ref).nodes);
       e.members.forEach((m) => inRelation.add(m.ref));
-      for (const ring of stitch(outers)) out.areas.push({ kind, ring: ll(ring) });
+      for (const ring of stitch(outers)) out.areas.push({ kind, ring: ll(ring), code: sportOf(t) });
     }
   }
   for (const e of elements) {
     const t = e.tags ?? {};
     if (e.type === 'node') {
-      if (t.natural === 'tree') out.trees.push([e.lon, e.lat]);
+      if (t.natural === 'tree') out.trees.push([e.lon, e.lat, genusOf(t)]);
       else if (t.amenity === 'vending_machine') out.vending.push([e.lon, e.lat]);
       else if (t.highway === 'traffic_signals' && t.traffic_signals !== 'no') out.signals.push(e.id);
       else if (t.highway === 'crossing' && t.crossing !== 'unmarked' && t.crossing !== 'no') out.crossingNodes.push({ id: e.id, lon: e.lon, lat: e.lat });
     } else if (e.type === 'way') {
-      if (t.natural === 'tree_row') { out.treeRows.push(ll(e.nodes)); continue; }
+      if (t.natural === 'tree_row') { const row = ll(e.nodes); row.genus = genusOf(t); out.treeRows.push(row); continue; }
       if (t.footway === 'crossing') { if (t.crossing !== 'unmarked' && t.crossing !== 'no') out.crossings.push(ll(e.nodes)); continue; }
       const kind = landKind(t);
-      if (kind != null && e.nodes[0] === e.nodes.at(-1) && e.nodes.length >= 4) out.areas.push({ kind, ring: ll(e.nodes) });
+      if (kind != null && e.nodes[0] === e.nodes.at(-1) && e.nodes.length >= 4) out.areas.push({ kind, ring: ll(e.nodes), code: sportOf(t) });
     }
   }
   return out;
@@ -136,16 +141,16 @@ export function placeProps({ land, trees, treeRows, vending, edges, idx, inBound
   const props = [], wires = [];
   const taken = new Set();
   const free = (x, z, cell) => { const k = Math.floor(x / cell) + ',' + Math.floor(z / cell); if (taken.has(k)) return false; taken.add(k); return true; };
-  const tree = (x, z, street) => {
+  const tree = (x, z, street, genus = 0) => {
     if (!inBounds(x, z) || idx.building.has(x, z) || idx.carriageway.has(x, z) || idx.water.has(x, z) || !free(x, z, 3.5)) return;
     const h = hash(x * 10, z * 10, 1);
     // street trees are smaller, pruned shapes (variants 0-1); park trees use every variant
-    props.push({ kind: PROP.TREE, variant: street ? Math.floor(h * 2) : Math.floor(h * 4), rot: h * 40, x, z, scale: street ? 0.6 + 0.3 * hash(x, z, 2) : 0.75 + 0.6 * hash(x, z, 2) });
+    props.push({ kind: PROP.TREE, variant: genus ? 3 + genus : street ? Math.floor(h * 2) : Math.floor(h * 4), rot: h * 40, x, z, scale: street ? 0.6 + 0.3 * hash(x, z, 2) : 0.75 + 0.6 * hash(x, z, 2) });
   };
 
   // mapped trees and tree rows
-  for (const [x, z] of trees) tree(x, z, true);
-  for (const row of treeRows) forEachAlong(row, 7, (x, z) => tree(x, z, true));
+  for (const [x, z, genus] of trees) tree(x, z, true, genus);
+  for (const row of treeRows) forEachAlong(row, 7, (x, z) => tree(x, z, true, row.genus));
 
   // parks and woods: a jittered grid inside each polygon
   for (const { kind, ring } of land) {

@@ -16,6 +16,7 @@ import { Signs } from './world/signs.js';
 import { buildRailways } from './world/rails.js';
 import { buildFlyovers } from './world/flyovers.js';
 import { Traffic } from './world/traffic.js';
+import { buildStructures } from './world/structures.js';
 import { Environment } from './world/environment.js';
 
 const params = new URLSearchParams(location.search);
@@ -68,6 +69,7 @@ const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
 const railways = await buildRailways(`tiles/${AREA}/${manifest.rails}`, (x, z) => streamer.ground(x, z), streamer.cover);
 scene.add(railways);
 scene.add(await buildFlyovers(`tiles/${AREA}/${manifest.roads}`, (x, z) => streamer.ground(x, z)));
+if (manifest.structures) scene.add(await buildStructures(`tiles/${AREA}/${manifest.structures}`, (x, z) => streamer.ground(x, z)));
 const traffic = new Traffic(await (await fetch(`tiles/${AREA}/${manifest.roads}`)).json(), streamer.surface);
 if (params.get('traffic') !== '0') scene.add(traffic.group);
 document.getElementById('credits').textContent = manifest.attribution.map((a) => a.split(' (')[0]).join(' · ');

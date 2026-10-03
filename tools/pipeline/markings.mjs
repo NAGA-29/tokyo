@@ -149,16 +149,32 @@ export function buildMarkings({ edges, pos, idx, land, inBounds }) {
     }
     return null;
   };
-  const SIDE = new Set(['residential', 'unclassified', 'living_street']);
-  for (const e of edges) {
-    if (!SIDE.has(e.highway) || e.bridge || e.tunnel) continue;
+  // The stops to paint: [edge, at its end?, distance of the stop line from that end]. OSM maps stop signs as
+  // nodes on the road (highway=stop); without any, guess: side streets meeting a main road without signals.
+  const stops = [];
+  for (const id of land.stops ?? []) for (const { e, i } of at.get(id) ?? []) {
+    if (e.bridge || e.tunnel) continue;
     const pts = e.ids.map(pos);
+    let before = 0, total = 0;
+    for (let k = 1; k < pts.length; k++) { const d = Math.hypot(pts[k][0] - pts[k - 1][0], pts[k][1] - pts[k - 1][1]); total += d; if (k <= i) before += d; }
+    // the sign faces whoever is driving to the nearer end of the road
+    const atEnd = total - before <= before ? e.oneway !== -1 : e.oneway === 1;
+    stops.push([e, atEnd, atEnd ? total - before : before]);
+  }
+  const SIDE = new Set(['residential', 'unclassified', 'living_street']);
+  if (!stops.length) for (const e of edges) {
+    if (!SIDE.has(e.highway) || e.bridge || e.tunnel) continue;
     for (const atEnd of [true, false]) {
       if (atEnd ? e.oneway === -1 : e.oneway === 1) continue; // nobody arrives at this end
       const id = atEnd ? e.ids.at(-1) : e.ids[0];
       if ((degree.get(id) ?? 0) < 3 || signalled.has(id)) continue;
-      if (!(at.get(id) ?? []).some((o) => o.e !== e && MAJOR.has(o.e.highway.replace('_link', '')))) continue;
-      const text = pointBack(pts, atEnd, 11), line = pointBack(pts, atEnd, 6.5);
+      if ((at.get(id) ?? []).some((o) => o.e !== e && MAJOR.has(o.e.highway.replace('_link', '')))) stops.push([e, atEnd, 6.5]);
+    }
+  }
+  for (const [e, atEnd, back] of stops) {
+    const pts = e.ids.map(pos);
+    {
+      const text = pointBack(pts, atEnd, back + 4.5), line = pointBack(pts, atEnd, Math.max(0.5, back));
       if (!text || !line) continue;
       for (const [x, z, dx, dz, isLine] of [[...text, false], [...line, true]]) {
         const nx = -dz, nz = dx; // right of travel
@@ -200,6 +216,13 @@ export function buildMarkings({ edges, pos, idx, land, inBounds }) {
     const [ax, az] = run[0], [bx, bz, dx, dz] = run.at(-1);
     const cx = (ax + bx) / 2, cz = (az + bz) / 2, half = Math.hypot(bx - ax, bz - az) / 2 + 0.45;
     zebraAt.push([cx, cz]);
+    // tactile paving (the yellow studded blocks) on the sidewalk at both ends of the crossing
+    for (const [ex, ez, s] of [[ax, az, -1], [bx, bz, 1]]) {
+      const tx = ex + dx * s * 1.15, tz = ez + dz * s * 1.15, px = -dz, pz = dx;
+      if (idx.carriageway.has(tx, tz) || idx.building.has(tx, tz)) continue;
+      marks.push({ kind: AREA.TACTILE, ring: [[tx - dx * 0.3 - px * 1.5, tz - dz * 0.3 - pz * 1.5], [tx + dx * 0.3 - px * 1.5, tz + dz * 0.3 - pz * 1.5],
+        [tx + dx * 0.3 + px * 1.5, tz + dz * 0.3 + pz * 1.5], [tx - dx * 0.3 + px * 1.5, tz - dz * 0.3 + pz * 1.5]] });
+    }
     // Stop lines: 2.5 m before the bars, across the left half of the road (left-hand traffic),
     // only on the side facing away from the junction.
     const rx = -dz, rz = dx, j = nearestJunction(cx, cz, 35);

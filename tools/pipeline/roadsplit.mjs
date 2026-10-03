@@ -3,7 +3,7 @@
 // width its lanes need, clipped to the outline; what is left of the outline is sidewalk.
 // Where two one-way carriageways share an outline, the strip between them comes out as a median.
 import polygonClipping from 'polygon-clipping';
-import { forEachAlong } from './landscape.mjs';
+import { forEachAlong, inRings } from './landscape.mjs';
 
 const LANE = 3.0;        // lane width (m)
 const MIN_SIDEWALK = 1.5; // narrower leftovers are not worth a kerb: the street is carriageway wall to wall
@@ -24,7 +24,11 @@ function fromClip(multi, minArea) {
 // edges: road graph edges ({ ids, lanes, oneway, highway, bridge, tunnel }); pos: node id -> [x, z];
 // idxRoad: PolyIndex of all road outlines; outlines: [[outer, ...holes]] of the outline-only roads.
 // Returns { carriageway: [polygon], sidewalk: [polygon], untouched: number }.
-export function splitOutlineRoads({ outlines, edges, pos, idxRoad }) {
+// walkLines: pedestrian streets and footpaths ([[x, z], ...]): an outline with no road for cars but one of
+// these running through it is a pedestrian street, paved like a sidewalk.
+export function splitOutlineRoads({ outlines, edges, pos, idxRoad, walkLines = [] }) {
+  const walkPoints = [];
+  for (const line of walkLines) forEachAlong(line, 4, (x, z) => walkPoints.push([x, z]), 1);
   // 1. a buffer around every surface road, as convex pieces (a box per segment, an octagon per vertex)
   const pieces = [], cell = 40, grid = new Map();
   const add = (ring) => {
@@ -70,7 +74,7 @@ export function splitOutlineRoads({ outlines, edges, pos, idxRoad }) {
   }
 
   // 2. clip each outline against the buffers that touch it
-  const out = { carriageway: [], sidewalk: [], untouched: 0, failed: 0 };
+  const out = { carriageway: [], sidewalk: [], untouched: 0, pedestrian: 0, failed: 0 };
   for (const rings of outlines) {
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
     for (const [x, z] of rings[0]) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
@@ -80,7 +84,11 @@ export function splitOutlineRoads({ outlines, edges, pos, idxRoad }) {
         for (const p of grid.get(i + ',' + j) ?? []) if (p.x1 >= x0 && p.x0 <= x1 && p.z1 >= z0 && p.z0 <= z1) near.add(p);
     const subject = [rings.map(close)];
     // no road runs through it (a forecourt, a lane OSM does not have): leave it as plain road surface
-    if (!near.size) { out.untouched++; out.carriageway.push(rings); continue; }
+    if (!near.size) {
+      const walked = walkPoints.some(([x, z]) => x >= x0 && x <= x1 && z >= z0 && z <= z1 && inRings(x, z, rings));
+      if (walked) { out.pedestrian++; out.sidewalk.push(rings); } else { out.untouched++; out.carriageway.push(rings); }
+      continue;
+    }
     try {
       const buffer = polygonClipping.union(...[...near].map((p) => p.poly));
       out.carriageway.push(...fromClip(polygonClipping.intersection(subject, buffer), 1));

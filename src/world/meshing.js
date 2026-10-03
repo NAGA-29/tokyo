@@ -1,7 +1,7 @@
 // Tile meshing: decoded tile + terrain grid -> typed arrays for three.js BufferGeometry.
 // Pure functions with no three.js dependency, so they run in the tile worker (and in Node tests).
 import earcut from 'earcut';
-import { AREA } from '../shared/tileformat.js';
+import { AREA, SPORT, BARRIER } from '../shared/tileformat.js';
 import { sampleGrid } from '../shared/terrain.js';
 import { KIND, CAT, WALL, GROUND } from './constants.js';
 import { deckOf } from '../shared/decks.js';
@@ -87,6 +87,28 @@ const ROAD_STYLE = {
   [AREA.WATER]: { lift: 0.08, color: lin([0.16, 0.25, 0.26]), layer: GROUND.WATER },
   [AREA.MARK_WHITE]: { lift: 0.15, color: lin([0.9, 0.9, 0.87]), layer: GROUND.CONCRETE },
   [AREA.MARK_YELLOW]: { lift: 0.15, color: lin([0.88, 0.66, 0.12]), layer: GROUND.CONCRETE },
+  [AREA.PATH]: { lift: 0.035, color: lin([0.7, 0.68, 0.63]), layer: GROUND.CONCRETE },
+  [AREA.STEPS]: { lift: 0.05, color: lin([0.6, 0.6, 0.58]), layer: GROUND.PAVERS },
+  [AREA.PARKING]: { lift: 0.03, color: lin([0.36, 0.36, 0.37]), layer: GROUND.ASPHALT },
+  [AREA.TACTILE]: { lift: 0.24, color: lin([0.92, 0.74, 0.1]), layer: GROUND.PAVERS },   // on top of the sidewalk
+  [AREA.POOL]: { lift: 0.06, color: lin([0.3, 0.62, 0.74]), layer: GROUND.WATER },
+  [AREA.PLAZA]: { lift: 0.21, color: lin([0.66, 0.64, 0.6]), layer: GROUND.PAVERS },
+};
+// variants selected by the area's code
+const UNPAVED_PATH = { lift: 0.035, color: lin([0.62, 0.55, 0.42]), layer: GROUND.CONCRETE };
+const COURTS = {
+  [SPORT.TENNIS]: { lift: 0.03, color: lin([0.22, 0.42, 0.36]), layer: GROUND.CONCRETE },
+  [SPORT.TURF]: { lift: 0.03, color: lin([0.3, 0.5, 0.25]), layer: GROUND.GRASS },
+  [SPORT.DIRT]: { lift: 0.03, color: lin([0.6, 0.48, 0.34]), layer: GROUND.CONCRETE },
+};
+const styleOf = (a) => (a.kind === AREA.PITCH && COURTS[a.code]) || (a.kind === AREA.PATH && a.code === 1 && UNPAVED_PATH) || ROAD_STYLE[a.kind] || ROAD_STYLE[AREA.OTHER];
+// barriers: [height, width (0 = a thin panel), colour, layer]
+const BARRIERS = {
+  [BARRIER.FENCE]: [1.3, 0, lin([0.5, 0.52, 0.53]), GROUND.CONCRETE],
+  [BARRIER.WALL]: [1.8, 0.2, lin([0.72, 0.71, 0.68]), GROUND.CONCRETE],
+  [BARRIER.RETAINING]: [2.2, 0.3, lin([0.6, 0.6, 0.58]), GROUND.CONCRETE],
+  [BARRIER.HEDGE]: [1.3, 0.8, lin([0.22, 0.36, 0.17]), GROUND.GRASS],
+  [BARRIER.GUARD_RAIL]: [0.8, 0, lin([0.86, 0.86, 0.84]), GROUND.CONCRETE],
 };
 const isPaint = (a) => a.kind === AREA.MARK_WHITE || a.kind === AREA.MARK_YELLOW;
 const KERB = { color: lin([0.68, 0.68, 0.66]), layer: GROUND.CONCRETE, foot: 0.03 };
@@ -139,10 +161,28 @@ export function roadMesh(areas, grid, surface, walls = []) {
     for (const [quad, sign] of [[[a, b, c, a, c, d], 1], [[b, a, d, b, d, c], -1]])
       for (const p of quad) { pos.push(...p); nor.push(n[0] * sign, 0, n[2] * sign); col.push(...KERB.color); lay.push(KERB.layer); }
   };
-  for (let i = 0; i < walls.length; i += 5) { deck = walls[i + 4]; parapet(walls[i], walls[i + 1], walls[i + 2], walls[i + 3]); }
+  // A barrier standing on the ground: a thin panel seen from both sides, or a box with a top for hedges and walls.
+  const barrier = (x0, z0, x1, z1, type) => {
+    if (long([x0, z0], [x1, z1])) { const [mx, mz] = mid([x0, z0], [x1, z1]); barrier(x0, z0, mx, mz, type); barrier(mx, mz, x1, z1, type); return; }
+    const [h, w, color, layer] = BARRIERS[type] ?? BARRIERS[BARRIER.FENCE];
+    const len = Math.hypot(x1 - x0, z1 - z0) || 1, nx = -(z1 - z0) / len, nz = (x1 - x0) / len;
+    const face = (ox, oz, sign) => {
+      const ax = x0 + nx * ox, az = z0 + nz * oz, bx = x1 + nx * ox, bz = z1 + nz * oz, ya = sampleGrid(grid, x0, z0), yb = sampleGrid(grid, x1, z1);
+      const a = [ax, ya - 0.2, az], b = [bx, yb - 0.2, bz], c = [bx, yb + h, bz], d = [ax, ya + h, az];
+      for (const p of sign > 0 ? [a, b, c, a, c, d] : [b, a, d, b, d, c]) { pos.push(...p); nor.push(nx * sign, 0, nz * sign); col.push(...color); lay.push(layer); }
+      return [d, c];
+    };
+    const [d1, c1] = face(w / 2, w / 2, 1), [d2, c2] = face(-w / 2, -w / 2, -1);
+    if (w) for (const p of [d2, c2, c1, d2, c1, d1]) { pos.push(...p); nor.push(0, 1, 0); col.push(...color); lay.push(layer); }
+  };
+  for (let i = 0; i < walls.length; i += 5) {
+    deck = walls[i + 4];
+    if (deck < 0) barrier(walls[i], walls[i + 1], walls[i + 2], walls[i + 3], -deck);
+    else parapet(walls[i], walls[i + 1], walls[i + 2], walls[i + 3]);
+  }
   for (const a of areas) {
     deck = deckOf(a.code);
-    const style = ROAD_STYLE[a.kind] ?? ROAD_STYLE[AREA.OTHER];
+    const style = styleOf(a);
     for (const rings of a.polygons) {
       for (const [p, q, r] of triangulate(rings)) subdivide(p, q, r, style, 0);
       if (style.kerb) for (const ring of rings) {

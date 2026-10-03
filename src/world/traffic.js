@@ -54,7 +54,14 @@ const TYPES = [
 const CAR_COLORS = [0xd4d4d0, 0xd4d4d0, 0x111214, 0x111214, 0xa4a7ab, 0xa4a7ab, 0x6d7278, 0x1f3a6e, 0x8c1c1c, 0xc4b68f]; // (white kept off full brightness: it blooms)
 const BUS_COLORS = [0x2e8b57, 0xe8e4d8, 0xc0392b];
 
-function carMaterial() {
+// Vehicle models for cars parked in car parks (props.js): geometries by type, the paint material, colours.
+let parkedKit = null;
+export function parkedVehicles() {
+  parkedKit ??= { models: TYPES.slice(0, 3).map((t) => vehicle(t.spec)), material: carMaterial(false), colors: [0xd4d4d0, 0x111214, 0xa4a7ab, 0x1f3a6e] };
+  return parkedKit;
+}
+
+function carMaterial(lit = true) {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.35 });
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uNight = shared.uNight;
@@ -68,9 +75,9 @@ function carMaterial() {
         vec3 lamp = vGlow > 1.5 ? vec3(0.9, 0.03, 0.02) : vec3(1.0, 0.96, 0.85);
         if (vGlow > 0.5) diffuseColor.rgb = lamp * 0.6;`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        if (vGlow > 0.5) totalEmissiveRadiance += lamp * (0.15 + uNight * (vGlow > 1.5 ? 1.6 : 3.0));`);
+        if (vGlow > 0.5) totalEmissiveRadiance += lamp * (0.15 + uNight * ${lit ? '(vGlow > 1.5 ? 1.6 : 3.0)' : '0.0'});`);
   };
-  m.customProgramCacheKey = () => 'car-v1';
+  m.customProgramCacheKey = () => (lit ? 'car-v1' : 'car-parked-v1');
   return m;
 }
 

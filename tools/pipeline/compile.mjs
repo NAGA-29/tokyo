@@ -5,6 +5,7 @@
 //                   poles, lights, signals) and wires (format: src/shared/tileformat.js)
 //   roads.json      drivable road graph from OSM (junction nodes + polyline edges; y = road level, above the
 //                   ground on bridges and the elevated expressway)
+//   structures.json footbridges, station platforms and canopies (tools/pipeline/extras.mjs)
 //   rails.json      surface and elevated railway lines from OSM, with their height profile (y = track bed)
 // Usage: node tools/pipeline/compile.mjs [--area=shibuya] [--ads]   (--ads: add invented billboards and screens)
 import fs from 'node:fs';
@@ -21,6 +22,9 @@ import { splitOutlineRoads } from './roadsplit.mjs';
 import { profileRailways } from './rails.mjs';
 import { readPlaces, placeSigns, placeAds } from './signs.mjs';
 import { placeFurniture } from './furniture.mjs';
+import { readExtra, buildExtras } from './extras.mjs';
+import { SPORT } from '../../src/shared/tileformat.js';
+import { inRings } from './landscape.mjs';
 import { profileRoads, flyover, BANK } from './roadprofile.mjs';
 import { DECK_FLAG, CORRIDOR_MARGIN, projectOnDeck } from '../../src/shared/decks.js';
 
@@ -272,7 +276,11 @@ log(`railways: ${portals} portals where tracks pass through buildings`);
 log(`railways (OSM): ${rails.length} lines (${rails.filter((r) => r.bridge).length} elevated sections)`);
 
 // Roads PLATEAU maps only as an outline get their carriageway from the OSM centrelines; the rest is sidewalk.
-const split = splitOutlineRoads({ outlines: outlineOnly, edges: graph.edges, pos: graph.pos, idxRoad: idx.road });
+const extraRaw = readExtra(path.join(area.rawDir, 'osm_extra.json'), proj.project);
+// pedestrian streets and paths in the open, as lines (stairs, bridges and passages are not streets)
+const walkLines = extraRaw.ways.filter((w) => ['pedestrian', 'footway', 'path'].includes(w.tags.highway) && !w.closed && !w.tags.bridge && !w.tags.tunnel
+  && w.tags.indoor !== 'yes' && !['sidewalk', 'crossing', 'link'].includes(w.tags.footway)).map((w) => w.pts);
+const split = splitOutlineRoads({ outlines: outlineOnly, edges: graph.edges, pos: graph.pos, idxRoad: idx.road, walkLines });
 for (const [kind, polys, index] of [[AREA.CARRIAGEWAY, split.carriageway, idx.carriageway], [AREA.SIDEWALK, split.sidewalk, idx.sidewalk]]) {
   for (const rings of polys) {
     const polygon = rings.map((r) => r.map(([x, z]) => [r2(x), r2(z)]));
@@ -282,34 +290,56 @@ for (const [kind, polys, index] of [[AREA.CARRIAGEWAY, split.carriageway, idx.ca
   }
 }
 log(`outline-only roads: ${outlineOnly.length} polygons -> ${split.carriageway.length} carriageway, ${split.sidewalk.length} sidewalk pieces` +
-  ` (${split.untouched} without an OSM road, ${split.failed} failed to clip)`);
+  ` (${split.pedestrian} pedestrian streets, ${split.untouched} without any OSM way, ${split.failed} failed to clip)`);
 
 // ---------------------------------------------------------------- land cover, paint, props
 const landRaw = readLand(path.join(area.rawDir, 'osm_land.json'));
 const xz = (ll) => ll.map(([lon, lat]) => proj.project(lon, lat));
-const land = landRaw.areas.map(({ kind, ring }) => {
+const land = landRaw.areas.map(({ kind, ring, code }) => {
   const r = xz(ring).slice(0, -1); // drop the closing point
   if (areaEN(r) < 0) r.reverse();
-  return { kind, ring: r };
+  return { kind, ring: r, code: kind === AREA.PITCH ? code : 0 };
 }).filter((a) => a.ring.length >= 3 && Math.abs(areaEN(a.ring)) > 4);
 for (const a of land) if (a.kind === AREA.WATER) idx.water.add([a.ring]);
 // Large areas (a park can span a kilometre) are cut at tile edges so they stream with their tile.
 const lstats = {};
-for (const { kind, ring } of land) {
+const pushClipped = (kind, ring, code = 0) => {
   let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
   for (const [x, z] of ring) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); }
-  lstats[kind] = (lstats[kind] ?? 0) + 1;
   for (let tx = Math.floor(Math.max(x0, minX) / TILE); tx <= Math.floor(Math.min(x1, maxX) / TILE); tx++)
     for (let tz = Math.floor(Math.max(z0, minZ) / TILE); tz <= Math.floor(Math.min(z1, maxZ) / TILE); tz++) {
       const piece = clipRing(ring, tx * TILE, tz * TILE, (tx + 1) * TILE, (tz + 1) * TILE);
       if (!piece || Math.abs(areaEN(piece)) < 1) continue;
-      tileFor((tx + 0.5) * TILE, (tz + 0.5) * TILE).areas.push({ kind, code: 0, polygons: [[piece.map(([x, z]) => [r2(x), r2(z)])]] });
+      tileFor((tx + 0.5) * TILE, (tz + 0.5) * TILE).areas.push({ kind, code, polygons: [[piece.map(([x, z]) => [r2(x), r2(z)])]] });
     }
+};
+const courtLines = [];
+for (const { kind, ring, code } of land) {
+  lstats[kind] = (lstats[kind] ?? 0) + 1;
+  pushClipped(kind, ring, code);
+  // a tennis court gets its lines: the outline, the net and the service boxes, fitted to the pitch
+  if (kind === AREA.PITCH && code === SPORT.TENNIS) {
+    let best = null;
+    for (let i = 0; i < ring.length; i++) {
+      const [ax, az] = ring[i], [bx, bz] = ring[(i + 1) % ring.length], len = Math.hypot(bx - ax, bz - az);
+      if (!best || len > best.len) best = { len, dx: (bx - ax) / (len || 1), dz: (bz - az) / (len || 1) };
+    }
+    const cx = ring.reduce((s, p) => s + p[0], 0) / ring.length, cz = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+    const { dx, dz } = best, at = (u, v) => [cx + dx * u - dz * v, cz + dz * u + dx * v];
+    const line = (u0, v0, u1, v1) => { const w = 0.05, along = Math.abs(u1 - u0) > Math.abs(v1 - v0); courtLines.push(along ? [at(u0, v0 - w), at(u1, v0 - w), at(u1, v0 + w), at(u0, v0 + w)] : [at(u0 - w, v0), at(u0 + w, v0), at(u0 + w, v1), at(u0 - w, v1)]); };
+    const L = 11.885, W = 5.485, S = 4.115; // half length, half width (doubles), half width (singles)
+    if ([at(-L, -W), at(L, -W), at(L, W), at(-L, W)].every(([x, z]) => inRings(x, z, [ring]))) { // only where a full court fits
+      for (const v of [-W, -S, S, W]) line(-L, v, L, v);
+      for (const u of [-L, -6.4, 0, 6.4, L]) line(u, Math.abs(u) === 6.4 ? -S : -W, u, Math.abs(u) === 6.4 ? S : W);
+      line(-6.4, 0, 6.4, 0);
+    }
+  }
 }
 const kindName = Object.fromEntries(Object.entries(AREA).map(([k, v]) => [v, k.toLowerCase()]));
 log(`land cover (OSM): ${Object.entries(lstats).map(([k, v]) => `${kindName[k]} ${v}`).join(', ')}`);
 
 const worldLand = {
+  stops: extraRaw.points.filter((p) => p.tags.highway === 'stop').map((p) => p.id),
   crossings: landRaw.crossings.map(xz), signals: landRaw.signals,
   crossingNodes: landRaw.crossingNodes,
 };
@@ -348,11 +378,33 @@ for (const t of tiles.values()) {
 }
 log(`street bridges: ${decks.length} decks, ${deckAreas} polygons on them, ${deckWalls} parapet segments`);
 
+// ---- everything else OSM maps: paths, stairs, platforms, car parks, barriers, water, gates, small objects
+const roadAt = new Map();
+for (const e of graph.edges) e.ids.forEach((id, i) => {
+  const p = graph.pos(e.ids[Math.max(0, i - 1)]), q = graph.pos(e.ids[Math.min(e.ids.length - 1, i + 1)]), l = Math.hypot(q[0] - p[0], q[1] - p[1]) || 1;
+  roadAt.set(id, { dx: (q[0] - p[0]) / l, dz: (q[1] - p[1]) / l });
+});
+const extras = buildExtras(extraRaw, { idx, ground, inBounds, rails, roadAt });
+const centre = (ring) => [ring.reduce((s, p) => s + p[0], 0) / ring.length, ring.reduce((s, p) => s + p[1], 0) / ring.length];
+const rounded = (ring) => { const r = ring.map(([x, z]) => [r2(x), r2(z)]); if (areaEN(r) < 0) r.reverse(); return r; };
+for (const a of extras.areas) {
+  if (a.clip) { pushClipped(a.kind, a.ring, a.code); continue; }
+  const [cx, cz] = centre(a.ring);
+  if (inBounds(cx, cz)) tileFor(cx, cz).areas.push({ kind: a.kind, code: a.code, polygons: [[rounded(a.ring)]] });
+}
+for (const m of [...extras.marks, ...courtLines.map((ring) => ({ kind: AREA.MARK_WHITE, ring }))]) {
+  const [cx, cz] = centre(m.ring);
+  if (inBounds(cx, cz)) tileFor(cx, cz).areas.push({ kind: m.kind, code: 0, polygons: [[rounded(m.ring)]] });
+}
+for (const b of extras.barriers) tileFor((b[0] + b[2]) / 2, (b[1] + b[3]) / 2).walls.push(b);
+fs.mkdirSync(area.outDir, { recursive: true });
+log(`OSM extras: ${Object.entries(extras.count).map(([k, v]) => `${k} ${v}`).join(', ')}`);
+
 const placed = placeProps({
-  land, trees: xz(landRaw.trees), treeRows: landRaw.treeRows.map(xz), vending: xz(landRaw.vending),
+  land, trees: landRaw.trees.map(([lon, lat, g]) => [...proj.project(lon, lat), g]), treeRows: landRaw.treeRows.map((row) => Object.assign(xz(row), { genus: row.genus })), vending: xz(landRaw.vending),
   edges: roadsOut.edges, idx, inBounds,
 });
-const allProps = [...placed.props, ...paint.props];
+const allProps = [...placed.props, ...paint.props, ...extras.props];
 for (const p of allProps) tileFor(p.x, p.z).props.push({ ...p, x: r2(p.x), z: r2(p.z) });
 for (const w of placed.wires) tileFor(w[0], w[1]).wires.push(w.map(r2));
 const propName = Object.fromEntries(Object.entries(PROP).map(([k, v]) => [v, k.toLowerCase()]));
@@ -394,6 +446,7 @@ const signalIds = new Set(landRaw.signals);
 roadsOut.signals = graph.nodes.map((n, i) => (signalIds.has(n.id) ? i : -1)).filter((i) => i >= 0);
 fs.writeFileSync(path.join(area.outDir, 'roads.json'), JSON.stringify(roadsOut));
 fs.writeFileSync(path.join(area.outDir, 'rails.json'), JSON.stringify(rails));
+fs.writeFileSync(path.join(area.outDir, 'structures.json'), JSON.stringify(extras.structures));
 const manifest = {
   format: VERSION, area: area.id, name: area.name, compiled: new Date().toISOString(),
   origin: { lon: area.origin[0], lat: area.origin[1] },
@@ -401,7 +454,7 @@ const manifest = {
   tileSize: TILE, bounds: Object.fromEntries(Object.entries(bounds).map(([k, v]) => [k, r2(v)])),
   meshes: area.meshes,
   terrain: { file: 'terrain.bin', x0: r2(grid.x0), z0: r2(grid.z0), step: grid.step, w: grid.w, h: grid.h, min: r2(gMin), max: r2(gMax) },
-  roads: 'roads.json', rails: 'rails.json',
+  roads: 'roads.json', rails: 'rails.json', structures: 'structures.json',
   // street-level bridge decks: road polygons marked with a deck, and street objects, follow these instead of the terrain (src/shared/decks.js)
   decks,
   tiles: tileList,
