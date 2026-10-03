@@ -72,6 +72,18 @@ async function fetchPlateau() {
     const buf = await download(j.url, j.file);
     log(`  ${path.basename(j.file)} ${(buf.length / 1e6).toFixed(1)} MB`);
   });
+  // Photo textures of the LOD2 buildings (one roof and one wall image each), named relative to the building file.
+  const images = new Map();
+  for (const j of jobs) {
+    if (!/_bldg/.test(path.basename(j.file))) continue;
+    for (const m of fs.readFileSync(j.file, 'utf8').matchAll(/<app:imageURI>([^<]*\/(?:Roof|Wall)SurfaceTexture[^<]*)</g))
+      if (!images.has(m[1])) images.set(m[1], { url: new URL(m[1], j.url).href, file: path.join(dir, m[1]) });
+  }
+  const want = [...images.values()].filter((j) => !exists(j.file));
+  log(`plateau textures: ${images.size} images, ${want.length} to download`);
+  let failed = 0;
+  await pool(want, 8, async (j) => { try { await download(j.url, j.file); } catch { failed++; } });
+  if (failed) log(`  ${failed} images could not be downloaded (those buildings stay untextured)`);
 }
 
 // Overpass queries, one cached file each. `{bb}` is replaced by the area bounding box.

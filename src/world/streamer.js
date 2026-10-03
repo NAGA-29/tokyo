@@ -104,7 +104,8 @@ export class Streamer {
   onResult(msg) {
     this.inFlight--;
     const t = this.tiles.get(msg.key);
-    if (msg.type === 'error') { console.warn(`tile ${msg.key}: ${msg.message}`); this.tiles.delete(msg.key); return; }
+    // a tile that cannot be read stays marked as failed: asking for it again every frame would only repeat the error
+    if (msg.type === 'error') { console.warn(`tile ${msg.key}: ${msg.message}`); if (t) t.state = 'failed'; return; }
     if (!t) return; // unloaded while in flight
     const { terrain, roads, paint, buildings, info, props, wires, signs: signList, models } = msg.mesh;
     const group = new THREE.Group();
@@ -150,6 +151,20 @@ export class Streamer {
       m.castShadow = m.receiveShadow = true;
       group.add(m);
     }
+    if (buildings.photo.position.length) { // LOD2 roofs under their aerial photo (the tile's atlas)
+      // plain grey until the photo has arrived
+      const m = new THREE.Mesh(geometry(buildings.photo, [['position', 3], ['normal', 3], ['uv', 2]]), new THREE.MeshStandardMaterial({ color: 0x777776, roughness: 0.9, metalness: 0 }));
+      m.castShadow = m.receiveShadow = true;
+      m.userData.own = [m.material]; // freed with the tile
+      new THREE.TextureLoader().load(`${this.base}/${this.available.get(msg.key).atlas}`, (map) => {
+        if (this.tiles.get(msg.key) !== t) { map.dispose(); return; } // unloaded meanwhile
+        map.colorSpace = THREE.SRGBColorSpace;
+        map.anisotropy = 4;
+        m.material.map = map; m.material.color.set(0xffffff); m.material.needsUpdate = true;
+        m.userData.own.push(map);
+      });
+      group.add(m);
+    }
     const tris = terrain.index.length / 3 + roads.position.length / 9 + buildings.triangles;
     Object.assign(t, { state: 'ready', group, trees, signs, signNear: false, buildings: info.length, tris });
     this.scene.add(group);
@@ -161,7 +176,7 @@ export class Streamer {
     this.scene.remove(t.group);
     t.signs?.dispose();
     // prop models are shared between tiles; only per-tile geometry is freed
-    t.group.traverse((o) => { if (o.isInstancedMesh) o.dispose(); else if (!o.isGroup) o.geometry?.dispose(); });
+    t.group.traverse((o) => { if (o.isInstancedMesh) o.dispose(); else if (!o.isGroup) o.geometry?.dispose(); o.userData.own?.forEach((r) => r.dispose()); });
     this.tiles.delete(key);
     this.stats.loaded--; this.stats.buildings -= t.buildings; this.stats.triangles -= t.tris;
   }

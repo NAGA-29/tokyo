@@ -8,6 +8,7 @@
 //   structures.json footbridges, station platforms and canopies (tools/pipeline/extras.mjs)
 //   x_<x>_<z>.bin   per tile, where there are any: PLATEAU's own 3D models of bridges, street furniture and
 //                   trees as one static mesh (tools/pipeline/meshes.mjs)
+//   r_<x>_<z>.jpg   per tile, where there are any: PLATEAU's aerial photos of the LOD2 roofs, packed into one atlas
 //   rails.json      surface and elevated railway lines from OSM, with their height profile (y = track bed)
 // Usage: node tools/pipeline/compile.mjs [--area=shibuya] [--ads]   (--ads: add invented billboards and screens)
 import fs from 'node:fs';
@@ -26,6 +27,7 @@ import { readPlaces, placeSigns, placeAds } from './signs.mjs';
 import { placeFurniture } from './furniture.mjs';
 import { readExtra, buildExtras } from './extras.mjs';
 import { readModels, encodeMesh } from './meshes.mjs';
+import { bakePhotos } from './photos.mjs';
 import { SPORT, MATERIAL } from '../../src/shared/tileformat.js';
 import { inRings } from './landscape.mjs';
 import { profileRoads, flyover, BANK } from './roadprofile.mjs';
@@ -157,12 +159,14 @@ for (const f of gmlFiles('bldg')) {
     // LOD2 shell in world coordinates (closing points dropped; degenerate rings discarded)
     const surfaces = [];
     for (const s of b.surfaces) {
-      const rings = s.rings.map((ring) => {
+      let uv = s.uv && s.uv.map((u) => [...u]); // photo coordinates, kept in step with the points
+      const rings = s.rings.map((ring, r) => {
         const pts = ring.map(([lon, lat, h]) => { const [x, z] = proj.project(lon, lat); return [r2(x), r2(h), r2(z)]; });
-        if (pts.length > 1 && pts[0].every((v, k) => Math.abs(v - pts.at(-1)[k]) < 0.02)) pts.pop();
+        if (pts.length > 1 && pts[0].every((v, k) => Math.abs(v - pts.at(-1)[k]) < 0.02)) { pts.pop(); uv?.[r].splice(-2); }
         return pts;
-      }).filter((r) => r.length >= 3 && r.length < 65000);
-      if (rings.length && rings.length < 256 && surfaces.length < 65000) surfaces.push({ roof: s.roof, rings });
+      });
+      if (rings.some((r) => r.length < 3 || r.length >= 65000)) { if (rings[0].length < 3 || rings[0].length >= 65000) continue; rings.length = 1; uv = uv && [uv[0]]; }
+      if (rings.length < 256 && surfaces.length < 65000) surfaces.push({ roof: s.roof, rings, image: uv ? s.image : null, photo: uv });
     }
     bstats.surfaces = (bstats.surfaces ?? 0) + surfaces.length;
     tileFor(cx, cz).buildings.push({ usage: b.usage, storeys: b.storeys, flags, base: r2(base), height: r2(height), measuredHeight: b.measuredHeight, polygons: polys, surfaces });
@@ -489,6 +493,14 @@ log(`street furniture (OSM): ${Object.entries(furniture.count).map(([k, v]) => `
 // ---------------------------------------------------------------- write
 fs.rmSync(area.outDir, { recursive: true, force: true });
 fs.mkdirSync(area.outDir, { recursive: true });
+// PLATEAU's photos: a roof atlas per tile, and the colour of each building's walls
+const photos = { tiles: 0, roofs: 0, walls: 0, bytes: 0 };
+for (const t of tiles.values()) {
+  const baked = await bakePhotos(t, plateauDir, path.join(area.outDir, `r_${t.tx}_${t.tz}.jpg`));
+  if (baked.atlas) { t.atlas = `r_${t.tx}_${t.tz}.jpg`; photos.tiles++; photos.bytes += baked.bytes; }
+  photos.roofs += baked.roofs; photos.walls += baked.walls;
+}
+log(`photos (PLATEAU): ${photos.roofs} roofs in ${photos.tiles} atlases (${(photos.bytes / 1e6).toFixed(1)} MB), ${photos.walls} buildings take their wall colour from the photo`);
 let bytes = 0;
 const tileList = [];
 for (const t of [...tiles.values()].sort((a, b) => a.tz - b.tz || a.tx - b.tx)) {
@@ -496,6 +508,7 @@ for (const t of [...tiles.values()].sort((a, b) => a.tz - b.tz || a.tx - b.tx)) 
   fs.writeFileSync(path.join(area.outDir, file), buf);
   bytes += buf.length;
   const entry = { x: t.tx, z: t.tz, file, buildings: t.buildings.length, areas: t.areas.length, props: t.props.length, signs: t.signs.length, bytes: buf.length };
+  if (t.atlas) entry.atlas = t.atlas;
   if (t.mesh) {
     entry.mesh = `x_${t.tx}_${t.tz}.bin`;
     const m = encodeMesh(t.mesh);
@@ -523,7 +536,7 @@ const manifest = {
   decks,
   tiles: tileList,
   attribution: [
-    '3D city model, bridges, street furniture: Project PLATEAU, MLIT Japan (CC BY 4.0 compatible PLATEAU terms)',
+    '3D city model, roof photos, bridges, street furniture: Project PLATEAU, MLIT Japan (CC BY 4.0 compatible PLATEAU terms)',
     'Elevation: Geospatial Information Authority of Japan (GSI) DEM tiles',
     'Road network and railways: © OpenStreetMap contributors (ODbL 1.0)',
   ],

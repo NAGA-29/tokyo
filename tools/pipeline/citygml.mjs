@@ -49,9 +49,35 @@ export function polygons(s) {
   return out;
 }
 
+// Like polygons(), with the photo texture of each: { rings, image, uv: [[u, v, ...] per ring] } (image and
+// uv null where the polygon has none). tex: ring id -> { image, uv }.
+function texturedPolygons(s, tex) {
+  const out = [];
+  for (const poly of elements(s, 'gml:Polygon')) {
+    const rings = [], uv = [];
+    let image = null, ok = true;
+    for (const tag of ['gml:exterior', 'gml:interior']) for (const r of elements(poly, tag)) {
+      const pl = first(r, 'gml:posList');
+      if (!pl) continue;
+      const pts = posList(pl), t = tex.get(/<gml:LinearRing gml:id="([^"]+)"/.exec(r)?.[1]);
+      rings.push(pts);
+      if (t && t.uv.length === pts.length * 2 && (image == null || image === t.image)) { image = t.image; uv.push(t.uv); } else ok = false;
+    }
+    if (rings.length) out.push(ok ? { rings, image, uv } : { rings, image: null, uv: null });
+  }
+  return out;
+}
+
 export function readBuildings(file) {
   const s = fs.readFileSync(file, 'utf8');
   const out = [];
+  // appearance: ring id -> { image, uv } for the roof and wall photos (texture coordinates from the bottom left)
+  const tex = new Map();
+  for (const t of elements(s, 'app:ParameterizedTexture')) {
+    const image = text(t, 'app:imageURI');
+    if (!/(Roof|Wall)SurfaceTexture/.test(image ?? '')) continue;
+    for (const m of t.matchAll(/<app:textureCoordinates ring="#([^"]+)">([^<]*)</g)) tex.set(m[1], { image, uv: m[2].trim().split(/\s+/).map(Number) });
+  }
   for (const b of elements(s, 'bldg:Building')) {
     const id = /gml:id="([^"]+)"/.exec(b)?.[1];
     const solid = polygons(first(b, 'bldg:lod1Solid'));
@@ -62,9 +88,9 @@ export function readBuildings(file) {
       storeys: num(text(b, 'bldg:storeysAboveGround')),
       measuredHeight: num(text(b, 'bldg:measuredHeight')),
       lod2: b.includes('<bldg:lod2Solid') || b.includes('<bldg:lod2MultiSurface'),
-      // LOD2 shell: [{ roof: boolean, rings: [outer, ...holes] }], rings of [lon, lat, h]
+      // LOD2 shell: [{ roof: boolean, rings: [outer, ...holes], image, uv }], rings of [lon, lat, h]
       surfaces: [['bldg:RoofSurface', true], ['bldg:WallSurface', false]].flatMap(([tag, roof]) =>
-        [...elements(b, tag)].flatMap((s) => polygons(s).map((rings) => ({ roof, rings })))),
+        [...elements(b, tag)].flatMap((s) => texturedPolygons(s, tex).map((p) => ({ roof, ...p })))),
       parts: b.includes('<bldg:BuildingPart'),
       solid, lod0,
     });

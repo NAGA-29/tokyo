@@ -279,6 +279,7 @@ function minAreaRect(r) {
 export function buildingMesh(buildings, tx, tz) {
   const pos = new Buf(1 << 16), nor = new Buf(1 << 16), col = new Buf(1 << 16), fac = new Buf(1 << 16), bld = new Buf(1 << 16);
   const ends = new Buf(1 << 12);
+  const photo = { pos: new Buf(1 << 12), nor: new Buf(1 << 12), uv: new Buf(1 << 12) }; // roofs with an aerial photo
 
   buildings.forEach((b, i) => {
     let k = 0;
@@ -338,7 +339,7 @@ export function buildingMesh(buildings, tx, tz) {
     if (b.surfaces?.length) {
       const roofCol = lin(cat === CAT.HOUSE ? PITCHED_ROOFS[Math.floor(rnd() * PITCHED_ROOFS.length)] : [0.5, 0.5, 0.49]);
       const flatCol = lin((() => { const g = 0.5 + 0.2 * rnd(); return [g, g, g * 0.97]; })());
-      for (const { roof: isRoof, rings } of b.surfaces) {
+      for (const { roof: isRoof, rings, uv } of b.surfaces) {
         // Newell normal of the outline; CityGML surfaces face outwards
         const o = rings[0], n = o.length / 3;
         let nx = 0, ny = 0, nz = 0;
@@ -359,7 +360,7 @@ export function buildingMesh(buildings, tx, tz) {
           for (let i = 0; i < r.length; i += 3) {
             const s = r[i] * tx + r[i + 2] * tz;
             if (steep) flat.push(s, r[i + 1]); else flat.push(r[i], r[i + 2]);
-            verts.push([r[i], r[i + 1], r[i + 2], s]);
+            verts.push([r[i], r[i + 1], r[i + 2], s, uv ? uv[ri][(i / 3) * 2] : 0, uv ? uv[ri][(i / 3) * 2 + 1] : 0]);
             s0 = Math.min(s0, s); s1 = Math.max(s1, s); y1 = Math.max(y1, r[i + 1]);
           }
         });
@@ -376,6 +377,7 @@ export function buildingMesh(buildings, tx, tz) {
           const cx = (q[1] - p[1]) * (r[2] - p[2]) - (q[2] - p[2]) * (r[1] - p[1]), cy = (q[2] - p[2]) * (r[0] - p[0]) - (q[0] - p[0]) * (r[2] - p[2]),
             cz = (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
           if (cx * nx + cy * ny + cz * nz < 0) [q, r] = [r, q];
+          if (uv) { for (const v of [p, q, r]) { photo.pos.push(v[0], v[1], v[2]); photo.nor.push(nx, ny, nz); photo.uv.push(v[4], v[5]); } continue; }
           for (const v of [p, q, r]) vtx(v[0], v[1], v[2], N, color, bays ? ((v[3] - s0) / len) * bays : 0, v[1] - b.base, kind, bay, layer);
         }
       }
@@ -504,6 +506,7 @@ export function buildingMesh(buildings, tx, tz) {
     position: pos.done(), normal: nor.done(), color: col.done(), aFacade: fac.done(), aBldg: bld.done(),
     // first vertex index after each building (for picking: vertex -> building)
     ends: ends.done(), triangles: pos.length / 9,
+    photo: { position: photo.pos.done(), normal: photo.nor.done(), uv: photo.uv.done() },
   };
 }
 

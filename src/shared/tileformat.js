@@ -21,7 +21,7 @@
 // (clockwise). Rings are open: the last point does not repeat the first.
 
 export const MAGIC = 0x31594b54; // 'TKY1'
-export const VERSION = 6;
+export const VERSION = 7;
 
 // Wall material from OSM's building:material, in a building's hint (0 = not mapped).
 export const MATERIAL = { NONE: 0, TILE: 1, CONCRETE: 2, PLASTER: 3, BRICK: 4, METAL: 5, GLASS: 6 };
@@ -97,8 +97,13 @@ export function encodeTile({ tx, tz, buildings, areas, props = [], wires = [], w
     const surfaces = b.surfaces ?? [];
     w.u16(surfaces.length);
     for (const s of surfaces) {
-      w.u8(s.roof ? 1 : 0); w.u8(s.rings.length);
-      for (const ring of s.rings) { w.u16(ring.length); for (const [x, y, z] of ring) { w.f32(x); w.f32(y); w.f32(z); } }
+      // s.uv: per ring, [u, v, ...] in the tile's roof photo atlas (0..1), where the surface has a photo
+      w.u8((s.roof ? 1 : 0) | (s.uv ? 2 : 0)); w.u8(s.rings.length);
+      s.rings.forEach((ring, r) => {
+        w.u16(ring.length);
+        for (const [x, y, z] of ring) { w.f32(x); w.f32(y); w.f32(z); }
+        if (s.uv) for (const c of s.uv[r]) w.u16(clampInt(c * 65535, 65535));
+      });
     }
   }
   for (const a of areas) {
@@ -154,13 +159,14 @@ export function decodeTile(arrayBuffer) {
     const base = f32(), height = f32(), measuredHeight = f32(), hint = u32();
     const b = { usage, storeys, flags, base, height, measuredHeight, hint, polygons: polygons(), surfaces: new Array(u16()) };
     for (let s = 0; s < b.surfaces.length; s++) {
-      const roof = u8() === 1, rings = new Array(u8());
+      const bits = u8(), roof = (bits & 1) === 1, rings = new Array(u8()), uv = bits & 2 ? new Array(rings.length) : null;
       for (let r = 0; r < rings.length; r++) {
         const n = u16(), ring = new Float32Array(n * 3);
         for (let k = 0; k < n * 3; k++) ring[k] = f32();
         rings[r] = ring;
+        if (uv) { uv[r] = new Float32Array(n * 2); for (let k = 0; k < n * 2; k++) uv[r][k] = u16() / 65535; }
       }
-      b.surfaces[s] = { roof, rings };
+      b.surfaces[s] = { roof, rings, uv };
     }
     buildings[i] = b;
   }
