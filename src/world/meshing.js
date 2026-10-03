@@ -343,8 +343,15 @@ export function buildingMesh(buildings, tx, tz) {
       const roofCol = lin(cat === CAT.HOUSE ? PITCHED_ROOFS[Math.floor(rnd() * PITCHED_ROOFS.length)] : [0.5, 0.5, 0.49]);
       const flatCol = lin((() => { const g = 0.5 + 0.2 * rnd(); return [g, g, g * 0.97]; })());
       // foot and top of the shell itself (the paint bands of a lattice tower are counted between them)
-      let shellLo = Infinity, shellHi = -Infinity;
-      if (b.flags & BFLAG.LATTICE) for (const s of b.surfaces) for (const r of s.rings) for (let i = 1; i < r.length; i += 3) { shellLo = Math.min(shellLo, r[i]); shellHi = Math.max(shellHi, r[i]); }
+      // and its axis and half-width at the foot: the faces are open between the legs, under an arch
+      let shellLo = Infinity, shellHi = -Infinity, axisX = 0, axisZ = 0, footHalf = 0;
+      if (b.flags & BFLAG.LATTICE) {
+        let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+        const each = (fn) => { for (const s of b.surfaces) for (const r of s.rings) for (let i = 0; i < r.length; i += 3) fn(r[i], r[i + 1], r[i + 2]); };
+        each((x, y, z) => { shellLo = Math.min(shellLo, y); shellHi = Math.max(shellHi, y); x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); });
+        axisX = (x0 + x1) / 2; axisZ = (z0 + z1) / 2;
+        each((x, y, z) => { if (y < shellLo + 4) footHalf = Math.max(footHalf, Math.hypot(x - axisX, z - axisZ) / Math.SQRT2); }); // (the corners of a square foot)
+      }
       for (const { roof: isRoof, rings, uv } of b.surfaces) {
         // Newell normal of the outline; CityGML surfaces face outwards
         const o = rings[0], n = o.length / 3;
@@ -388,8 +395,9 @@ export function buildingMesh(buildings, tx, tz) {
           if (uv && isRoof) { for (const v of [p, q, r]) { photo.pos.push(v[0], v[1], v[2]); photo.nor.push(nx, ny, nz); photo.uv.push(v[4], v[5]); } continue; }
           if (open) { // metres along the face and above the ground feed the truss pattern; seen from both sides
             wallH = shellHi - shellLo;
-            for (const v of [p, q, r]) vtx(v[0], v[1], v[2], N, color, v[3] - s0, v[1] - shellLo, kind, 0, layer);
-            for (const v of [p, r, q]) vtx(v[0], v[1], v[2], [-nx, -ny, -nz], color, v[3] - s0, v[1] - shellLo, kind, 0, layer);
+            const mid = axisX * tx + axisZ * tz; // u: metres along the face from the tower's axis
+            for (const v of [p, q, r]) vtx(v[0], v[1], v[2], N, color, v[3] - mid, v[1] - shellLo, kind, footHalf, layer);
+            for (const v of [p, r, q]) vtx(v[0], v[1], v[2], [-nx, -ny, -nz], color, v[3] - mid, v[1] - shellLo, kind, footHalf, layer);
             continue;
           }
           for (const v of [p, q, r]) {
