@@ -6,7 +6,7 @@
 //   roads.json      drivable road graph from OSM (junction nodes + polyline edges; y = road level, above the
 //                   ground on bridges and the elevated expressway)
 //   rails.json      surface and elevated railway lines from OSM, with their height profile (y = track bed)
-// Usage: node tools/pipeline/compile.mjs [--area=shibuya]
+// Usage: node tools/pipeline/compile.mjs [--area=shibuya] [--ads]   (--ads: add invented billboards and screens)
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveArea } from './config.mjs';
@@ -364,7 +364,8 @@ log(`paint: ${paint.marks.length} marks; props: ${Object.entries(pcount).map(([k
 const places = readPlaces(path.join(area.rawDir, 'osm_poi.json'), proj.project);
 const signBuildings = [...tiles.values()].flatMap((t) => t.buildings.map((b) => ({ ring: b.polygons[0][0], base: b.base, height: b.height, usage: b.usage, storeys: b.storeys < 255 ? b.storeys : 0 })));
 const signs = placeSigns(places, signBuildings, (x, z) => idx.road.has(x, z));
-const ads = placeAds(signBuildings); // the origin is the Scramble Crossing
+// Billboards and screens are invented, not mapped data, so they are off unless asked for with --ads.
+const ads = process.argv.includes('--ads') ? placeAds(signBuildings) : []; // (the origin is the Scramble Crossing)
 signs.push(...ads);
 log(`ads: ${ads.filter((s) => s.style === 3).length} billboards, ${ads.filter((s) => s.style === 4).length} screens, ${ads.filter((s) => s.style === 5).length} rooftop boards`);
 for (const s of signs) if (inBounds(s.x, s.z)) tileFor(s.x, s.z).signs.push({ ...s, x: r2(s.x), y: r2(s.y), z: r2(s.z), w: r2(s.w), h: r2(s.h) });
@@ -388,6 +389,9 @@ for (const t of [...tiles.values()].sort((a, b) => a.tz - b.tz || a.tx - b.tx)) 
   tileList.push({ x: t.tx, z: t.tz, file, buildings: t.buildings.length, areas: t.areas.length, props: t.props.length, signs: t.signs.length, bytes: buf.length });
 }
 fs.writeFileSync(path.join(area.outDir, 'terrain.bin'), Buffer.from(grid.data.buffer));
+// junction nodes with traffic signals (indices into roads.json nodes), for the traffic simulation
+const signalIds = new Set(landRaw.signals);
+roadsOut.signals = graph.nodes.map((n, i) => (signalIds.has(n.id) ? i : -1)).filter((i) => i >= 0);
 fs.writeFileSync(path.join(area.outDir, 'roads.json'), JSON.stringify(roadsOut));
 fs.writeFileSync(path.join(area.outDir, 'rails.json'), JSON.stringify(rails));
 const manifest = {
