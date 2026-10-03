@@ -19,7 +19,7 @@ import { PolyIndex, readLand, clipRing, placeProps } from './landscape.mjs';
 import { buildMarkings } from './markings.mjs';
 import { splitOutlineRoads } from './roadsplit.mjs';
 import { profileRailways } from './rails.mjs';
-import { readPlaces, placeSigns } from './signs.mjs';
+import { readPlaces, placeSigns, placeAds } from './signs.mjs';
 import { placeFurniture } from './furniture.mjs';
 import { profileRoads, flyover, BANK } from './roadprofile.mjs';
 import { DECK_FLAG, CORRIDOR_MARGIN, projectOnDeck } from '../../src/shared/decks.js';
@@ -362,8 +362,11 @@ log(`paint: ${paint.marks.length} marks; props: ${Object.entries(pcount).map(([k
 
 // ---------------------------------------------------------------- signboards
 const places = readPlaces(path.join(area.rawDir, 'osm_poi.json'), proj.project);
-const signBuildings = [...tiles.values()].flatMap((t) => t.buildings.map((b) => ({ ring: b.polygons[0][0], base: b.base, height: b.height, storeys: b.storeys < 255 ? b.storeys : 0 })));
+const signBuildings = [...tiles.values()].flatMap((t) => t.buildings.map((b) => ({ ring: b.polygons[0][0], base: b.base, height: b.height, usage: b.usage, storeys: b.storeys < 255 ? b.storeys : 0 })));
 const signs = placeSigns(places, signBuildings, (x, z) => idx.road.has(x, z));
+const ads = placeAds(signBuildings); // the origin is the Scramble Crossing
+signs.push(...ads);
+log(`ads: ${ads.filter((s) => s.style === 3).length} billboards, ${ads.filter((s) => s.style === 4).length} screens, ${ads.filter((s) => s.style === 5).length} rooftop boards`);
 for (const s of signs) if (inBounds(s.x, s.z)) tileFor(s.x, s.z).signs.push({ ...s, x: r2(s.x), y: r2(s.y), z: r2(s.z), w: r2(s.w), h: r2(s.h) });
 log(`signs: ${signs.length} from ${places.length} named places (fascia ${signs.filter((s) => s.style === 0).length}, blade ${signs.filter((s) => s.style === 1).length}, building names ${signs.filter((s) => s.style === 2).length})`);
 

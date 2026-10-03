@@ -5,7 +5,8 @@
 //   title    the building's own name, large, under the roofline
 import fs from 'node:fs';
 
-export const SIGN = { FASCIA: 0, BLADE: 1, TITLE: 2 };
+export const SIGN = { FASCIA: 0, BLADE: 1, TITLE: 2, BILLBOARD: 3, SCREEN: 4, ROOFTOP: 5 };
+const POSTERS = 16; // invented posters in the client's atlas (src/world/ads.js); a sign's colour field picks one
 
 // Colour schemes [background, text]; the index is stored per sign and must match SIGN_COLORS in the client.
 export const SIGN_COLORS = [
@@ -37,6 +38,40 @@ export function readPlaces(file, project) {
     else if (t.building && e.type !== 'node') out.push({ name: t.name, x, z, kind: 'office', level: null, building: true });
   }
   return out;
+}
+
+// Billboards and LED screens on commercial buildings that face a street — thick around `centre` (the
+// Scramble Crossing), thinning out with distance. Call after placeSigns (it prepares the walls).
+// buildings: as for placeSigns, plus usage.
+export function placeAds(buildings, centre = [0, 0]) {
+  const ads = [];
+  buildings.forEach((b, bi) => {
+    if (!(b.usage >= 401 && b.usage <= 404) && b.usage !== 413 && b.usage !== 414) return;
+    if (b.height < 12 || !b.walls) return;
+    const walls = b.walls.filter((w) => w.street && w.len >= 4.5).sort((p, q) => q.len - p.len);
+    walls.slice(0, 2).forEach((w, wi) => {
+      const mx = w.ax + w.dx * w.len / 2, mz = w.az + w.dz * w.len / 2;
+      const d = Math.hypot(mx - centre[0], mz - centre[1]);
+      const h1 = hash('ad' + bi + ':' + wi), h2 = hash('kind' + bi + ':' + wi), h3 = hash('roof' + bi + ':' + wi);
+      const chance = d < 220 ? 0.9 : d < 500 ? 0.5 : d < 900 ? 0.2 : 0.07;
+      if (h1 < chance) {
+        // on the wall: wide on a long wall, tall on a narrow one
+        const tall = w.len < 8, width = tall ? w.len * 0.8 : Math.min(w.len * 0.72, 15);
+        const h = tall ? Math.min(b.height * 0.5, width * 2.2, 14) : Math.min(b.height * 0.34, width * 0.62, 9);
+        const y = b.base + Math.max(6.5 + h / 2, b.height * 0.62);
+        if (h > 2.5 && y + h / 2 < b.base + b.height - 0.8) {
+          const screen = h2 < (d < 260 ? 0.45 : d < 600 ? 0.12 : 0.03);
+          ads.push({ style: screen ? SIGN.SCREEN : SIGN.BILLBOARD, color: Math.floor(h2 * 997) % POSTERS, x: mx, z: mz, y, nx: w.nx, nz: w.nz, w: width, h, text: '' });
+        }
+      }
+      // on the roof, on a frame
+      if (wi === 0 && b.height < 60 && h3 < (d < 450 ? 0.38 : d < 900 ? 0.12 : 0.03)) {
+        const width = Math.min(w.len * 0.8, 12), h = Math.min(width * 0.45, 5);
+        if (width > 4) ads.push({ style: SIGN.ROOFTOP, color: Math.floor(h3 * 991) % POSTERS, x: mx - w.nx * 0.6, z: mz - w.nz * 0.6, y: b.base + b.height + 1.6 + h / 2, nx: w.nx, nz: w.nz, w: width, h, text: '' });
+      }
+    });
+  });
+  return ads;
 }
 
 // Width of a string in "ems": full-width characters count 1, Latin ones about half.

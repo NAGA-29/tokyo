@@ -2,6 +2,7 @@
 // the names are drawn into a texture atlas for that tile. All of them glow at night.
 import * as THREE from 'three';
 import { shared } from './materials.js';
+import { Ads } from './ads.js';
 
 // [background, text] — the same list, in the same order, as SIGN_COLORS in tools/pipeline/signs.mjs.
 const COLORS = [
@@ -58,6 +59,7 @@ export class Signs {
         .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += diffuseColor.rgb * uNight * 1.3;');
     };
     this.live = new Set(); // textured materials currently in use
+    this.ads = new Ads();
   }
 
   update() {
@@ -66,8 +68,11 @@ export class Signs {
   }
 
   // signs: [{ style, color, x, y, z, nx, nz, w, h, text }]. Returns { group, setNear(bool), dispose() }.
-  build(signs) {
+  build(all) {
     const group = new THREE.Group();
+    // billboards and screens (styles 3+) are drawn from a shared poster atlas, at any distance
+    const ads = all.filter((s) => s.style >= 3), signs = all.filter((s) => s.style < 3);
+    if (ads.length) group.add(this.ads.build(ads));
     const pos = [], col = [], uv = [], quads = []; // quads: [sign, first vertex] for the uv pass
     const c = new THREE.Color();
     const quad = (s, a, b, cc, d) => { // corners: bottom-left, bottom-right, top-right, top-left as read
