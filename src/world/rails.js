@@ -1,6 +1,7 @@
 // Railways: track bed, rails, viaducts with piers, embankment slopes and overhead-line masts, built
 // once for the whole area from rails.json (height profile from tools/pipeline/rails.mjs).
 import * as THREE from 'three';
+import { Trains } from './trains.js';
 
 const STEP = 3;            // metres between cross-sections
 const GAUGE = 1.067;       // Japanese narrow gauge
@@ -145,5 +146,8 @@ export async function buildRailways(url, ground) {
   const wg = new THREE.BufferGeometry();
   wg.setAttribute('position', new THREE.Float32BufferAttribute(wires, 3));
   group.add(new THREE.LineSegments(wg, new THREE.LineBasicMaterial({ color: 0x14161a })));
+  const trains = new Trains(lines);
+  group.add(trains.group);
+  group.userData.trains = trains; // call trains.update(dt, night) every frame
   return group;
 }
