@@ -13,7 +13,7 @@
 // Usage: node tools/pipeline/compile.mjs [--area=shibuya] [--ads]   (--ads: add invented billboards and screens)
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveArea } from './config.mjs';
+import { resolveArea, ROOT } from './config.mjs';
 import { makeProjection, TILE, tileOf, tileKey } from '../../src/shared/geo.js';
 import { encodeTile, AREA, BFLAG, PROP, VERSION } from '../../src/shared/tileformat.js';
 import { readBuildings, readRoads } from './citygml.mjs';
@@ -542,6 +542,11 @@ const manifest = {
   ],
 };
 fs.writeFileSync(path.join(area.outDir, 'manifest.json'), JSON.stringify(manifest, null, 1));
+// the list of compiled areas, for the client's city switch
+const tilesDir = path.join(ROOT, 'public/tiles');
+const compiled = fs.readdirSync(tilesDir).filter((d) => fs.existsSync(path.join(tilesDir, d, 'manifest.json')))
+  .map((d) => ({ id: d, name: JSON.parse(fs.readFileSync(path.join(tilesDir, d, 'manifest.json'), 'utf8')).name }));
+fs.writeFileSync(path.join(tilesDir, 'areas.json'), JSON.stringify(compiled));
 const mb = (n) => (n / 1e6).toFixed(1) + ' MB';
 const size = (f) => fs.statSync(path.join(area.outDir, f)).size;
 log(`wrote ${tileList.length} tiles (${mb(bytes)}), terrain ${mb(size('terrain.bin'))}, roads ${mb(size('roads.json'))}, rails ${mb(size('rails.json'))} -> ${path.relative(process.cwd(), area.outDir)}`);

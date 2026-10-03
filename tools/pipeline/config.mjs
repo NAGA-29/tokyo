@@ -9,6 +9,11 @@ export const AREAS = {
     origin: [139.70045, 35.65948], // Shibuya Scramble Crossing [lon, lat]
     radius: 1,                     // 3 x 3 meshes, about 3.4 x 2.8 km
   },
+  tokyo: {
+    name: 'Tokyo',
+    origin: [139.76712, 35.68124], // Tokyo Station, between Marunouchi and Yaesu
+    radius: 1,
+  },
 };
 
 export const ROOT = path.resolve(import.meta.dirname, '../..');

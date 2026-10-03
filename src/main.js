@@ -5,10 +5,11 @@ import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { N8AOPass } from 'n8ao';
+import GUI from 'lil-gui';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { makeProjection } from './shared/geo.js';
-import { createMaterials } from './world/materials.js';
+import { createMaterials, shared } from './world/materials.js';
 import { loadTextures } from './world/textures.js';
 import { Streamer } from './world/streamer.js';
 import { Props } from './world/props.js';
@@ -67,7 +68,8 @@ const signs = new Signs();
 const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 3000 });
 const manifest = await streamer.init();
 const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
-if (params.get('ortho') !== '0') loadOrtho(`ortho/${AREA}`, proj, manifest.bounds, renderer); // fills in when the tiles arrive
+let orthoLoaded = false; // fills in when the tiles arrive
+if (params.get('ortho') !== '0') loadOrtho(`ortho/${AREA}`, proj, manifest.bounds, renderer).then((ok) => { orthoLoaded = ok; });
 const railways = await buildRailways(`tiles/${AREA}/${manifest.rails}`, (x, z) => streamer.ground(x, z), streamer.cover);
 scene.add(railways);
 scene.add(await buildFlyovers(`tiles/${AREA}/${manifest.roads}`, (x, z) => streamer.ground(x, z)));
@@ -82,6 +84,40 @@ controls.target.set(cx, streamer.ground(cx, cz), cz);
 camera.position.copy(controls.target).add(new THREE.Vector3().setFromSphericalCoords(
   dist, THREE.MathUtils.degToRad(90 - el), THREE.MathUtils.degToRad(az)));
 controls.update();
+
+// ---------------------------------------------------------------- control panel
+{
+  // the compiled areas (tools/pipeline/compile.mjs keeps the list); another city is another page load
+  const areas = await fetch('tiles/areas.json').then((r) => (r.ok ? r.json() : null)).catch(() => null) ?? [{ id: AREA, name: manifest.name }];
+  const trains = railways.userData.trains.group, AO = ao.configuration.intensity;
+  const state = {
+    city: AREA,
+    get night() { return env.target > 0.5; }, set night(v) { env.target = v ? 1 : 0; },
+    get traffic() { return !!traffic.group.parent; }, set traffic(v) { if (v) scene.add(traffic.group); else scene.remove(traffic.group); },
+    get trains() { return trains.visible; }, set trains(v) { trains.visible = v; },
+    get photo() { return shared.uOrthoOn.value > 0; }, set photo(v) { shared.uOrthoOn.value = v && orthoLoaded ? 1 : 0; },
+    get shadows() { return env.sun.castShadow; }, set shadows(v) { env.sun.castShadow = v; },
+    get occlusion() { return ao.configuration.intensity > 0; }, set occlusion(v) { ao.configuration.intensity = v ? AO : 0; },
+    get bloom() { return bloom.enabled; }, set bloom(v) { bloom.enabled = v; },
+    get radius() { return streamer.radius; }, set radius(v) { streamer.radius = v; },
+  };
+  const gui = new GUI({ title: 'Scene' });
+  gui.add(state, 'city', Object.fromEntries(areas.map((a) => [a.name, a.id]))).onChange((id) => {
+    const url = new URL(location.href);
+    url.search = '';
+    url.searchParams.set('area', id);
+    location.href = url.href;
+  });
+  gui.add(state, 'night').listen(); // (N toggles it too)
+  gui.add(state, 'traffic');
+  gui.add(state, 'trains');
+  gui.add(state, 'photo').name('aerial photo').listen();
+  const quality = gui.addFolder('Rendering');
+  quality.add(state, 'radius', 500, 4000, 100).name('view radius (m)');
+  quality.add(state, 'shadows');
+  quality.add(state, 'occlusion').name('ambient occlusion');
+  quality.add(state, 'bloom');
+}
 
 // ---------------------------------------------------------------- input
 const keys = new Set();
