@@ -47,7 +47,7 @@ controls.dampingFactor = 0.12;
 controls.maxPolarAngle = THREE.MathUtils.degToRad(88);
 controls.minDistance = 8;
 controls.maxDistance = 3500;
-controls.zoomToCursor = true;
+controls.enableZoom = false; // the wheel is handled below, with inertia
 
 const env = new Environment(scene, renderer);
 if (params.get('night') === '1') env.setNight(1);
@@ -145,6 +145,28 @@ function keyboardPan(dt) {
   camera.position.add(move);
 }
 
+// Wheel zoom with inertia: each notch adds to a pending amount that is paid out over the next frames,
+// towards the point of the ground under the cursor.
+const zoom = { pending: 0, pivot: new THREE.Vector3(), ray: new THREE.Raycaster(), plane: new THREE.Plane() };
+renderer.domElement.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const notches = (e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 800 : e.deltaY) / 100;
+  zoom.pending = THREE.MathUtils.clamp(zoom.pending + notches * 0.16, -1.6, 1.6);
+  zoom.ray.setFromCamera(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1), camera);
+  zoom.plane.set(THREE.Object3D.DEFAULT_UP, -controls.target.y);
+  const hit = zoom.ray.ray.intersectPlane(zoom.plane, new THREE.Vector3());
+  // looking at the sky, or at ground far beyond the view: zoom on the focus point instead
+  zoom.pivot.copy(hit && hit.distanceTo(controls.target) < camera.position.distanceTo(controls.target) * 3 ? hit : controls.target);
+}, { passive: false });
+function wheelZoom(dt) {
+  if (Math.abs(zoom.pending) < 1e-4) { zoom.pending = 0; return; }
+  const step = zoom.pending * (1 - Math.exp(-dt * 9));
+  zoom.pending -= step;
+  const dist = camera.position.distanceTo(controls.target), scale = THREE.MathUtils.clamp(Math.exp(step), controls.minDistance / dist, controls.maxDistance / dist);
+  camera.position.sub(zoom.pivot).multiplyScalar(scale).add(zoom.pivot);
+  controls.target.sub(zoom.pivot).multiplyScalar(scale).add(zoom.pivot);
+}
+
 // Click a building to inspect it.
 let picked = null;
 const raycaster = new THREE.Raycaster();
@@ -173,6 +195,7 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   renderer.info.reset();
   keyboardPan(dt);
+  wheelZoom(dt);
   controls.update();
 
   // keep the focus on the ground and the camera above it
