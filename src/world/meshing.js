@@ -1,7 +1,7 @@
 // Tile meshing: decoded tile + terrain grid -> typed arrays for three.js BufferGeometry.
 // Pure functions with no three.js dependency, so they run in the tile worker (and in Node tests).
 import earcut from 'earcut';
-import { AREA, SPORT, BARRIER } from '../shared/tileformat.js';
+import { AREA, SPORT, BARRIER, MATERIAL } from '../shared/tileformat.js';
 import { sampleGrid } from '../shared/terrain.js';
 import { KIND, CAT, WALL, GROUND } from './constants.js';
 import { deckOf } from '../shared/decks.js';
@@ -228,6 +228,7 @@ const PALETTE = {
 const PITCHED_ROOFS = [[0.2, 0.21, 0.23], [0.22, 0.28, 0.36], [0.3, 0.22, 0.18], [0.42, 0.25, 0.2], [0.2, 0.28, 0.25], [0.34, 0.34, 0.35]];
 // Window bay width (m) per category; a whole number of bays is fitted to each wall.
 const BAY = { [CAT.HOUSE]: 3.4, [CAT.APARTMENT]: 3.3, [CAT.MIXED]: 3.2, [CAT.COMMERCIAL]: 3.0, [CAT.PUBLIC]: 3.4, [CAT.GLASS]: 1.5 };
+const HINT_LAYER = { [MATERIAL.TILE]: WALL.TILE, [MATERIAL.CONCRETE]: WALL.CONCRETE, [MATERIAL.PLASTER]: WALL.PLASTER, [MATERIAL.BRICK]: WALL.BRICK, [MATERIAL.METAL]: WALL.SIDING };
 const SINK = 4; // walls run this far below the base so they meet sloping ground
 
 const ringArea = (r) => { let s = 0; for (let i = 0, n = r.length / 2; i < n; i++) { const j = (i + 1) % n; s += r[j * 2] * r[i * 2 + 1] - r[i * 2] * r[j * 2 + 1]; } return s / 2; };
@@ -283,9 +284,12 @@ export function buildingMesh(buildings, tx, tz) {
     let k = 0;
     const rnd = () => hash3(i * 31 + k++, tx * 13 + 5, tz * 17 + 3);
     const seed = Math.floor(hash3(tx, tz, i) * 4096) / 4096; // quantised: the shader hashes it per room
-    const cat = category(b.usage, b.height, seed);
+    // OSM's building:material / building:colour, where mapped, replace the generated finish
+    const material = (b.hint >>> 24) & 15, painted = b.hint >>> 31;
+    const cat = material === MATERIAL.GLASS ? CAT.GLASS : category(b.usage, b.height, seed);
     const pal = PALETTE[cat], pick = pal[Math.floor(rnd() * pal.length)], tone = 0.92 + 0.16 * rnd();
-    const wallCol = lin(pick.slice(0, 3).map((c) => Math.min(1, c * tone))), wallLayer = pick[3];
+    const wallCol = painted ? lin([((b.hint >> 16) & 255) / 255, ((b.hint >> 8) & 255) / 255, (b.hint & 255) / 255]) : lin(pick.slice(0, 3).map((c) => Math.min(1, c * tone)));
+    const wallLayer = HINT_LAYER[material] ?? pick[3];
     const top = b.base + b.height, bottom = b.base - SINK;
     const outer = b.polygons[0][0];
     const area = b.polygons.reduce((s, rings) => s + rings.reduce((t, r) => t + ringArea(r), 0), 0);

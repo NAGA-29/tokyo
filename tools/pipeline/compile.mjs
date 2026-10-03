@@ -23,7 +23,7 @@ import { profileRailways } from './rails.mjs';
 import { readPlaces, placeSigns, placeAds } from './signs.mjs';
 import { placeFurniture } from './furniture.mjs';
 import { readExtra, buildExtras } from './extras.mjs';
-import { SPORT } from '../../src/shared/tileformat.js';
+import { SPORT, MATERIAL } from '../../src/shared/tileformat.js';
 import { inRings } from './landscape.mjs';
 import { profileRoads, flyover, BANK } from './roadprofile.mjs';
 import { DECK_FLAG, CORRIDOR_MARGIN, projectOnDeck } from '../../src/shared/decks.js';
@@ -411,6 +411,27 @@ const propName = Object.fromEntries(Object.entries(PROP).map(([k, v]) => [v, k.t
 const pcount = {};
 for (const p of allProps) pcount[propName[p.kind]] = (pcount[propName[p.kind]] ?? 0) + 1;
 log(`paint: ${paint.marks.length} marks; props: ${Object.entries(pcount).map(([k, v]) => `${k} ${v}`).join(', ')}; wires ${placed.wires.length}`);
+
+// ---------------------------------------------------------------- OSM building hints
+// building:colour and building:material, where a mapper recorded them, override the generated finish.
+const CSS = { white: 0xf2f2f0, black: 0x1c1c1e, grey: 0x9a9a9a, gray: 0x9a9a9a, gainsboro: 0xdcdcdc, yellow: 0xe6cf5a, brown: 0x7a5236, beige: 0xe6dcc0, red: 0xa83232, blue: 0x3a5f95, green: 0x4f7d4f, orange: 0xd98a3a, pink: 0xe6a8b8, silver: 0xc0c0c0, cream: 0xf3ead2 };
+const MATERIALS = { concrete: MATERIAL.CONCRETE, cement: MATERIAL.CONCRETE, glass: MATERIAL.GLASS, 'concrete/glass': MATERIAL.GLASS, metal: MATERIAL.METAL, metal_plates: MATERIAL.METAL,
+  wood: MATERIAL.METAL, tiles: MATERIAL.TILE, brick: MATERIAL.BRICK, plaster: MATERIAL.PLASTER };
+let hinted = 0;
+for (const w of extraRaw.ways) {
+  const colour = (w.tags['building:colour'] ?? '').split(';')[0].trim().toLowerCase(), material = MATERIALS[w.tags['building:material']];
+  if (!w.tags.building || (!colour && !material)) continue;
+  const rgb = /^#?[0-9a-f]{6}$/.test(colour) ? Number.parseInt(colour.replace('#', ''), 16) : CSS[colour];
+  const hint = ((rgb != null ? 0x80000000 | rgb : 0) | ((material ?? 0) << 24)) >>> 0;
+  if (!hint) continue;
+  const [cx, cz] = centre(w.pts);
+  if (!inBounds(cx, cz)) continue;
+  // the PLATEAU building under the middle of the OSM outline (it may be filed under a neighbouring tile)
+  const [tx, tz] = [Math.floor(cx / TILE), Math.floor(cz / TILE)];
+  search: for (let i = tx - 1; i <= tx + 1; i++) for (let j = tz - 1; j <= tz + 1; j++)
+    for (const b of tiles.get(tileKey(i, j))?.buildings ?? []) if (b.polygons.some((rings) => inRings(cx, cz, rings))) { b.hint = hint; hinted++; break search; }
+}
+log(`OSM building hints: ${hinted} buildings with a mapped colour or material`);
 
 // ---------------------------------------------------------------- signboards
 const places = readPlaces(path.join(area.rawDir, 'osm_poi.json'), proj.project);

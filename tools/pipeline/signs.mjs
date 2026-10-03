@@ -15,7 +15,17 @@ export const SIGN_COLORS = [
   ['#3a2414', '#e9c46a'], ['#14213d', '#ffffff'], ['#ffffff', '#e8650a'], ['#ffffff', '#0a8f4f'],
   ['#0f6fc6', '#ffffff'], ['#5a5d61', '#ffffff'],
 ];
-const BRAND = [[/セブン|7-?eleven/i, 10], [/ファミリーマート|familymart/i, 11], [/ローソン|lawson/i, 12]];
+const BRAND = [
+  [/セブン|7-?eleven/i, 10], [/ファミリーマート|familymart/i, 11], [/ローソン|lawson/i, 12],
+  [/スターバックス|starbucks/i, 5], [/マクドナルド|mcdonald/i, 0], [/ドトール|doutor/i, 1], [/eneos/i, 6], [/三菱ufj/i, 0], [/みずほ/i, 4],
+  [/吉野家/i, 6], [/松屋/i, 1], [/すき家/i, 0], [/タリーズ|tully/i, 8], [/三井住友/i, 5],
+];
+// Restaurants by cuisine (OSM's cuisine tag); anything else falls back to the palette of its kind.
+const CUISINE = [
+  [/ramen|chinese|noodle|gyoza/, [0, 1, 6]], [/sushi|japanese|soba|udon|tempura|kaiseki|unagi/, [9, 3, 8]], [/coffee|cafe|tea|cake|dessert/, [8, 5, 2]],
+  [/italian|pizza|pasta|french|spanish/, [5, 2, 0]], [/burger|chicken|american|sandwich/, [0, 1]], [/indian|curry|thai|vietnamese|asian|korean/, [6, 1, 0]],
+  [/barbecue|yakiniku|steak|beef|yakitori/, [3, 0, 8]],
+];
 const PALETTE = {
   restaurant: [0, 1, 6, 8, 3], fast_food: [0, 1, 6], cafe: [8, 5, 2, 3], bar: [3, 9, 7], pub: [3, 0, 8],
   nightclub: [3, 7], karaoke_box: [7, 1, 0], pharmacy: [5, 4, 2], doctors: [2, 5, 4], dentist: [2, 4], clinic: [2, 5],
@@ -34,7 +44,7 @@ export function readPlaces(file, project) {
       : t.amenity && /restaurant|food|cafe|bar|pub|izakaya|cinema|theatre|clinic|hospital|school|library|post_office|studio/.test(t.amenity) ? 'shop' : null;
     const [x, z] = project(lon, lat);
     const level = Number.parseInt(t.level, 10);
-    if (kind) out.push({ name: t.name, x, z, kind, level: Number.isFinite(level) ? level : null, building: false });
+    if (kind) out.push({ name: t.name, x, z, kind, level: Number.isFinite(level) ? level : null, building: false, brand: t.brand ?? '', cuisine: t.cuisine ?? '' });
     else if (t.building && e.type !== 'node') out.push({ name: t.name, x, z, kind: 'office', level: null, building: true });
   }
   return out;
@@ -134,8 +144,8 @@ export function placeSigns(places, buildings, facesStreet) {
     if (!hit) continue;
     const { b, w, t } = hit, floors = Math.max(1, b.storeys || Math.round(b.height / 3.3)), floorH = Math.min(6, Math.max(2.5, b.height / floors));
     const chars = ems(p.name), h01 = hash(p.name + p.x.toFixed(0));
-    const brand = BRAND.find(([re]) => re.test(p.name));
-    const pal = PALETTE[p.kind] ?? PALETTE.shop, color = brand ? brand[1] : pal[Math.floor(h01 * pal.length)];
+    const brand = BRAND.find(([re]) => re.test(p.name) || re.test(p.brand ?? ''));
+    const pal = CUISINE.find(([re]) => re.test(p.cuisine ?? ''))?.[1] ?? PALETTE[p.kind] ?? PALETTE.shop, color = brand ? brand[1] : pal[Math.floor(h01 * pal.length)];
     const at = (c, off) => [w.ax + w.dx * c + w.nx * off, w.az + w.dz * c + w.nz * off];
 
     if (p.building) {

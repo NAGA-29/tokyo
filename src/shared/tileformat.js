@@ -4,7 +4,8 @@
 //
 //   header   u32 magic 'TKY1' | u16 version | u16 reserved | i32 tx | i32 tz
 //            | u32 nBuildings | u32 nAreas | u32 nProps | u32 nWires | u32 nWalls | u32 nSigns
-//   building u16 usage | u8 storeys | u8 flags | f32 base | f32 height | f32 measuredHeight | polygons
+//   building u16 usage | u8 storeys | u8 flags | f32 base | f32 height | f32 measuredHeight | u32 hint | polygons
+//            (hint, from OSM tags: bits 0-23 wall colour 0xRRGGBB if bit 31 is set; bits 24-27 material, see MATERIAL)
 //            | u16 nSurfaces | per surface: u8 roof (1) or wall (0) | u8 nRings | per ring: u16 nPts | nPts * (f32 x, y, z)
 //            (the LOD2 shell where PLATEAU has one: real walls and roof planes; empty otherwise)
 //   area     u8 kind | u8 reserved | u16 code | polygons
@@ -20,7 +21,10 @@
 // (clockwise). Rings are open: the last point does not repeat the first.
 
 export const MAGIC = 0x31594b54; // 'TKY1'
-export const VERSION = 5;
+export const VERSION = 6;
+
+// Wall material from OSM's building:material, in a building's hint (0 = not mapped).
+export const MATERIAL = { NONE: 0, TILE: 1, CONCRETE: 2, PLASTER: 3, BRICK: 4, METAL: 5, GLASS: 6 };
 
 export const BFLAG = { LOD2: 1, NO_SOLID: 2 };
 
@@ -88,7 +92,7 @@ export function encodeTile({ tx, tz, buildings, areas, props = [], wires = [], w
   w.u32(buildings.length); w.u32(areas.length); w.u32(props.length); w.u32(wires.length); w.u32(walls.length); w.u32(signs.length);
   for (const b of buildings) {
     w.u16(clampInt(b.usage, 65535)); w.u8(clampInt(b.storeys, 255)); w.u8(b.flags || 0);
-    w.f32(b.base); w.f32(b.height); w.f32(b.measuredHeight ?? -1);
+    w.f32(b.base); w.f32(b.height); w.f32(b.measuredHeight ?? -1); w.u32((b.hint ?? 0) >>> 0);
     w.polygons(b.polygons);
     const surfaces = b.surfaces ?? [];
     w.u16(surfaces.length);
@@ -147,8 +151,8 @@ export function decodeTile(arrayBuffer) {
   const buildings = new Array(nB);
   for (let i = 0; i < nB; i++) {
     const usage = u16(), storeys = u8(), flags = u8();
-    const base = f32(), height = f32(), measuredHeight = f32();
-    const b = { usage, storeys, flags, base, height, measuredHeight, polygons: polygons(), surfaces: new Array(u16()) };
+    const base = f32(), height = f32(), measuredHeight = f32(), hint = u32();
+    const b = { usage, storeys, flags, base, height, measuredHeight, hint, polygons: polygons(), surfaces: new Array(u16()) };
     for (let s = 0; s < b.surfaces.length; s++) {
       const roof = u8() === 1, rings = new Array(u8());
       for (let r = 0; r < rings.length; r++) {
