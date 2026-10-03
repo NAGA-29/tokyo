@@ -9,6 +9,7 @@
 //   x_<x>_<z>.bin   per tile, where there are any: PLATEAU's own 3D models of bridges, street furniture and
 //                   trees as one static mesh (tools/pipeline/meshes.mjs)
 //   r_<x>_<z>.jpg   per tile, where there are any: PLATEAU's aerial photos of the LOD2 roofs, packed into one atlas
+//   w_<x>_<z>.jpg   the same for the walls (shown from a distance)
 //   rails.json      surface and elevated railway lines from OSM, with their height profile (y = track bed)
 // Usage: node tools/pipeline/compile.mjs [--area=shibuya] [--ads]   (--ads: add invented billboards and screens)
 import fs from 'node:fs';
@@ -447,6 +448,16 @@ for (const w of extraRaw.ways) {
     for (const b of tiles.get(tileKey(i, j))?.buildings ?? []) if (b.polygons.some((rings) => inRings(cx, cz, rings))) { b.hint = hint; hinted++; break search; }
 }
 log(`OSM building hints: ${hinted} buildings with a mapped colour or material`);
+// Steel lattice towers (Tokyo Tower): PLATEAU has their outline as a closed shell; the client draws it as open steelwork.
+let lattice = 0;
+for (const e of JSON.parse(fs.readFileSync(path.join(area.rawDir, 'osm_poi.json'), 'utf8')).elements) {
+  const t = e.tags ?? {}, at = e.center ?? e;
+  if (t.man_made !== 'tower' || t['tower:construction'] !== 'lattice' || at.lat == null) continue;
+  const [cx, cz] = proj.project(at.lon, at.lat), [tx, tz] = [Math.floor(cx / TILE), Math.floor(cz / TILE)];
+  search: for (let i = tx - 1; i <= tx + 1; i++) for (let j = tz - 1; j <= tz + 1; j++)
+    for (const b of tiles.get(tileKey(i, j))?.buildings ?? []) if (b.polygons.some((rings) => inRings(cx, cz, rings))) { b.flags |= BFLAG.LATTICE; lattice++; break search; }
+}
+log(`lattice towers (OSM): ${lattice}`);
 
 // ---------------------------------------------------------------- signboards
 const places = readPlaces(path.join(area.rawDir, 'osm_poi.json'), proj.project);
@@ -494,13 +505,16 @@ log(`street furniture (OSM): ${Object.entries(furniture.count).map(([k, v]) => `
 fs.rmSync(area.outDir, { recursive: true, force: true });
 fs.mkdirSync(area.outDir, { recursive: true });
 // PLATEAU's photos: a roof atlas per tile, and the colour of each building's walls
-const photos = { tiles: 0, roofs: 0, walls: 0, bytes: 0 };
+const photos = { tiles: 0, roofs: 0, walls: 0, colours: 0, bytes: 0 };
 for (const t of tiles.values()) {
-  const baked = await bakePhotos(t, plateauDir, path.join(area.outDir, `r_${t.tx}_${t.tz}.jpg`));
-  if (baked.atlas) { t.atlas = `r_${t.tx}_${t.tz}.jpg`; photos.tiles++; photos.bytes += baked.bytes; }
-  photos.roofs += baked.roofs; photos.walls += baked.walls;
+  const roofFile = `r_${t.tx}_${t.tz}.jpg`, wallFile = `w_${t.tx}_${t.tz}.jpg`;
+  const baked = await bakePhotos(t, plateauDir, path.join(area.outDir, roofFile), path.join(area.outDir, wallFile));
+  if (baked.roofs) t.atlas = roofFile;
+  if (baked.walls) t.wallAtlas = wallFile;
+  if (baked.roofs || baked.walls) photos.tiles++;
+  for (const k of ['roofs', 'walls', 'colours', 'bytes']) photos[k] += baked[k];
 }
-log(`photos (PLATEAU): ${photos.roofs} roofs in ${photos.tiles} atlases (${(photos.bytes / 1e6).toFixed(1)} MB), ${photos.walls} buildings take their wall colour from the photo`);
+log(`photos (PLATEAU): ${photos.roofs} roofs and ${photos.walls} sets of walls in the atlases of ${photos.tiles} tiles (${(photos.bytes / 1e6).toFixed(1)} MB), ${photos.colours} buildings take their wall colour from the photo`);
 let bytes = 0;
 const tileList = [];
 for (const t of [...tiles.values()].sort((a, b) => a.tz - b.tz || a.tx - b.tx)) {
@@ -509,6 +523,7 @@ for (const t of [...tiles.values()].sort((a, b) => a.tz - b.tz || a.tx - b.tx)) 
   bytes += buf.length;
   const entry = { x: t.tx, z: t.tz, file, buildings: t.buildings.length, areas: t.areas.length, props: t.props.length, signs: t.signs.length, bytes: buf.length };
   if (t.atlas) entry.atlas = t.atlas;
+  if (t.wallAtlas) entry.walls = t.wallAtlas;
   if (t.mesh) {
     entry.mesh = `x_${t.tx}_${t.tz}.bin`;
     const m = encodeMesh(t.mesh);

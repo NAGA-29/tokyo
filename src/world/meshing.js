@@ -1,7 +1,7 @@
 // Tile meshing: decoded tile + terrain grid -> typed arrays for three.js BufferGeometry.
 // Pure functions with no three.js dependency, so they run in the tile worker (and in Node tests).
 import earcut from 'earcut';
-import { AREA, SPORT, BARRIER, MATERIAL } from '../shared/tileformat.js';
+import { AREA, SPORT, BARRIER, MATERIAL, BFLAG } from '../shared/tileformat.js';
 import { sampleGrid } from '../shared/terrain.js';
 import { KIND, CAT, WALL, GROUND } from './constants.js';
 import { deckOf } from '../shared/decks.js';
@@ -276,8 +276,11 @@ function minAreaRect(r) {
   return hu >= hv ? { cx, cz, ax: dx, az: dz, a: hu, b: hv, area: best.area } : { cx, cz, ax: -dz, az: dx, a: hv, b: hu, area: best.area };
 }
 
+const TOWER_WHITE = lin([0.88, 0.88, 0.86]);
+
 export function buildingMesh(buildings, tx, tz) {
-  const pos = new Buf(1 << 16), nor = new Buf(1 << 16), col = new Buf(1 << 16), fac = new Buf(1 << 16), bld = new Buf(1 << 16);
+  const pos = new Buf(1 << 16), nor = new Buf(1 << 16), col = new Buf(1 << 16), fac = new Buf(1 << 16), bld = new Buf(1 << 16), pho = new Buf(1 << 15);
+  let pu = -1, pv = -1; // photo coordinates of the vertices being added (-1: none)
   const ends = new Buf(1 << 12);
   const photo = { pos: new Buf(1 << 12), nor: new Buf(1 << 12), uv: new Buf(1 << 12) }; // roofs with an aerial photo
 
@@ -313,7 +316,7 @@ export function buildingMesh(buildings, tx, tz) {
     // One vertex. (u, v) feed the window grid; kind / bay / layer select the shading (see materials.js).
     const vtx = (x, y, z, n, c, u, v, kind, bay, layer) => {
       pos.push(x, y, z); nor.push(n[0], n[1], n[2]); col.push(c[0], c[1], c[2]);
-      fac.push(u, v, floorH, seed); bld.push(wallH, cat + 8 * layer, kind, bay);
+      fac.push(u, v, floorH, seed); bld.push(wallH, cat + 8 * layer, kind, bay); pho.push(pu, pv);
     };
     // Triangle and quad with the winding chosen to face `ref`.
     const tri = (p, q, r, ref, c, kind, layer) => {
@@ -339,6 +342,9 @@ export function buildingMesh(buildings, tx, tz) {
     if (b.surfaces?.length) {
       const roofCol = lin(cat === CAT.HOUSE ? PITCHED_ROOFS[Math.floor(rnd() * PITCHED_ROOFS.length)] : [0.5, 0.5, 0.49]);
       const flatCol = lin((() => { const g = 0.5 + 0.2 * rnd(); return [g, g, g * 0.97]; })());
+      // foot and top of the shell itself (the paint bands of a lattice tower are counted between them)
+      let shellLo = Infinity, shellHi = -Infinity;
+      if (b.flags & BFLAG.LATTICE) for (const s of b.surfaces) for (const r of s.rings) for (let i = 1; i < r.length; i += 3) { shellLo = Math.min(shellLo, r[i]); shellHi = Math.max(shellHi, r[i]); }
       for (const { roof: isRoof, rings, uv } of b.surfaces) {
         // Newell normal of the outline; CityGML surfaces face outwards
         const o = rings[0], n = o.length / 3;
@@ -366,8 +372,10 @@ export function buildingMesh(buildings, tx, tz) {
         });
         const wall = !isRoof && steep, len = s1 - s0;
         const bays = wall && len >= 1.8 ? Math.max(1, Math.round(len / BAY[cat])) : 0, bay = bays ? len / bays : 0;
-        const kind = wall ? KIND.WALL : ny > 0.985 ? KIND.FLAT_ROOF : steep ? KIND.SOLID : KIND.PITCHED_ROOF;
-        const color = wall || kind === KIND.SOLID ? wallCol : kind === KIND.FLAT_ROOF ? flatCol : roofCol;
+        // A lattice tower: its sloping and narrow faces are open steelwork; wide upright ones are the decks and the base building.
+        const tower = (b.flags & BFLAG.LATTICE) !== 0, open = tower && steep && !(Math.abs(ny) < 0.02 && len > 12);
+        const kind = open ? KIND.LATTICE : wall ? KIND.WALL : ny > 0.985 ? KIND.FLAT_ROOF : steep ? KIND.SOLID : KIND.PITCHED_ROOF;
+        const color = tower && steep ? TOWER_WHITE : wall || kind === KIND.SOLID ? wallCol : kind === KIND.FLAT_ROOF ? flatCol : roofCol;
         const layer = wall || kind === KIND.SOLID ? wallLayer : kind === KIND.FLAT_ROOF ? WALL.ROOF : WALL.SIDING;
         wallH = y1 - b.base; // windows stop under this wall's own top
         const idx = earcut(flat, holes, 2), N = [nx, ny, nz];
@@ -377,8 +385,18 @@ export function buildingMesh(buildings, tx, tz) {
           const cx = (q[1] - p[1]) * (r[2] - p[2]) - (q[2] - p[2]) * (r[1] - p[1]), cy = (q[2] - p[2]) * (r[0] - p[0]) - (q[0] - p[0]) * (r[2] - p[2]),
             cz = (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
           if (cx * nx + cy * ny + cz * nz < 0) [q, r] = [r, q];
-          if (uv) { for (const v of [p, q, r]) { photo.pos.push(v[0], v[1], v[2]); photo.nor.push(nx, ny, nz); photo.uv.push(v[4], v[5]); } continue; }
-          for (const v of [p, q, r]) vtx(v[0], v[1], v[2], N, color, bays ? ((v[3] - s0) / len) * bays : 0, v[1] - b.base, kind, bay, layer);
+          if (uv && isRoof) { for (const v of [p, q, r]) { photo.pos.push(v[0], v[1], v[2]); photo.nor.push(nx, ny, nz); photo.uv.push(v[4], v[5]); } continue; }
+          if (open) { // metres along the face and above the ground feed the truss pattern; seen from both sides
+            wallH = shellHi - shellLo;
+            for (const v of [p, q, r]) vtx(v[0], v[1], v[2], N, color, v[3] - s0, v[1] - shellLo, kind, 0, layer);
+            for (const v of [p, r, q]) vtx(v[0], v[1], v[2], [-nx, -ny, -nz], color, v[3] - s0, v[1] - shellLo, kind, 0, layer);
+            continue;
+          }
+          for (const v of [p, q, r]) {
+            if (uv) { pu = v[4]; pv = v[5]; }
+            vtx(v[0], v[1], v[2], N, color, bays ? ((v[3] - s0) / len) * bays : 0, v[1] - b.base, kind, bay, layer);
+          }
+          pu = pv = -1;
         }
       }
       ends.push(pos.length / 3);
@@ -503,7 +521,7 @@ export function buildingMesh(buildings, tx, tz) {
     ends.push(pos.length / 3);
   });
   return {
-    position: pos.done(), normal: nor.done(), color: col.done(), aFacade: fac.done(), aBldg: bld.done(),
+    position: pos.done(), normal: nor.done(), color: col.done(), aFacade: fac.done(), aBldg: bld.done(), aPhoto: pho.done(),
     // first vertex index after each building (for picking: vertex -> building)
     ends: ends.done(), triangles: pos.length / 9,
     photo: { position: photo.pos.done(), normal: photo.nor.done(), uv: photo.uv.done() },

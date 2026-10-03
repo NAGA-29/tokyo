@@ -14,6 +14,11 @@ export const AREAS = {
     origin: [139.76712, 35.68124], // Tokyo Station, between Marunouchi and Yaesu
     radius: 1,
   },
+  shiba: {
+    name: 'Shiba (Tokyo Tower)',
+    origin: [139.74543, 35.65858], // Tokyo Tower
+    radius: 1,
+  },
 };
 
 export const ROOT = path.resolve(import.meta.dirname, '../..');

@@ -112,6 +112,10 @@ controls.update();
   gui.add(state, 'traffic');
   gui.add(state, 'trains');
   gui.add(state, 'photo').name('aerial photo').listen();
+  const walls = gui.addFolder('Wall photos');
+  walls.add(shared.uPhotoMix, 'value', 0, 1, 0.05).name('amount');
+  walls.add(shared.uPhotoRange.value, 'x', 0, 1000, 10).name('from (m)');
+  walls.add(shared.uPhotoRange.value, 'y', 10, 2000, 10).name('full at (m)');
   const quality = gui.addFolder('Rendering');
   quality.add(state, 'radius', 500, 4000, 100).name('view radius (m)');
   quality.add(state, 'shadows');
@@ -149,7 +153,7 @@ renderer.domElement.addEventListener('pointerdown', (e) => { downAt = [e.clientX
 renderer.domElement.addEventListener('pointerup', (e) => {
   if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 4) return;
   raycaster.setFromCamera(new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1), camera);
-  const hit = raycaster.intersectObjects(scene.children, true).find((h) => h.object.material === materials.facade);
+  const hit = raycaster.intersectObjects(scene.children, true).find((h) => h.object.userData.facade);
   picked = hit ? streamer.buildingAt(hit) : null;
 });
 

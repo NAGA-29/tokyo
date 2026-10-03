@@ -26,7 +26,7 @@ export const VERSION = 7;
 // Wall material from OSM's building:material, in a building's hint (0 = not mapped).
 export const MATERIAL = { NONE: 0, TILE: 1, CONCRETE: 2, PLASTER: 3, BRICK: 4, METAL: 5, GLASS: 6 };
 
-export const BFLAG = { LOD2: 1, NO_SOLID: 2 };
+export const BFLAG = { LOD2: 1, NO_SOLID: 2, LATTICE: 4 }; // LATTICE: a steel lattice tower (OSM tower:construction)
 
 // Ground surface kinds. For roads, `code` keeps the PLATEAU function code for finer styling later.
 export const AREA = { ROAD: 0, CARRIAGEWAY: 1, SIDEWALK: 2, ISLAND: 3, OTHER: 4, PARK: 5, WOOD: 6, WATER: 7, PITCH: 8, MARK_WHITE: 9, MARK_YELLOW: 10,

@@ -13,6 +13,8 @@ export const shared = {
   uTime: { value: 0 },  // seconds, for wind and signals
   // aerial photo over the area: texture, and its rectangle in world x/z as (minX, minZ, sizeX, sizeZ)
   uOrtho: { value: null }, uOrthoRect: { value: new THREE.Vector4(0, 0, 1, 1) }, uOrthoOn: { value: 0 },
+  // wall photos: the distances (m) between which a facade goes from generated to photo, and how much photo at most
+  uPhotoRange: { value: new THREE.Vector2(140, 420) }, uPhotoMix: { value: 1 },
 };
 
 
@@ -84,6 +86,22 @@ const FACADE_MAIN = /* glsl */ `
     wall *= 1.0 - grime;
   }
   diffuseColor.rgb = wall;
+
+  // Steel lattice tower: chords, struts and cross-bracing with air between (a member never thinner than a
+  // pixel, so it closes up into a solid colour far away), painted in the seven aviation bands of
+  // international orange and white, and floodlit at night.
+  if (kind > 3.5) {
+    vec2 p = vec2(u, v) / 5.0, f = fract(p);
+    float w = max(0.05, 1.2 * max(fwidth(p.x), fwidth(p.y)));
+    float chord = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y));
+    float brace = min(abs(f.x - f.y), abs(f.x + f.y - 1.0)) * 0.7071;
+    if (min(chord, brace * 1.3) > w) discard;
+    float band = floor(clamp(v / height, 0.0, 0.999) * 7.0);
+    vec3 paint = mod(band, 2.0) < 0.5 ? vec3(0.86, 0.075, 0.012) : vec3(0.78, 0.78, 0.75);
+    diffuseColor.rgb = paint;
+    gRough = 0.5; gMetal = 0.25; gNm = vec3(0.0, 0.0, 1.0);
+    gEmissive = mix(paint, vec3(1.0, 0.5, 0.12), 0.6) * uNight * 1.3;
+  }
 
   if (kind < 0.5 && cellW > 0.5) {
     float fyAll = v / floorH, row = floor(fyAll), col = floor(u);
@@ -172,25 +190,49 @@ const FACADE_MAIN = /* glsl */ `
 }
 `;
 
+const NO_PHOTO = new THREE.DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1);
+NO_PHOTO.needsUpdate = true;
+
+// One instance per tile that has a wall photo atlas (they share the program); set it with material.userData.photo.
+// The real wall, from PLATEAU's aerial photo: too smeared to stand in front of, right from across the city.
+const PHOTO_PARS = /* glsl */ `
+uniform sampler2D uPhoto;
+uniform float uPhotoOn;
+uniform vec2 uPhotoRange;
+uniform float uPhotoMix;
+varying vec2 vPhoto;
+`;
+const PHOTO_MAIN = /* glsl */ `
+{
+  vec3 photo = texture2D(uPhoto, vPhoto).rgb; // (sampled outside the branch: derivatives)
+  float k = uPhotoOn * uPhotoMix * step(0.0, vPhoto.x) * smoothstep(uPhotoRange.x, uPhotoRange.y, distance(cameraPosition, vWPos));
+  diffuseColor.rgb = mix(diffuseColor.rgb, photo * 1.12, k);
+  gRough = mix(gRough, 0.85, k);
+  gMetal *= 1.0 - k;
+}
+`;
+
 function facadeMaterial(tex) {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.0 });
+  m.userData.photo = { value: NO_PHOTO }; m.userData.photoOn = { value: 0 };
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, {
+      uPhoto: m.userData.photo, uPhotoOn: m.userData.photoOn, uPhotoRange: shared.uPhotoRange, uPhotoMix: shared.uPhotoMix,
       uNight: shared.uNight, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
       uWallScale: { value: tex.wall.scales }, uWallDetail: { value: tex.wall.details },
     });
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\nattribute vec4 aFacade;\nattribute vec4 aBldg;\nvarying vec4 vFacade;\nvarying vec4 vBldg;\n${WORLD_VARYINGS_VERT}`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>\nvFacade = aFacade;\nvBldg = aBldg;\n${WORLD_VARYINGS_SET}`);
+      .replace('#include <common>', `#include <common>\nattribute vec4 aFacade;\nattribute vec4 aBldg;\nattribute vec2 aPhoto;\nvarying vec4 vFacade;\nvarying vec4 vBldg;\nvarying vec2 vPhoto;\n${WORLD_VARYINGS_VERT}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\nvFacade = aFacade;\nvBldg = aBldg;\nvPhoto = aPhoto;\n${WORLD_VARYINGS_SET}`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\n' + FACADE_PARS)
-      .replace('#include <color_fragment>', '#include <color_fragment>\n' + FACADE_MAIN)
+      .replace('#include <common>', '#include <common>\n' + FACADE_PARS + PHOTO_PARS)
+      .replace('#include <color_fragment>', '#include <color_fragment>\n' + FACADE_MAIN + PHOTO_MAIN)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = gRough;')
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = gMetal;')
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + APPLY_NORMAL)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += gEmissive;');
   };
-  m.customProgramCacheKey = () => 'facade-v2';
+  m.customProgramCacheKey = () => 'facade-v4';
   return m;
 }
 
@@ -272,6 +314,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
 export function createMaterials(tex) {
   return {
     facade: facadeMaterial(tex),
+    facadeFor: () => facadeMaterial(tex), // a tile's own instance, for its wall photos
     // Ground not covered by roads or buildings: private lots, car parks, yards.
     terrain: groundMaterial(tex, { fixedLayer: 3, color: new THREE.Color().setRGB(0.2, 0.2, 0.185) }),
     road: groundMaterial(tex, { vertexColors: true, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }),

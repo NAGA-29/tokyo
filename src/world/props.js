@@ -458,7 +458,7 @@ export class Props {
         const x = props[i + 3], z = props[i + 4], k = scale ? scale(i) : props[i + 5];
         q.setFromAxisAngle(up, props[i + 2]);
         v.set(x, ground(x, z) + lift, z);
-        if (local) v.add(new THREE.Vector3(...local).applyQuaternion(q));
+        if (local) v.add(new THREE.Vector3(...local).multiplyScalar(props[i + 5]).applyQuaternion(q)); // (parts sit on a model of that size)
         if (Array.isArray(k)) s.set(...k); else s.setScalar(k);
         mesh.setMatrixAt(n, m.compose(v, q, s));
       });
@@ -500,7 +500,7 @@ export class Props {
         // three lenses per head; crossing directions alternate phase
         for (let lens = 0; lens < 3; lens++) {
           const mesh = instanced(rows, this.models.lens, this.mats.lens, {
-            lift: 0.15, shadow: false, local: [-SIGNAL.arm + 0.35 + (lens - 1) * -0.4, SIGNAL.y, 0.115], scale: () => 1,
+            lift: 0.15, shadow: false, local: [-SIGNAL.arm + 0.35 + (lens - 1) * -0.4, SIGNAL.y, 0.115], scale: (i) => props[i + 5],
           });
           const a = new Float32Array(rows.length * 2);
           rows.forEach((i, n) => { a[n * 2] = lens; a[n * 2 + 1] = Math.round(props[i + 2] / (Math.PI / 2)) % 2; });

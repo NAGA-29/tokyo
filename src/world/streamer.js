@@ -8,6 +8,8 @@ import { SIGN_LOD_DISTANCE } from './signs.js';
 
 const WORKERS = Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) >> 1));
 const MAX_IN_FLIGHT = WORKERS * 2;
+// Distance (m) from the eye within which a tile shows its full-size photo atlas instead of the small one.
+const ROOFS_FULL = 600, WALLS_FULL = 900;
 
 function geometry(arrays, attrs) {
   const g = new THREE.BufferGeometry();
@@ -58,7 +60,7 @@ export class Streamer {
   update(focus, eye = focus) {
     const size = this.manifest.tileSize;
     for (const [key, t] of this.tiles) {
-      if (t.state !== 'ready' || (!t.trees && !t.signs)) continue;
+      if (t.state !== 'ready' || (!t.trees && !t.signs && !t.atlases.length)) continue;
       // Distance from the eye to the nearest point of the tile, so things next to the camera are never the
       // simple versions; a margin on the way out stops a tile flickering at the threshold.
       const tl = this.available.get(key), x0 = tl.x * size, z0 = tl.z * size;
@@ -70,6 +72,19 @@ export class Streamer {
         const limit = this.props.constructor.lodDistance * (t.trees.count > 120 ? 0.5 : 1);
         const near = t.trees.near.visible ? d < limit * 1.25 : d < limit;
         t.trees.near.visible = near; t.trees.far.visible = !near;
+      }
+      for (const a of t.atlases) {
+        const want = d < a.dist * (a.full || a.loading ? 1.3 : 1);
+        if (want && !a.full && !a.loading) {
+          a.loading = true;
+          this.loadTexture(a.file, (map) => {
+            a.loading = false;
+            if (this.tiles.get(key) !== t || a.gone) { map.dispose(); a.gone = false; return; }
+            a.full = map; a.apply(map);
+          });
+        } else if (!want && a.loading) a.gone = true;      // arrived too late: drop it on arrival
+        else if (want && a.loading) a.gone = false;
+        else if (!want && a.full) { if (a.small) a.apply(a.small); a.full.dispose(); a.full = null; }
       }
       if (t.signs) {
         // sign text is drawn into a texture when the tile comes near, and freed when it is far again
@@ -110,6 +125,7 @@ export class Streamer {
     const { terrain, roads, paint, buildings, info, props, wires, signs: signList, models } = msg.mesh;
     const group = new THREE.Group();
     group.name = `tile ${msg.key}`;
+    const atlases = [];
 
     const ground = new THREE.Mesh(geometry(terrain, [['position', 3], ['normal', 3]]), this.materials.terrain);
     ground.receiveShadow = true;
@@ -137,13 +153,18 @@ export class Streamer {
       group.add(signs.group);
     }
     if (buildings.position.length) {
+      const walls = this.available.get(msg.key).walls;
       const m = new THREE.Mesh(
-        geometry(buildings, [['position', 3], ['normal', 3], ['color', 3], ['aFacade', 4], ['aBldg', 4]]),
-        this.materials.facade,
+        geometry(buildings, [['position', 3], ['normal', 3], ['color', 3], ['aFacade', 4], ['aBldg', 4], ['aPhoto', 2]]),
+        walls ? this.materials.facadeFor() : this.materials.facade,
       );
+      if (walls) { // the tile's wall photos, blended in by the facade shader with distance
+        group.userData.own = [m.material]; // (kept off the mesh: its userData is the picking record)
+        atlases.push(this.atlas(msg.key, t, walls, WALLS_FULL, (map) => { m.material.userData.photo.value = map; m.material.userData.photoOn.value = 1; }));
+      }
       m.castShadow = true;
       m.receiveShadow = true;
-      m.userData = { tile: msg.key, info, ends: buildings.ends };
+      m.userData = { tile: msg.key, info, ends: buildings.ends, facade: true };
       group.add(m);
     }
     if (models) { // PLATEAU's own models of bridges, street furniture and trees
@@ -156,23 +177,42 @@ export class Streamer {
       const m = new THREE.Mesh(geometry(buildings.photo, [['position', 3], ['normal', 3], ['uv', 2]]), new THREE.MeshStandardMaterial({ color: 0x777776, roughness: 0.9, metalness: 0 }));
       m.castShadow = m.receiveShadow = true;
       m.userData.own = [m.material]; // freed with the tile
-      new THREE.TextureLoader().load(`${this.base}/${this.available.get(msg.key).atlas}`, (map) => {
-        if (this.tiles.get(msg.key) !== t) { map.dispose(); return; } // unloaded meanwhile
-        map.colorSpace = THREE.SRGBColorSpace;
-        map.anisotropy = 4;
-        m.material.map = map; m.material.color.set(0xffffff); m.material.needsUpdate = true;
-        m.userData.own.push(map);
-      });
+      atlases.push(this.atlas(msg.key, t, this.available.get(msg.key).atlas, ROOFS_FULL, (map) => {
+        const first = !m.material.map;
+        m.material.map = map; m.material.color.set(0xffffff);
+        if (first) m.material.needsUpdate = true;
+      }));
       group.add(m);
     }
     const tris = terrain.index.length / 3 + roads.position.length / 9 + buildings.triangles;
-    Object.assign(t, { state: 'ready', group, trees, signs, signNear: false, buildings: info.length, tris });
+    Object.assign(t, { state: 'ready', group, trees, signs, atlases, signNear: false, buildings: info.length, tris });
     this.scene.add(group);
     this.stats.loaded++; this.stats.buildings += info.length; this.stats.triangles += tris;
   }
 
+  // A photo atlas of a tile: its small version is loaded now and stays; update() swaps the full one in
+  // while the eye is within `dist` of the tile. apply(map) puts a texture on the material.
+  atlas(key, t, file, dist, apply) {
+    const a = { file, dist, apply, small: null, full: null, loading: false };
+    this.loadTexture(file.replace(/\.jpg$/, '_s.jpg'), (map) => {
+      if (this.tiles.get(key) !== t) { map.dispose(); return; } // unloaded meanwhile
+      a.small = map;
+      if (!a.full) apply(map);
+    });
+    return a;
+  }
+
+  loadTexture(file, done) {
+    new THREE.TextureLoader().load(`${this.base}/${file}`, (map) => {
+      map.colorSpace = THREE.SRGBColorSpace;
+      map.anisotropy = 4;
+      done(map);
+    });
+  }
+
   unload(key) {
     const t = this.tiles.get(key);
+    for (const a of t.atlases ?? []) { a.small?.dispose(); a.full?.dispose(); }
     this.scene.remove(t.group);
     t.signs?.dispose();
     // prop models are shared between tiles; only per-tile geometry is freed
