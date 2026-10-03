@@ -53,13 +53,20 @@ export function buildMarkings({ edges, pos, idx, land, inBounds }) {
     if ((e.bridge && !e.span) || e.tunnel || hw === 'motorway' || e.highway.endsWith('_link')) continue;
     if (!MAJOR.has(hw) && e.lanes < 2) continue;
     const pts = e.ids.map(pos);
+    // Where the carriageway is far wider than the road needs (a bus terminal, a station forecourt, one
+    // polygon for two carriageways) or has no measurable edge, the road is painted at its nominal width
+    // along the OSM line, with edge lines, so it still reads as a road across open asphalt.
+    const nominal = Math.max(1, e.lanes) * 3.0 + 0.8;
     const samples = [];
+    let open = 0;
     forEachAlong(pts, STEP, (x, z, dx, dz, n) => {
       const nx = -dz, nz = dx; // right of travel
       let s = null;
       if (idx.carriageway.has(x, z)) {
         const R = reach(x, z, nx, nz, 1), L = reach(x, z, nx, nz, -1);
-        if (R != null && L != null) s = { x: x + nx * (R - L) / 2, z: z + nz * (R - L) / 2, nx, nz, w: R + L, n };
+        if (R != null && L != null && R + L <= nominal * 1.6 + 3) s = { x: x + nx * (R - L) / 2, z: z + nz * (R - L) / 2, nx, nz, w: R + L, n };
+        // (not inside a junction: within reach of a junction node the open asphalt is the crossing itself)
+        else if (!nearestJunction(x, z, 16 + Math.max(1, e.lanes) * 2)) { s = { x, z, nx, nz, w: nominal, n, open: true }; open++; }
       }
       samples.push(s);
     }, STEP / 2);
@@ -69,7 +76,7 @@ export function buildMarkings({ edges, pos, idx, land, inBounds }) {
     // keep the regular stretch of road: junctions and bays show up as jumps in width
     const ok = samples.map((s) => s && s.w > median * 0.8 && s.w < median * 1.25);
     let lanes = Math.min(e.lanes, Math.floor(median / 2.6));
-    if (lanes < 2 && !(MAJOR.has(hw) && median > 5)) continue;
+    if (lanes < 2 && !(MAJOR.has(hw) && median > 5) && open < 4) continue;
     lanes = Math.max(lanes, 1);
     const lw = median / lanes;
     const lines = []; // { o: lateral offset, kind, dashed }
@@ -83,10 +90,12 @@ export function buildMarkings({ edges, pos, idx, land, inBounds }) {
       lines.push({ o, kind: AREA.MARK_WHITE, dashed: true });
     }
     if (hw !== 'tertiary' && median > 6) for (const s of [-1, 1]) lines.push({ o: s * (median / 2 - 0.35), kind: AREA.MARK_WHITE, dashed: false });
+    // edge lines for stretches across open asphalt, whatever the road class
+    const openEdges = [-1, 1].map((s) => ({ o: s * (nominal / 2 - 0.2), kind: AREA.MARK_WHITE, dashed: false }));
     for (let i = 0; i + 1 < samples.length; i++) {
       if (!ok[i] || !ok[i + 1]) continue;
       const a = samples[i], b = samples[i + 1];
-      for (const l of lines) {
+      for (const l of a.open && b.open && lines.every((o) => Math.abs(o.o) < nominal / 2 - 0.5) ? [...lines, ...openEdges] : lines) {
         if (l.dashed && Math.floor(a.n / 2) % 2) continue;
         const p = (s, o) => [s.x + s.nx * o, s.z + s.nz * o];
         quad(l.kind, p(a, l.o - LINE / 2), p(b, l.o - LINE / 2), p(b, l.o + LINE / 2), p(a, l.o + LINE / 2));
@@ -172,17 +181,22 @@ export function buildMarkings({ edges, pos, idx, land, inBounds }) {
   const zebra = (path) => {
     // A crossing runs from kerb to kerb. A path whose ends both lie out in the carriageway (inside a bus
     // terminal, a car park) would leave a few stripes floating in the asphalt: skip it.
-    const beyond = (p, q) => { const l = Math.hypot(p[0] - q[0], p[1] - q[1]) || 1; return idx.carriageway.has(p[0] + ((p[0] - q[0]) / l) * 2, p[1] + ((p[1] - q[1]) / l) * 2); };
+    // (looking 3 and 6 m past each end: crossing paths often stop a little short of the kerb)
+    const beyond = (p, q) => { const l = Math.hypot(p[0] - q[0], p[1] - q[1]) || 1; return [3, 6].every((d) => idx.carriageway.has(p[0] + ((p[0] - q[0]) / l) * d, p[1] + ((p[1] - q[1]) / l) * d)); };
     if (path.length < 2 || (beyond(path[0], path[1]) && beyond(path.at(-1), path.at(-2)))) return;
-    const run = [];
+    // the stripes on the carriageway, as unbroken runs; a run shorter than a lane is a stray fragment
+    const runs = [[]];
     forEachAlong(path, 0.9, (x, z, dx, dz) => {
-      if (!inBounds(x, z) || !idx.carriageway.has(x, z)) return;
+      if (inBounds(x, z) && idx.carriageway.has(x, z)) runs.at(-1).push([x, z, dx, dz]);
+      else if (runs.at(-1).length) runs.push([]);
+    }, 0.45);
+    const run = runs.reduce((a, b) => (b.length > a.length ? b : a));
+    if (run.length < 5) return;
+    for (const [x, z, dx, dz] of runs.filter((r) => r.length >= 5).flat()) {
       const rx = -dz, rz = dx; // road direction: across the crossing path
       quad(AREA.MARK_WHITE, [x - dx * 0.225 - rx * 1.8, z - dz * 0.225 - rz * 1.8], [x + dx * 0.225 - rx * 1.8, z + dz * 0.225 - rz * 1.8],
         [x + dx * 0.225 + rx * 1.8, z + dz * 0.225 + rz * 1.8], [x - dx * 0.225 + rx * 1.8, z - dz * 0.225 + rz * 1.8]);
-      run.push([x, z, dx, dz]);
-    }, 0.45);
-    if (run.length < 5) return;
+    }
     const [ax, az] = run[0], [bx, bz, dx, dz] = run.at(-1);
     const cx = (ax + bx) / 2, cz = (az + bz) / 2, half = Math.hypot(bx - ax, bz - az) / 2 + 0.45;
     zebraAt.push([cx, cz]);

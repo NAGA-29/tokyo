@@ -85,12 +85,14 @@ const ROAD_STYLE = {
   [AREA.WOOD]: { lift: 0.02, color: lin([0.3, 0.4, 0.23]), layer: GROUND.GRASS },
   [AREA.PITCH]: { lift: 0.025, color: lin([0.63, 0.56, 0.43]), layer: GROUND.CONCRETE },
   [AREA.WATER]: { lift: 0.08, color: lin([0.16, 0.25, 0.26]), layer: GROUND.WATER },
-  [AREA.MARK_WHITE]: { lift: 0.09, color: lin([0.9, 0.9, 0.87]), layer: GROUND.CONCRETE },
-  [AREA.MARK_YELLOW]: { lift: 0.09, color: lin([0.88, 0.66, 0.12]), layer: GROUND.CONCRETE },
+  [AREA.MARK_WHITE]: { lift: 0.15, color: lin([0.9, 0.9, 0.87]), layer: GROUND.CONCRETE },
+  [AREA.MARK_YELLOW]: { lift: 0.15, color: lin([0.88, 0.66, 0.12]), layer: GROUND.CONCRETE },
 };
 const isPaint = (a) => a.kind === AREA.MARK_WHITE || a.kind === AREA.MARK_YELLOW;
 const KERB = { color: lin([0.68, 0.68, 0.66]), layer: GROUND.CONCRETE, foot: 0.03 };
-const DRAPE_EDGE = 8; // metres: longer triangle edges are split so the surface follows the terrain
+// Metres: longer triangle edges are split so the surface follows the terrain. Paint is laid in small pieces
+// that follow the terrain exactly, so the road beneath must not stray from it by more than the paint is lifted.
+const DRAPE_EDGE = 6;
 
 // surface(x, z, deck): the height roads lie on — the terrain, or a bridge deck (src/shared/decks.js).
 // walls: bridge parapets as rows of [x1, z1, x2, z2, deck].

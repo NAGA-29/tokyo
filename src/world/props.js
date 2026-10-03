@@ -456,7 +456,7 @@ export class Props {
         const u0 = (variant % DECAL_COLS) / DECAL_COLS, v1 = 1 - Math.floor(variant / DECAL_COLS) / DECAL_ROWS;
         const corner = (s, t) => { // s: -1 left .. 1 right, t: 0 near .. 1 far
           const px = x + rx * s * w / 2 + dx * (t - 0.5) * len, pz = z + rz * s * w / 2 + dz * (t - 0.5) * len;
-          pos.push(px, ground(px, pz) + 0.1, pz); nor.push(0, 1, 0);
+          pos.push(px, ground(px, pz) + 0.17, pz); nor.push(0, 1, 0);
           uv.push(u0 + ((s + 1) / 2) / DECAL_COLS, v1 - (1 - t) / DECAL_ROWS);
         };
         for (let k = 0; k < STRIPS; k++) {
