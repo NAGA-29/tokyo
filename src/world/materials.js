@@ -87,23 +87,11 @@ const FACADE_MAIN = /* glsl */ `
   }
   diffuseColor.rgb = wall;
 
-  // Steel lattice tower: chords, struts and cross-bracing with air between (a member never thinner than a
-  // pixel, so it closes up into a solid colour far away). Each face stands on two legs with an arch of open
-  // air between them (u: metres from the tower's axis, cellW: half the width of its foot). Painted in bands
-  // of international orange and white — spaced as on Tokyo Tower, orange up to the main deck — and floodlit at night.
+  // steelwork of a lattice tower (src/world/tower.js): painted steel in the vertex colour, floodlit at night
   if (kind > 3.5) {
-    float hRel = clamp(v / height, 0.0, 1.0), archTop = 0.19;
-    if (hRel < archTop && abs(u) < cellW * 0.74 * sqrt(1.0 - hRel / archTop)) discard;
-    vec2 p = vec2(u, v) / 4.0, f = fract(p);
-    float w = max(0.05, 1.2 * max(fwidth(p.x), fwidth(p.y)));
-    float chord = min(min(f.x, 1.0 - f.x), min(f.y, 1.0 - f.y));
-    float brace = min(abs(f.x - f.y), abs(f.x + f.y - 1.0)) * 0.7071;
-    if (min(chord, brace * 1.3) > w) discard;
-    bool orange = hRel < 0.42 || (hRel > 0.45 && hRel < 0.57) || (hRel > 0.63 && hRel < 0.73) || (hRel > 0.84 && hRel < 0.95);
-    vec3 paint = orange ? vec3(0.86, 0.075, 0.012) : vec3(0.78, 0.78, 0.75);
-    diffuseColor.rgb = paint;
+    diffuseColor.rgb = vColor.rgb * (0.94 + 0.12 * vnoise(st * 0.7));
     gRough = 0.5; gMetal = 0.25; gNm = vec3(0.0, 0.0, 1.0);
-    gEmissive = mix(paint, vec3(1.0, 0.5, 0.12), 0.6) * uNight * 1.3;
+    gEmissive = mix(vColor.rgb, vec3(1.0, 0.5, 0.12), 0.6) * uNight * 1.3;
   }
 
   if (kind < 0.5 && cellW > 0.5) {
@@ -235,7 +223,7 @@ function facadeMaterial(tex) {
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + APPLY_NORMAL)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += gEmissive;');
   };
-  m.customProgramCacheKey = () => 'facade-v5';
+  m.customProgramCacheKey = () => 'facade-v7';
   return m;
 }
 

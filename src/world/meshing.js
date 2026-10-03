@@ -5,6 +5,7 @@ import { AREA, SPORT, BARRIER, MATERIAL, BFLAG } from '../shared/tileformat.js';
 import { sampleGrid } from '../shared/terrain.js';
 import { KIND, CAT, WALL, GROUND } from './constants.js';
 import { deckOf } from '../shared/decks.js';
+import { buildTower } from './tower.js';
 
 // ---------------------------------------------------------------- helpers
 const srgbToLinear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
@@ -276,8 +277,6 @@ function minAreaRect(r) {
   return hu >= hv ? { cx, cz, ax: dx, az: dz, a: hu, b: hv, area: best.area } : { cx, cz, ax: -dz, az: dx, a: hv, b: hu, area: best.area };
 }
 
-const TOWER_WHITE = lin([0.88, 0.88, 0.86]);
-
 export function buildingMesh(buildings, tx, tz) {
   const pos = new Buf(1 << 16), nor = new Buf(1 << 16), col = new Buf(1 << 16), fac = new Buf(1 << 16), bld = new Buf(1 << 16), pho = new Buf(1 << 15);
   let pu = -1, pv = -1; // photo coordinates of the vertices being added (-1: none)
@@ -342,15 +341,19 @@ export function buildingMesh(buildings, tx, tz) {
     if (b.surfaces?.length) {
       const roofCol = lin(cat === CAT.HOUSE ? PITCHED_ROOFS[Math.floor(rnd() * PITCHED_ROOFS.length)] : [0.5, 0.5, 0.49]);
       const flatCol = lin((() => { const g = 0.5 + 0.2 * rnd(); return [g, g, g * 0.97]; })());
-      // foot and top of the shell itself (the paint bands of a lattice tower are counted between them)
-      // and its axis and half-width at the foot: the faces are open between the legs, under an arch
-      let shellLo = Infinity, shellHi = -Infinity, axisX = 0, axisZ = 0, footHalf = 0;
+      // A steel lattice tower is built member by member (tower.js) where the shell stands: on its axis, as
+      // wide as its foot, as high as its top, and turned as its foot is turned.
       if (b.flags & BFLAG.LATTICE) {
-        let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+        let lo = Infinity, hi = -Infinity, x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity, far = 0, angle = 0;
         const each = (fn) => { for (const s of b.surfaces) for (const r of s.rings) for (let i = 0; i < r.length; i += 3) fn(r[i], r[i + 1], r[i + 2]); };
-        each((x, y, z) => { shellLo = Math.min(shellLo, y); shellHi = Math.max(shellHi, y); x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); });
-        axisX = (x0 + x1) / 2; axisZ = (z0 + z1) / 2;
-        each((x, y, z) => { if (y < shellLo + 4) footHalf = Math.max(footHalf, Math.hypot(x - axisX, z - axisZ) / Math.SQRT2); }); // (the corners of a square foot)
+        each((x, y, z) => { lo = Math.min(lo, y); hi = Math.max(hi, y); x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); });
+        const ax = (x0 + x1) / 2, az = (z0 + z1) / 2;
+        // the farthest point of the foot is a corner of its square: the faces lie 45 degrees from it
+        each((x, y, z) => { const d = Math.hypot(x - ax, z - az); if (y < lo + 4 && d > far) { far = d; angle = Math.atan2(z - az, x - ax) - Math.PI / 4; } });
+        wallH = hi - lo;
+        buildTower({ x: ax, z: az, y0: lo, H: hi - lo, R: far / Math.SQRT2, angle }, (p, q, r, s, n, c) => quad(p, q, r, s, n, c, KIND.LATTICE, WALL.SIDING));
+        ends.push(pos.length / 3);
+        return;
       }
       for (const { roof: isRoof, rings, uv } of b.surfaces) {
         // Newell normal of the outline; CityGML surfaces face outwards
@@ -379,10 +382,8 @@ export function buildingMesh(buildings, tx, tz) {
         });
         const wall = !isRoof && steep, len = s1 - s0;
         const bays = wall && len >= 1.8 ? Math.max(1, Math.round(len / BAY[cat])) : 0, bay = bays ? len / bays : 0;
-        // A lattice tower: its sloping and narrow faces are open steelwork; wide upright ones are the decks and the base building.
-        const tower = (b.flags & BFLAG.LATTICE) !== 0, open = tower && steep && !(Math.abs(ny) < 0.02 && len > 12);
-        const kind = open ? KIND.LATTICE : wall ? KIND.WALL : ny > 0.985 ? KIND.FLAT_ROOF : steep ? KIND.SOLID : KIND.PITCHED_ROOF;
-        const color = tower && steep ? TOWER_WHITE : wall || kind === KIND.SOLID ? wallCol : kind === KIND.FLAT_ROOF ? flatCol : roofCol;
+        const kind = wall ? KIND.WALL : ny > 0.985 ? KIND.FLAT_ROOF : steep ? KIND.SOLID : KIND.PITCHED_ROOF;
+        const color = wall || kind === KIND.SOLID ? wallCol : kind === KIND.FLAT_ROOF ? flatCol : roofCol;
         const layer = wall || kind === KIND.SOLID ? wallLayer : kind === KIND.FLAT_ROOF ? WALL.ROOF : WALL.SIDING;
         wallH = y1 - b.base; // windows stop under this wall's own top
         const idx = earcut(flat, holes, 2), N = [nx, ny, nz];
@@ -393,13 +394,6 @@ export function buildingMesh(buildings, tx, tz) {
             cz = (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
           if (cx * nx + cy * ny + cz * nz < 0) [q, r] = [r, q];
           if (uv && isRoof) { for (const v of [p, q, r]) { photo.pos.push(v[0], v[1], v[2]); photo.nor.push(nx, ny, nz); photo.uv.push(v[4], v[5]); } continue; }
-          if (open) { // metres along the face and above the ground feed the truss pattern; seen from both sides
-            wallH = shellHi - shellLo;
-            const mid = axisX * tx + axisZ * tz; // u: metres along the face from the tower's axis
-            for (const v of [p, q, r]) vtx(v[0], v[1], v[2], N, color, v[3] - mid, v[1] - shellLo, kind, footHalf, layer);
-            for (const v of [p, r, q]) vtx(v[0], v[1], v[2], [-nx, -ny, -nz], color, v[3] - mid, v[1] - shellLo, kind, footHalf, layer);
-            continue;
-          }
           for (const v of [p, q, r]) {
             if (uv) { pu = v[4]; pv = v[5]; }
             vtx(v[0], v[1], v[2], N, color, bays ? ((v[3] - s0) / len) * bays : 0, v[1] - b.base, kind, bay, layer);
