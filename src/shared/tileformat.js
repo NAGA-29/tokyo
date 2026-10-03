@@ -25,7 +25,11 @@ export const BFLAG = { LOD2: 1, NO_SOLID: 2 };
 export const AREA = { ROAD: 0, CARRIAGEWAY: 1, SIDEWALK: 2, ISLAND: 3, OTHER: 4, PARK: 5, WOOD: 6, WATER: 7, PITCH: 8, MARK_WHITE: 9, MARK_YELLOW: 10 };
 
 // Point objects placed by the compiler; the client instances a model per kind.
-export const PROP = { TREE: 0, POLE: 1, LIGHT: 2, VENDING: 3, SIGNAL: 4, DECAL: 5 };
+export const PROP = {
+  TREE: 0, POLE: 1, LIGHT: 2, VENDING: 3, SIGNAL: 4, DECAL: 5,
+  // mapped street furniture (tools/pipeline/furniture.mjs)
+  BUS_STOP: 6, BENCH: 7, BOLLARD: 8, POST_BOX: 9, PHONE: 10, SUBWAY: 11, STATUE: 12, BIKES: 13, SHRINE: 14,
+};
 
 // Painted symbols on the road (PROP.DECAL variants). `rot` is the direction of travel that reads them.
 export const DECAL = {

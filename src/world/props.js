@@ -62,6 +62,88 @@ function signalGeometry() {
   ]);
 }
 
+// ---- mapped street furniture; all models face local +z (towards the street)
+const WOOD = [0.45, 0.32, 0.2], STONE = [0.55, 0.54, 0.52], BRONZE = [0.3, 0.24, 0.16], RED = [0.78, 0.1, 0.1];
+const shape = (geo, rgb, x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1) => colored(geo.scale(sx, sy, sz).translate(x, y, z), rgb);
+
+// Pole-type bus stop: round sign and timetable; variant 1 adds a shelter with a bench.
+function busStopGeometry(shelter) {
+  const parts = [
+    tube(0.045, 0.045, 2.75, 0, 0, 0, STEEL), box(0.34, 0.3, 0.34, 0, 0.15, 0, CONCRETE),
+    colored(new THREE.CylinderGeometry(0.3, 0.3, 0.05, 20).rotateX(Math.PI / 2).translate(0, 2.5, 0), [0.93, 0.5, 0.1]),
+    colored(new THREE.CylinderGeometry(0.2, 0.2, 0.06, 16).rotateX(Math.PI / 2).translate(0, 2.5, 0), [0.95, 0.95, 0.92]),
+    box(0.5, 0.75, 0.06, 0, 1.35, 0, [0.9, 0.9, 0.88]),
+  ];
+  if (shelter) {
+    parts.push(box(3.6, 0.08, 1.5, 1.2, 2.55, -0.9, [0.82, 0.84, 0.86]));
+    for (const x of [-0.5, 2.9]) parts.push(tube(0.04, 0.04, 2.55, x, 0, -1.5, STEEL));
+    parts.push(box(3.4, 1.9, 0.04, 1.2, 1.3, -1.6, [0.78, 0.84, 0.86]), box(2.2, 0.06, 0.4, 1.2, 0.45, -1.3, WOOD));
+  }
+  return mergeGeometries(parts);
+}
+const benchGeometry = () => mergeGeometries([
+  box(1.6, 0.06, 0.45, 0, 0.43, 0, WOOD), box(1.6, 0.42, 0.05, 0, 0.72, -0.21, WOOD),
+  box(0.06, 0.43, 0.42, -0.7, 0.215, 0, STEEL), box(0.06, 0.43, 0.42, 0.7, 0.215, 0, STEEL),
+]);
+const bollardGeometry = () => mergeGeometries([tube(0.075, 0.075, 0.85, 0, 0, 0, [0.3, 0.31, 0.33], 10), tube(0.08, 0.08, 0.1, 0, 0.62, 0, [0.9, 0.9, 0.86], 10)]);
+// Japan Post box: red, on a short pedestal.
+const postBoxGeometry = () => mergeGeometries([
+  box(0.3, 0.75, 0.28, 0, 0.375, 0, RED), box(0.52, 0.72, 0.46, 0, 1.11, 0, RED), box(0.56, 0.05, 0.5, 0, 1.49, 0, RED),
+  box(0.3, 0.04, 0.02, 0, 1.3, 0.235, DARK),
+]);
+const phoneGeometry = () => mergeGeometries([
+  box(0.95, 0.12, 0.95, 0, 2.2, 0, [0.4, 0.45, 0.44]), box(0.95, 0.1, 0.95, 0, 0.05, 0, [0.4, 0.45, 0.44]),
+  box(0.04, 2.1, 0.9, -0.45, 1.1, 0, [0.72, 0.82, 0.8]), box(0.04, 2.1, 0.9, 0.45, 1.1, 0, [0.72, 0.82, 0.8]), box(0.9, 2.1, 0.04, 0, 1.1, -0.45, [0.72, 0.82, 0.8]),
+  box(0.3, 0.4, 0.2, 0, 1.2, -0.3, [0.25, 0.6, 0.35]),
+]);
+// Subway entrance: stairs going down between low walls, under a canopy with the blue sign band.
+const subwayGeometry = () => mergeGeometries([
+  box(0.2, 1.1, 4.6, -1.1, 0.55, 0, CONCRETE), box(0.2, 1.1, 4.6, 1.1, 0.55, 0, CONCRETE), box(2.4, 1.1, 0.2, 0, 0.55, -2.3, CONCRETE),
+  box(2.0, 0.04, 4.4, 0, 0.03, 0, [0.03, 0.03, 0.035]),
+  ...[[-1.1, 2.2], [1.1, 2.2], [-1.1, -2.2], [1.1, -2.2]].map(([x, z]) => tube(0.05, 0.05, 2.6, x, 0, z, STEEL)),
+  box(2.6, 0.12, 5.0, 0, 2.66, 0, [0.85, 0.86, 0.87]), box(2.6, 0.42, 0.1, 0, 2.42, 2.5, [0.06, 0.4, 0.75]),
+]);
+// Statues: 0 a figure on a plinth, 1 Hachikō (a seated dog on its granite base), 2 the Moyai stone head.
+function statueGeometry(variant) {
+  if (variant === 1) return mergeGeometries([
+    box(1.5, 1.35, 1.1, 0, 0.675, 0, STONE), box(1.7, 0.12, 1.3, 0, 0.06, 0, STONE),
+    shape(new THREE.SphereGeometry(0.5, 12, 8), BRONZE, 0, 1.75, -0.12, 0.62, 0.75, 0.85),   // haunches
+    shape(new THREE.SphereGeometry(0.5, 12, 8), BRONZE, 0, 2.05, 0.12, 0.5, 0.8, 0.5),       // chest
+    shape(new THREE.SphereGeometry(0.5, 12, 8), BRONZE, 0, 2.55, 0.2, 0.42, 0.42, 0.46),     // head
+    shape(new THREE.SphereGeometry(0.5, 8, 6), BRONZE, 0, 2.5, 0.42, 0.2, 0.18, 0.3),        // muzzle
+    shape(new THREE.ConeGeometry(0.5, 1, 6), BRONZE, -0.13, 2.82, 0.14, 0.16, 0.2, 0.12),    // ears
+    shape(new THREE.ConeGeometry(0.5, 1, 6), BRONZE, 0.13, 2.78, 0.14, 0.16, 0.14, 0.12),    // (the left one drooped)
+    ...[-0.14, 0.14].map((x) => shape(new THREE.CylinderGeometry(0.5, 0.5, 1, 8), BRONZE, x, 1.72, 0.3, 0.13, 0.75, 0.13)), // forelegs
+    shape(new THREE.TorusGeometry(0.5, 0.2, 6, 10, Math.PI * 1.4), BRONZE, 0, 1.75, -0.48, 0.3, 0.3, 0.3),                 // curled tail
+  ]);
+  if (variant === 2) return mergeGeometries([
+    shape(new THREE.SphereGeometry(0.5, 12, 10), [0.35, 0.34, 0.33], 0, 1.35, 0, 1.5, 2.7, 1.3),
+    box(0.3, 0.9, 0.4, 0, 1.45, 0.62, [0.33, 0.32, 0.31]), box(1.0, 0.12, 0.2, 0, 1.95, 0.6, [0.28, 0.27, 0.26]),
+  ]);
+  return mergeGeometries([
+    box(0.9, 1.0, 0.9, 0, 0.5, 0, STONE),
+    shape(new THREE.SphereGeometry(0.5, 10, 8), BRONZE, 0, 1.55, 0, 0.5, 1.1, 0.4),
+    shape(new THREE.SphereGeometry(0.5, 8, 6), BRONZE, 0, 2.25, 0, 0.3, 0.32, 0.3),
+  ]);
+}
+// A rack of parked bicycles.
+function bikesGeometry() {
+  const parts = [box(3.0, 0.05, 0.05, 0, 0.75, -0.6, STEEL)];
+  for (let i = 0; i < 5; i++) {
+    const x = (i - 2) * 0.58, c = [[0.12, 0.2, 0.5], [0.6, 0.1, 0.1], [0.75, 0.75, 0.75], [0.1, 0.1, 0.1], [0.2, 0.45, 0.25]][i];
+    for (const z of [-0.52, 0.52]) parts.push(colored(new THREE.TorusGeometry(0.31, 0.022, 4, 12).rotateY(Math.PI / 2).translate(x, 0.33, z), DARK));
+    parts.push(box(0.04, 0.05, 1.0, x, 0.6, 0, c), box(0.04, 0.5, 0.05, x, 0.72, -0.3, c), box(0.04, 0.6, 0.05, x, 0.78, 0.45, c),
+      box(0.42, 0.03, 0.03, x, 1.05, 0.45, DARK), box(0.12, 0.05, 0.24, x, 0.98, -0.3, DARK));
+  }
+  return mergeGeometries(parts);
+}
+// Wayside shrine: a small red torii and a stone lantern.
+const shrineGeometry = () => mergeGeometries([
+  tube(0.07, 0.06, 1.9, -0.6, 0, 0, RED), tube(0.07, 0.06, 1.9, 0.6, 0, 0, RED),
+  box(1.7, 0.1, 0.12, 0, 1.92, 0, RED), box(1.4, 0.07, 0.08, 0, 1.6, 0, RED),
+  box(0.3, 0.7, 0.3, 0, 0.35, -0.9, STONE), box(0.42, 0.3, 0.42, 0, 0.85, -0.9, STONE), box(0.56, 0.1, 0.56, 0, 1.05, -0.9, STONE),
+]);
+
 function vendingGeometry() {
   return mergeGeometries([box(1.02, 1.83, 0.72, 0, 0.915, 0, [1, 1, 1]), box(1.06, 0.1, 0.76, 0, 0.05, 0, DARK)]);
 }
@@ -257,6 +339,13 @@ export class Props {
       blob: blobTreeGeometry(), lamp: new THREE.BoxGeometry(0.24, 0.03, 0.6), quad: new THREE.PlaneGeometry(1, 1),
       pool: new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), lens: new THREE.CircleGeometry(0.15, 16),
     };
+    // furniture drawn as one instanced model per kind (and variant)
+    this.furniture = {
+      [PROP.BUS_STOP]: [busStopGeometry(false), busStopGeometry(true)], [PROP.BENCH]: [benchGeometry()],
+      [PROP.BOLLARD]: [bollardGeometry()], [PROP.POST_BOX]: [postBoxGeometry()], [PROP.PHONE]: [phoneGeometry()],
+      [PROP.SUBWAY]: [subwayGeometry()], [PROP.STATUE]: [0, 1, 2].map(statueGeometry), [PROP.BIKES]: [bikesGeometry()],
+      [PROP.SHRINE]: [shrineGeometry()],
+    };
     this.mats = {
       metal: std(), blob: std({ roughness: 0.95, metalness: 0 }),
       vending: new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.2 }),
@@ -296,7 +385,7 @@ export class Props {
     group.add(near, far);
     const by = new Map();
     for (let i = 0; i < props.length; i += 6) {
-      const key = props[i] * 16 + (props[i] === PROP.TREE || props[i] === PROP.POLE ? props[i + 1] : 0);
+      const key = props[i] * 16 + (props[i] === PROP.TREE || props[i] === PROP.POLE || this.furniture[props[i]] ? props[i + 1] : 0);
       if (!by.has(key)) by.set(key, []);
       by.get(key).push(i);
     }
@@ -337,6 +426,9 @@ export class Props {
         const body = instanced(rows, this.models.vending, this.mats.vending, { lift: 0.02 });
         rows.forEach((i, n) => body.setColorAt(n, new THREE.Color().setRGB(...VENDING_BODY[props[i + 1] % 4], THREE.SRGBColorSpace)));
         instanced(rows, this.models.quad, this.mats.panel, { lift: 0.02, shadow: false, local: [0, 0.97, 0.365], scale: () => [0.94, 1.66, 1] });
+      } else if (this.furniture[kind]) {
+        const models = this.furniture[kind];
+        instanced(rows, models[variant % models.length], this.mats.metal, { lift: 0.12 });
       } else if (kind === PROP.DECAL) {
         // built below as one mesh
       } else if (kind === PROP.SIGNAL) {
