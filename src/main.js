@@ -93,6 +93,7 @@ let guiState;
   const trains = railways.userData.trains.group, AO = ao.configuration.intensity;
   const state = {
     city: AREA,
+    get info() { return document.getElementById('hud').style.display !== 'none'; }, set info(v) { document.getElementById('hud').style.display = v ? '' : 'none'; },
     get night() { return env.target > 0.5; }, set night(v) { env.target = v ? 1 : 0; },
     get traffic() { return !!traffic.group.parent; }, set traffic(v) { if (v) scene.add(traffic.group); else scene.remove(traffic.group); },
     get trains() { return trains.visible; }, set trains(v) { trains.visible = v; },
@@ -114,6 +115,7 @@ let guiState;
   gui.add(state, 'traffic');
   gui.add(state, 'trains');
   gui.add(state, 'photo').name('aerial photo').listen();
+  gui.add(state, 'info').name('info panel');
   const sky = gui.addFolder('Clouds');
   sky.add(atmosphere, 'coverage', 0, 1, 0.05);
   sky.add(atmosphere, 'base', 200, 2000, 50).name('base altitude (m)');
