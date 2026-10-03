@@ -12,6 +12,7 @@ import { createMaterials } from './world/materials.js';
 import { loadTextures } from './world/textures.js';
 import { Streamer } from './world/streamer.js';
 import { Props } from './world/props.js';
+import { buildRailways } from './world/rails.js';
 import { Environment } from './world/environment.js';
 
 const params = new URLSearchParams(location.search);
@@ -60,6 +61,7 @@ const props = new Props();
 const streamer = new Streamer(scene, materials, props, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 1500 });
 const manifest = await streamer.init();
 const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
+scene.add(await buildRailways(`tiles/${AREA}/${manifest.rails}`, (x, z) => streamer.ground(x, z)));
 document.getElementById('credits').textContent = manifest.attribution.map((a) => a.split(' (')[0]).join(' · ');
 
 // initial view: over the Scramble Crossing, looking north-west towards the station

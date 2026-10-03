@@ -112,12 +112,13 @@ export function buildRailways({ nodes, ways }, project, inBounds) {
     const t = w.tags ?? {};
     if (!t.railway || t.highway) continue;
     if (t.tunnel && t.tunnel !== 'no') continue; // underground lines are not visible
-    const pts = w.nodes.map((id) => nodes.get(id)).filter(Boolean).map(([lon, lat]) => project(lon, lat));
+    const ids = w.nodes.filter((id) => nodes.has(id));
+    const pts = ids.map((id) => nodes.get(id)).map(([lon, lat]) => project(lon, lat));
     if (!pts.some(([x, z]) => inBounds(x, z))) continue;
     out.push({
       way: w.id, railway: t.railway, name: t.name ?? null,
       layer: intTag(t.layer) ?? 0, bridge: t.bridge && t.bridge !== 'no' ? 1 : 0,
-      tracks: intTag(t.tracks) ?? 1, pts,
+      tracks: intTag(t.tracks) ?? 1, ids, pts,
     });
   }
   return out;

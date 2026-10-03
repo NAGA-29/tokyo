@@ -4,7 +4,7 @@
 //   t_<x>_<z>.bin   per 256 m tile: buildings, ground surfaces (roads, paint, parks, water), props (trees,
 //                   poles, lights, signals) and wires (format: src/shared/tileformat.js)
 //   roads.json      drivable road graph from OSM (junction nodes + polyline edges with ground heights)
-//   rails.json      surface and elevated railway lines from OSM
+//   rails.json      surface and elevated railway lines from OSM, with their height profile (y = track bed)
 // Usage: node tools/pipeline/compile.mjs [--area=shibuya]
 import fs from 'node:fs';
 import path from 'node:path';
@@ -17,6 +17,7 @@ import { buildHeightGrid, sampleGrid } from './terrain.mjs';
 import { PolyIndex, readLand, clipRing, placeProps } from './landscape.mjs';
 import { buildMarkings } from './markings.mjs';
 import { splitOutlineRoads } from './roadsplit.mjs';
+import { profileRailways } from './rails.mjs';
 
 const TERRAIN_STEP = 5; // metres, matches the GSI 5 m DEM
 
@@ -194,7 +195,7 @@ for (const e of graph.edges) {
 log(`road graph (OSM): ${roadsOut.nodes.length} nodes, ${roadsOut.edges.length} edges, ${km.toFixed(1)} km`);
 log(`  ${Object.entries(byClass).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v.toFixed(1)}`).join(', ')}`);
 log(`  bridges ${roadsOut.edges.filter((e) => e.bridge).length}, tunnels ${roadsOut.edges.filter((e) => e.tunnel).length}, oneway ${roadsOut.edges.filter((e) => e.oneway).length}`);
-const rails = buildRailways(osm, proj.project, inBounds).map(({ pts, ...r }) => ({ ...r, pts: withY(pts) }));
+const rails = profileRailways(buildRailways(osm, proj.project, inBounds), ground, inBounds);
 log(`railways (OSM): ${rails.length} lines (${rails.filter((r) => r.bridge).length} elevated sections)`);
 
 // Roads PLATEAU maps only as an outline get their carriageway from the OSM centrelines; the rest is sidewalk.
