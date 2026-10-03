@@ -5,6 +5,7 @@
 const CLEARANCE = { 1: 6.2, 2: 12 };  // rail level above the ground under a bridge, by OSM layer
 const MAX_GRADE = 0.03;               // 3 %
 const BED = 0.45;                     // ballast and rail above the formation
+const NEIGHBOUR = 22;                 // metres: tracks this close run at the same level
 
 // lines: [{ ids: [node id], pts: [[x, z]], bridge, layer, ... }]; ground(x, z) -> terrain height.
 // Returns the lines with pts as flat [x, y, z, ...], y = top of rail bed.
@@ -34,14 +35,40 @@ export function profileRailways(lines, ground, inBounds) {
   }
   // Raise the lower end of any stretch that is too steep, until nothing changes. Only ever raising keeps
   // every bridge at its clearance.
-  for (let pass = 0, changed = true; changed && pass < 200; pass++) {
-    changed = false;
-    for (const [a, b, d] of segments) {
-      const ya = y.get(a), yb = y.get(b), max = MAX_GRADE * d;
-      if (ya < yb - max - 1e-3) { y.set(a, yb - max); changed = true; }
-      else if (yb < ya - max - 1e-3) { y.set(b, ya - max); changed = true; }
+  const limitGrade = () => {
+    for (let pass = 0, changed = true; changed && pass < 200; pass++) {
+      changed = false;
+      for (const [a, b, d] of segments) {
+        const ya = y.get(a), yb = y.get(b), max = MAX_GRADE * d;
+        if (ya < yb - max - 1e-3) { y.set(a, yb - max); changed = true; }
+        else if (yb < ya - max - 1e-3) { y.set(b, ya - max); changed = true; }
+      }
     }
+  };
+  // Tracks running side by side share one formation: every node takes the highest level found within
+  // NEIGHBOUR metres, so parallel tracks do not end up on separate decks at slightly different heights.
+  const where = new Map(), cells = new Map();
+  for (const l of kept) l.ids.forEach((id, i) => where.set(id, l.pts[i]));
+  for (const [id, [x, z]] of where) {
+    const k = Math.floor(x / NEIGHBOUR) + ',' + Math.floor(z / NEIGHBOUR);
+    if (!cells.has(k)) cells.set(k, []);
+    cells.get(k).push(id);
   }
+  const levelNeighbours = () => {
+    const next = new Map();
+    for (const [id, [x, z]] of where) {
+      let top = y.get(id);
+      const ci = Math.floor(x / NEIGHBOUR), cj = Math.floor(z / NEIGHBOUR);
+      for (let i = ci - 1; i <= ci + 1; i++) for (let j = cj - 1; j <= cj + 1; j++)
+        for (const o of cells.get(i + ',' + j) ?? []) {
+          const p = where.get(o);
+          if (Math.hypot(p[0] - x, p[1] - z) <= NEIGHBOUR) top = Math.max(top, y.get(o));
+        }
+      next.set(id, top);
+    }
+    for (const [id, v] of next) y.set(id, v);
+  };
+  limitGrade(); levelNeighbours(); limitGrade();
   const r2 = (v) => Math.round(v * 100) / 100;
   return kept.filter((l) => l.pts.length >= 2).map(({ ids, pts, ...l }) => ({
     ...l, pts: pts.flatMap(([x, z], i) => [r2(x), r2(y.get(ids[i])), r2(z)]),

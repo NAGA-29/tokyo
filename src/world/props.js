@@ -290,7 +290,7 @@ export class Props {
   }
 
   // props: Float32Array of [kind, variant, rot, x, z, scale] rows; wires: Float32Array of [x1, z1, x2, z2] rows.
-  // Returns { group, near, far } — `near` holds the full trees, `far` the blobs.
+  // Returns { group, near, far, count } — `near` holds the full trees, `far` the simple ones; count = trees.
   build(props, wires, ground) {
     const group = new THREE.Group(), near = new THREE.Group(), far = new THREE.Group();
     group.add(near, far);
@@ -398,7 +398,7 @@ export class Props {
       g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
       near.add(new THREE.LineSegments(g, this.mats.wire)); // hair-thin: only worth drawing close up
     }
-    return { group, near, far };
+    return { group, near, far, count: (by.get(PROP.TREE * 16) ?? []).length + (by.get(PROP.TREE * 16 + 1) ?? []).length + (by.get(PROP.TREE * 16 + 2) ?? []).length + (by.get(PROP.TREE * 16 + 3) ?? []).length };
   }
 
   static lodDistance = TREE_LOD_DISTANCE;

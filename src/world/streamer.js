@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { tileKey } from '../shared/geo.js';
 import { sampleGrid } from '../shared/terrain.js';
+import { makeSurface } from '../shared/decks.js';
 
 const WORKERS = Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) >> 1));
 const MAX_IN_FLIGHT = WORKERS * 2;
@@ -34,10 +35,12 @@ export class Streamer {
     const t = this.manifest.terrain;
     const data = new Float32Array(await (await fetch(`${this.base}/${t.file}`)).arrayBuffer());
     this.grid = { x0: t.x0, z0: t.z0, step: t.step, w: t.w, h: t.h, data };
+    const decks = this.manifest.decks ?? [];
+    this.surface = makeSurface(this.grid, decks);
     this.available = new Map(this.manifest.tiles.map((tl) => [tileKey(tl.x, tl.z), tl]));
     this.workers = Array.from({ length: WORKERS }, () => {
       const w = new Worker(new URL('./tileWorker.js', import.meta.url), { type: 'module' });
-      w.postMessage({ type: 'init', grid: { ...this.grid, data: data.slice().buffer } });
+      w.postMessage({ type: 'init', decks, grid: { ...this.grid, data: data.slice().buffer } });
       w.onmessage = (e) => this.onResult(e.data);
       return w;
     });
@@ -45,6 +48,7 @@ export class Streamer {
     return this.manifest;
   }
 
+  // Terrain height, and the height of whatever one stands on (the terrain, or a bridge deck).
   ground(x, z) { return sampleGrid(this.grid, x, z); }
 
   // focus: the point tiles are streamed around; eye: the camera position, for level of detail.
@@ -57,7 +61,8 @@ export class Streamer {
       const tl = this.available.get(key), x0 = tl.x * size, z0 = tl.z * size;
       const dx = Math.max(x0 - eye.x, 0, eye.x - (x0 + size)), dz = Math.max(z0 - eye.z, 0, eye.z - (z0 + size));
       const dy = Math.max(0, eye.y - this.ground(x0 + size / 2, z0 + size / 2) - 25);
-      const d = Math.hypot(dx, dy, dz), limit = this.props.constructor.lodDistance;
+      // a tile full of trees (a wood) keeps its detailed ones closer: thousands of them are too much to draw
+      const d = Math.hypot(dx, dy, dz), limit = this.props.constructor.lodDistance * (t.trees.count > 120 ? 0.5 : 1);
       const near = t.trees.near.visible ? d < limit * 1.25 : d < limit;
       t.trees.near.visible = near; t.trees.far.visible = !near;
     }
@@ -109,7 +114,7 @@ export class Streamer {
     }
     let trees = null;
     if (props.length || wires.length) {
-      trees = this.props.build(props, wires, (x, z) => this.ground(x, z));
+      trees = this.props.build(props, wires, this.surface);
       trees.near.visible = false; // update() picks the level of detail on the next frame
       group.add(trees.group);
     }

@@ -94,6 +94,23 @@ const OSM_QUERIES = {
   way["footway"="crossing"]({bb});
   node["amenity"="vending_machine"]({bb});
 );`,
+  // named places (shops, restaurants, offices, named buildings) and street furniture, as points:
+  // "out center" gives ways and relations a single coordinate
+  'osm_poi.json': `(
+  nwr["name"]["shop"]({bb});
+  nwr["name"]["amenity"]({bb});
+  nwr["name"]["tourism"]({bb});
+  nwr["name"]["office"]({bb});
+  nwr["name"]["leisure"~"^(fitness_centre|sports_centre|amusement_arcade|adult_gaming_centre|dance|bowling_alley)$"]({bb});
+  nwr["name"]["building"]({bb});
+  node["railway"~"^(station|subway_entrance)$"]({bb});
+  node["highway"="bus_stop"]({bb});
+  node["amenity"~"^(bench|bicycle_parking|post_box|telephone|toilets|taxi|police)$"]({bb});
+  node["historic"]({bb});
+  node["man_made"~"^(flagpole|surveillance)$"]({bb});
+  node["barrier"="bollard"]({bb});
+);
+out center tags;`,
 };
 
 async function fetchOsm() {
@@ -104,10 +121,9 @@ async function fetchOverpass(name, body) {
   const file = path.join(area.rawDir, name);
   if (exists(file)) return log(`osm ${name}: cached`);
   const { south, west, north, east } = area.bbox;
-  const query = `[out:json][timeout:180];
-${body.replaceAll('{bb}', `${south},${west},${north},${east}`)}
-(._;>;);
-out body;`;
+  // queries end with their own "out" statement, or get the default: the elements with all their nodes
+  const filled = body.replaceAll('{bb}', `${south},${west},${north},${east}`);
+  const query = `[out:json][timeout:180];\n${filled}${/\bout\b/.test(filled) ? '' : '\n(._;>;);\nout body;'}`;
   for (const url of OVERPASS) {
     try {
       log(`osm ${name}: querying ${new URL(url).host}`);

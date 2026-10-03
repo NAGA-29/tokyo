@@ -201,10 +201,13 @@ log(`buildings: dropped ${structures} unnamed structures standing in a road`);
 const osm = readOsm(path.join(area.rawDir, 'osm.json'));
 const graph = buildRoadGraph(osm, proj.project, inBounds);
 // road level per node: the ground, or above it on bridges and the elevated expressway
-const level = profileRoads(graph.edges, graph.pos, ground);
+const { level, spans } = profileRoads(graph.edges, graph.pos, ground);
 const roadsOut = {
   nodes: graph.nodes.map(({ id, p }) => [r2(p[0]), r2(level.get(id) ?? ground(p[0], p[1])), r2(p[1])]),
-  edges: graph.edges.map(({ ids, way, ...e }) => ({ ...e, way, pts: ids.flatMap((id) => { const [x, z] = graph.pos(id); return [r2(x), r2(level.get(id)), r2(z)]; }) })),
+  edges: graph.edges.map((edge) => {
+    const { ids, way, spanLength, ...e } = edge;
+    return { ...e, way, span: spans.has(edge) ? 1 : 0, pts: ids.flatMap((id) => { const [x, z] = graph.pos(id); return [r2(x), r2(level.get(id)), r2(z)]; }) };
+  }),
 };
 const byClass = {};
 let km = 0;
@@ -302,6 +305,8 @@ const manifest = {
   meshes: area.meshes,
   terrain: { file: 'terrain.bin', x0: r2(grid.x0), z0: r2(grid.z0), step: grid.step, w: grid.w, h: grid.h, min: r2(gMin), max: r2(gMax) },
   roads: 'roads.json', rails: 'rails.json',
+  // street-level bridge decks: road surfaces and street objects follow these instead of the terrain (src/shared/decks.js)
+  decks: roadsOut.edges.filter((e) => e.span).map((e) => ({ pts: e.pts, half: Math.max(1, e.lanes) * 1.65 + 24 })), // generous: bridges are often wider than the carriageway (plazas, wide sidewalks)
   tiles: tileList,
   attribution: [
     '3D city model: Project PLATEAU, MLIT Japan (CC BY 4.0 compatible PLATEAU terms)',

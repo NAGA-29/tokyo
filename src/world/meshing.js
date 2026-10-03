@@ -91,10 +91,11 @@ const isPaint = (a) => a.kind === AREA.MARK_WHITE || a.kind === AREA.MARK_YELLOW
 const KERB = { color: lin([0.68, 0.68, 0.66]), layer: GROUND.CONCRETE, foot: 0.03 };
 const DRAPE_EDGE = 8; // metres: longer triangle edges are split so the surface follows the terrain
 
-export function roadMesh(areas, grid) {
+// surface(x, z): the height roads lie on — the terrain, or a bridge deck (src/shared/decks.js).
+export function roadMesh(areas, grid, surface) {
   const pos = new Buf(), nor = new Buf(), col = new Buf(), lay = new Buf();
   const emit = (p, style) => {
-    const y = sampleGrid(grid, p[0], p[1]) + style.lift;
+    const y = surface(p[0], p[1]) + style.lift;
     pos.push(p[0], y, p[1]); nor.push(...groundNormal(grid, p[0], p[1])); col.push(...style.color); lay.push(style.layer);
   };
   // Splits every edge longer than DRAPE_EDGE at its midpoint. Whether an edge is split depends only on
@@ -120,7 +121,7 @@ export function roadMesh(areas, grid) {
     if (len < 0.05) return;
     if (long([x0, z0], [x1, z1])) { const [mx, mz] = mid([x0, z0], [x1, z1]); kerb(x0, z0, mx, mz, lift); kerb(mx, mz, x1, z1, lift); return; }
     const n = [-(z1 - z0) / len, 0, (x1 - x0) / len];
-    const ga = sampleGrid(grid, x0, z0), gb = sampleGrid(grid, x1, z1);
+    const ga = surface(x0, z0), gb = surface(x1, z1);
     const quad = [[x0, ga + KERB.foot, z0], [x1, gb + KERB.foot, z1], [x1, gb + lift, z1], [x0, ga + KERB.foot, z0], [x1, gb + lift, z1], [x0, ga + lift, z0]];
     for (const p of quad) { pos.push(...p); nor.push(...n); col.push(...KERB.color); lay.push(KERB.layer); }
   };
@@ -397,11 +398,11 @@ export function buildingMesh(buildings, tx, tz) {
   };
 }
 
-export function buildTile(tile, grid, tileSize) {
+export function buildTile(tile, grid, tileSize, surface = (x, z) => sampleGrid(grid, x, z)) {
   return {
     terrain: terrainMesh(grid, tile.tx, tile.tz, tileSize),
-    roads: roadMesh(tile.areas.filter((a) => !isPaint(a)), grid),
-    paint: roadMesh(tile.areas.filter(isPaint), grid),
+    roads: roadMesh(tile.areas.filter((a) => !isPaint(a)), grid, surface),
+    paint: roadMesh(tile.areas.filter(isPaint), grid, surface),
     buildings: buildingMesh(tile.buildings, tile.tx, tile.tz),
     info: tile.buildings.map((b) => [b.usage, b.storeys, b.height, b.base]),
     props: Float32Array.from(tile.props.flatMap((p) => [p.kind, p.variant, p.rot, p.x, p.z, p.scale])),

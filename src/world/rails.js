@@ -1,11 +1,11 @@
-// Railways: track bed, rails, viaducts with piers, embankment slopes and overhead-line masts, built
+// Railways: track bed, rails, viaducts with piers, retaining walls and overhead-line masts, built
 // once for the whole area from rails.json (height profile from tools/pipeline/rails.mjs).
 import * as THREE from 'three';
 import { Trains } from './trains.js';
 
 const STEP = 3;            // metres between cross-sections
 const GAUGE = 1.067;       // Japanese narrow gauge
-const VIADUCT_ABOVE = 2.0; // rail level this far above the ground gets a deck on piers; lower, an earth slope
+const VIADUCT_ABOVE = 2.0; // rail level this far above the ground gets a deck on piers; lower, walled fill
 const PIER_SPACING = 16, MAST_SPACING = 40;
 
 // Flat list of triangles with a colour per vertex; normals come from the faces.
@@ -83,7 +83,7 @@ export function sections(pts, ground) {
 
 export async function buildRailways(url, ground) {
   const lines = await (await fetch(url)).json();
-  const concrete = [0.64, 0.64, 0.62], steel = [0.33, 0.31, 0.3], earth = [0.4, 0.45, 0.3], white = [1, 1, 1];
+  const concrete = [0.64, 0.64, 0.62], steel = [0.33, 0.31, 0.3], white = [1, 1, 1];
   const bed = new Soup(), structure = new Soup(), wires = [];
   // point at lateral offset l and height v above the rail bed of a section
   const at = (c, l, v) => [c.p[0] + c.n[0] * l, c.p[1] + v, c.p[2] + c.n[2] * l];
@@ -108,9 +108,9 @@ export async function buildRailways(url, ground) {
         sweep(structure, a, b, [[-2.05, 1.0], [-2.05, -0.03], [-1.4, -0.03]], concrete);
         sweep(structure, a, b, [[1.4, -0.03], [2.05, -0.03], [2.05, 1.0]], concrete);
       } else if (Math.max(a.h, b.h) > 0.6) {
-        // earth slopes down to the ground on both sides
-        sweep(structure, a, b, (c) => [[-1.4, 0], [-1.9, -0.05], [-1.9 - Math.max(c.h, 0) * 1.5, -Math.max(c.h, 0) - 0.1]], earth);
-        sweep(structure, a, b, (c) => [[1.9 + Math.max(c.h, 0) * 1.5, -Math.max(c.h, 0) - 0.1], [1.9, -0.05], [1.4, 0]], earth);
+        // low fill held by retaining walls: narrow, so tracks side by side do not bury each other
+        sweep(structure, a, b, (c) => [[-1.4, 0], [-1.95, -0.03], [-1.95, -Math.max(c.h, 0) - 0.3]], concrete);
+        sweep(structure, a, b, (c) => [[1.95, -Math.max(c.h, 0) - 0.3], [1.95, -0.03], [1.4, 0]], concrete);
       }
     }
     // piers under the deck, overhead-line masts beside the track
