@@ -18,7 +18,6 @@ export class Environment {
   constructor(scene, renderer) {
     this.scene = scene;
     this.renderer = renderer;
-    this.wet = 0;    // 0 fair .. 1 rain: the sun is behind cloud
     this.night = 0;  // how far the city's lights are on: they come on while it is still light
     this.dark = 0;   // how dark it is: this follows the sun all the way down through twilight
     this.daylight = 1; this.moonlight = 0; this.warmth = 0; this.elevation = 40;
@@ -111,8 +110,8 @@ export class Environment {
   apply() {
     const t = this.dark, lerp = (a, b) => a + (b - a) * t;
     this.sky.material.uniforms.uNight.value = t;
-    this.hemi.intensity = lerp(DAY.hemi, NIGHT.hemi) * (1 + 0.9 * this.wet * (1 - t));
-    this.sun.intensity = (DAY.sun * this.daylight + NIGHT.sun * this.moonlight) * (1 - 0.7 * this.wet);
+    this.hemi.intensity = lerp(DAY.hemi, NIGHT.hemi);
+    this.sun.intensity = DAY.sun * this.daylight + NIGHT.sun * this.moonlight;
     this.sun.color.copy(DAY.sunColor).lerp(SUNSET, this.warmth).lerp(NIGHT.sunColor, this.moonlight);
     this.scene.environmentIntensity = lerp(DAY.env, NIGHT.env); // (the map itself darkens with the sky)
     this.renderer.toneMappingExposure = lerp(DAY.exposure, NIGHT.exposure);

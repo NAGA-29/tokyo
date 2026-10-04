@@ -11,7 +11,8 @@ const CLIP = 0.3;    // metres below the water level that are still drawn (the b
 export class WaterMirror {
   constructor(renderer) {
     this.renderer = renderer;
-    this.target = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+    // (with mipmaps: a wet road's blurred reflection reads the smaller copies of the picture)
+    this.target = new THREE.WebGLRenderTarget(4, 4, { type: THREE.HalfFloatType, minFilter: THREE.LinearMipmapLinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: true });
     this.camera = new THREE.PerspectiveCamera();
     this.blank = new THREE.DataTexture(new Uint8Array(4), 1, 1);
     this.blank.needsUpdate = true;

@@ -45,8 +45,8 @@ Each area is about 3.4 x 2.8 km. Adding another city that PLATEAU covers is one 
 - **Sky**: physically based atmosphere with aerial perspective, and optional volumetric clouds that cast shadows
   ([three-geospatial](https://github.com/takram-design-engineering/three-geospatial)).
 - **Water**: rippled rivers, moats and ponds that mirror the city, the sky and the clouds.
-- **Weather**: sunny or rainy. Rain draws no drops; it leaves the city wet under a grey sky: dark, shining roads
-  and roofs, and puddles that mirror the buildings and the neon.
+- **Weather**: sunny or rainy. Rain draws no drops and leaves the light alone; it makes the city wet: shining roads
+  and roofs, and puddles with soft reflections of the buildings and the neon.
 - **Reflections**: window glass reflects the surrounding city and catches the sun.
 - **Birds**: flocks that stay in view, land in trees and fly out again; they cast shadows.
 - **Mt Fuji**: an optional terrain backdrop around an area, under aerial photos, with a snow cap.
