@@ -23,7 +23,8 @@ export const shared = {
   // lamp light on the ground (src/world/lamplight.js): on at night, the light map, where it lies
   uLampOn: { value: 0 }, uLampMap: { value: null }, uLampRect: { value: new THREE.Vector4(0, 0, 1, 0) },
   // the city mirrored in the water (mirror.js): the picture, how a point of the world maps into it, and whether there is one
-  uMirror: { value: null }, uMirrorMatrix: { value: new THREE.Matrix4() }, uMirrorOn: { value: 0 },
+  uMirror: { value: null }, uMirrorMatrix: { value: new THREE.Matrix4() }, uMirrorOn: { value: 0 }, uMirrorY: { value: 0 },
+  uWet: { value: 0 },   // 0 dry .. 1 after rain: wet roads, roofs and walls, puddles
   // the clouds, for the water to mirror (set by atmosphere.js): the weather map the cloud pass draws them from, its
   // drift, the cover, the height of the cloud base, the place of the world on the globe, and where clouds are kept to
   uCloudMap: { value: null }, uCloudOffset: { value: new THREE.Vector2() }, uCloudCover: { value: 0 }, uCloudBase: { value: 450 }, uCloudsOn: { value: 0 },
@@ -302,6 +303,7 @@ function facadeMaterial(tex) {
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, {
       uLampOn: { value: 0 }, uLampMap: shared.uLampMap, // (no lamp light on buildings; the sampler still needs its texture)
+      uWet: shared.uWet,
       uPhoto: m.userData.photo, uPhotoOn: m.userData.photoOn, uPhotoRange: shared.uPhotoRange, uPhotoMix: shared.uPhotoMix,
       uNight: shared.uNight, uTime: shared.uTime, uWindowLife: shared.uWindowLife, uCityGlass: shared.uCityGlass, uNightBlue: shared.uNightBlue, uSunDir: shared.uSunDir, uSunGlint: shared.uSunGlint, uGlintOn: shared.uGlintOn, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
       uWallScale: { value: tex.wall.scales }, uWallDetail: { value: tex.wall.details },
@@ -310,9 +312,9 @@ function facadeMaterial(tex) {
       .replace('#include <common>', `#include <common>\nattribute vec4 aFacade;\nattribute vec4 aBldg;\nattribute vec2 aPhoto;\nvarying vec4 vFacade;\nvarying vec4 vBldg;\nvarying vec2 vPhoto;\n${WORLD_VARYINGS_VERT}`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>\nvFacade = aFacade;\nvBldg = aBldg;\nvPhoto = aPhoto;\n${WORLD_VARYINGS_SET}`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\n' + FACADE_PARS + PHOTO_PARS)
-      .replace('#include <color_fragment>', '#include <color_fragment>\n' + FACADE_MAIN + PHOTO_MAIN)
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = gRough;')
+      .replace('#include <common>', '#include <common>\nuniform float uWet;\n' + FACADE_PARS + PHOTO_PARS)
+      .replace('#include <color_fragment>', '#include <color_fragment>\n' + FACADE_MAIN + PHOTO_MAIN + '\ndiffuseColor.rgb *= mix(1.0, 0.78, uWet * (1.0 - gPane)); // (wet walls and roofs are darker)\n')
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = mix(gRough, gRough * 0.45, uWet);')
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = gMetal;')
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + APPLY_NORMAL)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += gEmissive;')
@@ -320,7 +322,7 @@ function facadeMaterial(tex) {
       .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.directSpecular += gGlint * smoothstep(0.0, 0.002, dot(reflectedLight.directDiffuse, vec3(0.333)));')
       .replace('#include <opaque_fragment>', '#include <opaque_fragment>\ngl_FragColor.a = 1.0 - 0.95 * gPane;');
   };
-  m.customProgramCacheKey = () => 'facade-v21';
+  m.customProgramCacheKey = () => 'facade-v22';
   return m;
 }
 
@@ -338,7 +340,7 @@ uniform float uOrthoOn;
 uniform float uTime;
 uniform sampler2D uMirror;
 uniform mat4 uMirrorMatrix;
-uniform float uMirrorOn;
+uniform float uMirrorOn, uMirrorY, uWet;
 uniform float uDark;
 uniform sampler2D uCloudMap;
 uniform vec2 uCloudOffset;
@@ -352,6 +354,8 @@ vec3 gT, gB, gN, gNm;
 float gRough;
 float gMetal = 0.0;
 float gWater = 0.0; // 1 on water: written to alpha for the reflection pass, which mirrors the world in it
+float gFilm = 0.0;   // how wet the ground is here: a film of water on it
+float gPuddle = 0.0; // standing water
 vec3 gWaveN = vec3(0.0, 1.0, 0.0); // the water's surface normal with its ripples (world space)
 ${NOISE}
 // Where a point of the globe lies in the clouds' weather map (as the cloud pass maps it: three-clouds, clouds.glsl).
@@ -420,6 +424,19 @@ const GROUND_MAIN = /* glsl */ `
       gNm = vec3(0.0, 0.0, 1.0);
     }
   }
+  if (!water && uWet > 0.0) {
+    // After rain. Wet ground is darker (the water in its pores swallows light) and shines; hard ground does so
+    // more than grass. Where the surface dips, water stands: a puddle is smooth, and a mirror. Puddles keep
+    // to level ground, and grow as the rain goes on.
+    float hard = layer < 1.5 || layer > 2.5 ? 1.0 : 0.25;
+    float level = smoothstep(0.985, 0.999, gN.y);
+    float dips = 0.6 * vnoise(vWPos.xz * 0.11) + 0.3 * vnoise(vWPos.xz * 0.37 + 5.1) + 0.1 * vnoise(vWPos.xz * 1.3);
+    gPuddle = smoothstep(0.62 - 0.14 * uWet, 0.7 - 0.14 * uWet, dips) * level * hard * smoothstep(0.3, 0.8, uWet);
+    gFilm = uWet * mix(0.55, 1.0, hard);
+    diffuseColor.rgb *= mix(1.0, mix(0.62, 0.42, gPuddle), gFilm);
+    gRough = mix(gRough, mix(0.34 + 0.2 * blotch, 0.03, gPuddle), gFilm);
+    gNm = normalize(mix(gNm, vec3(0.0, 0.0, 1.0), max(gPuddle, 0.45 * gFilm)));
+  }
   if (water) {
     // Water: dark and a little green in itself (what is seen of it is mostly what it mirrors, see the end of the
     // shader); its ripples flatten out with distance, where they are smaller than a pixel.
@@ -442,7 +459,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       uGroundAlb: { value: tex.ground.albedo }, uGroundNor: { value: tex.ground.normal },
       uGroundScale: { value: tex.ground.scales }, uFixedLayer: { value: fixedLayer },
       uOrtho: shared.uOrtho, uOrthoRect: shared.uOrthoRect, uOrthoOn: shared.uOrthoOn, uTime: shared.uTime,
-      uMirror: shared.uMirror, uMirrorMatrix: shared.uMirrorMatrix, uMirrorOn: shared.uMirrorOn, uDark: shared.uDark,
+      uMirror: shared.uMirror, uMirrorMatrix: shared.uMirrorMatrix, uMirrorOn: shared.uMirrorOn, uMirrorY: shared.uMirrorY, uWet: shared.uWet, uDark: shared.uDark,
       uCloudMap: shared.uCloudMap, uCloudOffset: shared.uCloudOffset, uCloudCover: shared.uCloudCover, uCloudBase: shared.uCloudBase, uCloudsOn: shared.uCloudsOn,
       uWorldToECEF: shared.uWorldToECEF, uCloudRect: shared.uCloudRect, uCloudFade: shared.uCloudFade,
       uLampOn: shared.uLampOn, uLampMap: shared.uLampMap, uLampRect: shared.uLampRect,
@@ -466,7 +483,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
           // different parts of the sky, which is what draws the ripples: light streaks and dark.
           vec3 wv = normalize(vWPos - cameraPosition), wr = reflect(wv, gWaveN);
           float fresnel = 0.05 + 0.95 * pow(1.0 - max(dot(-wv, gWaveN), 0.0), 4.0);
-          vec3 seen = mix(vec3(0.8, 0.86, 0.92), vec3(0.3, 0.48, 0.74), pow(clamp(abs(wr.y), 0.0, 1.0), 0.5)) * (0.03 + 0.97 * (1.0 - uDark)) * 0.9;
+          vec3 seen = mix(vec3(0.8, 0.86, 0.92), mix(vec3(0.3, 0.48, 0.74), vec3(0.6, 0.63, 0.67), uWet), pow(clamp(abs(wr.y), 0.0, 1.0), 0.5)) * (0.03 + 0.97 * (1.0 - uDark)) * 0.9;
           // the clouds in it: white where the sun is on them, grey towards the night
           float cloud = cloudAbove(vWPos, vec3(wr.x, abs(wr.y), wr.z));
           seen = mix(seen, vec3(0.96, 0.97, 0.98) * (0.05 + 0.95 * (1.0 - uDark)), 0.9 * cloud);
@@ -485,10 +502,30 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
           // (the city is wanted in the water from above as well: more of it than Fresnel would give)
           outgoingLight = mix(outgoingLight, seen, max(fresnel, max(0.42 * thing, 0.3 * cloud * (1.0 - thing))));
         }
+        if (gFilm > 0.0 && uMirrorOn > 0.5) {
+          // Wet ground mirrors the city too (the same mirror picture, which in the rain lies at street level):
+          // a puddle clearly, the wet road around it as long smeared streaks. Only ground at the mirror's own
+          // level can use it; higher and lower ground just shines.
+          float atLevel = 1.0 - smoothstep(0.8, 3.0, abs(vWPos.y - uMirrorY));
+          vec3 wv = normalize(vWPos - cameraPosition);
+          vec2 rough = gNm.xy * (1.0 - gPuddle);
+          float glance = 0.03 + 0.97 * pow(1.0 - max(dot(-wv, normalize(vec3(rough.x, 1.0, rough.y))), 0.0), 5.0);
+          vec4 mc = uMirrorMatrix * vec4(vWPos, 1.0);
+          float near = clamp(70.0 / distance(cameraPosition, vWPos), 0.12, 1.6);
+          vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + rough * vec2(0.05, 0.1) * near;
+          float smear = mix(0.011, 0.0015, gPuddle) * near;
+          vec4 mirrored = vec4(0.0);
+          for (int i = -2; i <= 2; i++) mirrored += texture2D(uMirror, clamp(muv + vec2(0.0, float(i) * smear), 0.001, 0.999));
+          mirrored /= 5.0;
+          float thing = smoothstep(0.0, 0.3, mirrored.a + dot(mirrored.rgb, vec3(1.0)));
+          vec3 sky = vec3(0.6, 0.63, 0.67) * (0.03 + 0.97 * (1.0 - uDark)) * 0.8;
+          float share = atLevel * mix(0.5 * gFilm, 1.0, gPuddle) * max(glance, mix(0.1, 0.38, gPuddle));
+          outgoingLight = mix(outgoingLight, mix(sky, mirrored.rgb, thing), share * mix(gPuddle, 1.0, thing));
+        }
         #include <opaque_fragment>
         gl_FragColor.a = 1.0 - gWater * (1.0 - uMirrorOn);`);
   };
-  m.customProgramCacheKey = () => 'ground-v13';
+  m.customProgramCacheKey = () => 'ground-v14';
   return m;
 }
 
