@@ -84,7 +84,7 @@ const clockTime = {
 const materials = createMaterials(await loadTextures(renderer));
 const props = new Props();
 const signs = new Signs();
-const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 300 }); // (progressive by default: the control panel can ask for the whole city)
+const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 900 }); // (progressive by default: the control panel can ask for the whole city)
 loader.set(0.08, 'terrain');
 const manifest = await streamer.init();
 loader.set(0.14, 'railways and roads');
@@ -148,7 +148,7 @@ let guiState, clockText;
     get occlusion() { return ao.configuration.intensity > 0; }, set occlusion(v) { ao.configuration.intensity = v ? AO : 0; },
     bloom: true,
     // the whole city at once, or only what lies within the view radius of the point looked at (fewer tiles: more frames)
-    wholeCity: false, near: Number(params.get('radius')) || 300,
+    wholeCity: false, near: Number(params.get('radius')) || 900,
     get whole() { return this.wholeCity; }, set whole(v) { this.wholeCity = v; streamer.radius = v ? 1e5 : this.near; },
     get radius() { return this.near; }, set radius(v) { this.near = v; if (!this.wholeCity) streamer.radius = v; },
   };
@@ -207,7 +207,7 @@ let guiState, clockText;
 
   // The panel's settings are kept (in this browser) and are the same for every city: what is switched off in
   // one is off in the next. A URL that sets something itself (?time=, ?cars=, ...) is taken as it stands.
-  const KEY = 'procedural-tokyo:settings:3'; // (a new number when the defaults change: what was kept before is left behind)
+  const KEY = 'procedural-tokyo:settings:5'; // (a new number when the defaults change: what was kept before is left behind)
   const explicit = [...params.keys()].some((k) => k !== 'area');
   const strip = (saved) => { delete saved.controllers?.city; return saved; }; // (the city is the page's, not a setting)
   if (!explicit) {
