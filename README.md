@@ -56,7 +56,7 @@ building to inspect it. The Settings panel (top right) switches city and control
 lighting and rendering quality; settings are remembered in the browser.
 
 URL parameters: `?area=tokyo|shiba|shibuya|fujinomiya`, `?time=18.5` (Tokyo hour), `?night=1`,
-`?cam=x,z,distance,azimuth,elevation`, `?radius=900`, `?traffic=0`, `?cars=600`, `?birds=150`, `?clouds=0.25`,
+`?cam=x,z,distance,azimuth,elevation`, `?radius=300`, `?traffic=0`, `?cars=600`, `?birds=150`, `?clouds=0.25`,
 `?ortho=0`. A page opened with parameters does not overwrite the saved settings.
 
 ## Technical notes
