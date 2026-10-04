@@ -165,6 +165,12 @@ const FACADE_MAIN = /* glsl */ `
 
     // lit rooms at night: shops and offices more often than homes
     float onRate = shop ? 0.75 : cat > 2.5 ? 0.32 : 0.22;
+    // No two buildings alike: one is asleep and the next is busy; many offices are lit by the floor (a whole
+    // storey working late, the one above dark).
+    float b1 = fract(seed * 11.7), b2 = fract(seed * 17.3), b3 = fract(seed * 23.9);
+    onRate *= mix(0.35, 1.9, b1);
+    if (!shop && cat > 2.5 && b2 > 0.4) onRate = mix(0.05, 0.9, step(0.5, hash12(vec2(row * 3.0 + mod(sid, 37.0), mod(sid, 53.0)))));
+    onRate = clamp(onRate, 0.0, 0.95);
     // Some rooms stay as they are all night. The others (uWindowLife.x of them) are lived in: every so often,
     // each room on its own clock (90 to 330 s, divided by the pace uWindowLife.y), someone may come in or
     // leave, and the light goes on or off over a second.
@@ -173,8 +179,16 @@ const FACADE_MAIN = /* glsl */ `
     float clock = uTime / period + hash12(room + 41.0), slot = floor(clock);
     float lit = mix(step(1.0 - onRate, hash12(room + 43.0 + (slot - 1.0) * 7.0)), step(1.0 - onRate, hash12(room + 43.0 + slot * 7.0)), smoothstep(0.0, 1.2 / period, fract(clock)));
     float on = mix(step(1.0 - onRate, hash12(room + 23.0)), lit, fickle);
-    vec3 lamp = mix(vec3(1.0, 0.74, 0.46), vec3(0.86, 0.93, 1.0), step(0.6, fract(seed * 7.3 + rh * 0.35)));
-    float glow = mix(0.5, 1.0, hash12(room + 1.3));
+    // The colour of the light: homes mostly warm bulbs, some cool, the odd blue of a television; an office
+    // building one kind of tube throughout, cool white more often than warm. Brightness varies room by room
+    // and building by building.
+    float tint = hash12(room + 61.0), office = step(2.5, cat);
+    vec3 warm = mix(vec3(1.0, 0.6, 0.3), vec3(1.0, 0.82, 0.6), hash12(room + 67.0));
+    vec3 cool = mix(vec3(1.0, 0.95, 0.86), vec3(0.78, 0.9, 1.0), hash12(room + 71.0));
+    float coolShare = mix(0.25, mix(0.12, 0.95, step(0.35, b2)), office);
+    vec3 lamp = mix(warm, cool, step(1.0 - coolShare, mix(tint, 0.5 * b3 + 0.5 * tint, office)));
+    lamp = mix(lamp, vec3(0.45, 0.65, 1.0), (1.0 - office) * step(0.93, tint));
+    float glow = mix(0.3, 1.35, hash12(room + 1.3)) * mix(0.65, 1.25, b3);
 
     // glass: mostly a mirror of the sky; the room behind shows through as emitted light
     vec3 glassTint = cat > 4.5 ? mix(vec3(0.2, 0.3, 0.38), vec3(0.3, 0.33, 0.34), fract(seed * 5.7)) : vec3(0.1, 0.11, 0.12);
@@ -197,6 +211,8 @@ const FACADE_MAIN = /* glsl */ `
       float s = max(dot(reflect(normalize(vWPos - cameraPosition), paneN), uSunDir), 0.0);
       gGlint = pane * uGlintOn * uSunGlint * (pow(s, 1400.0) * 14.0 + pow(s, 90.0) * 0.35 + pow(s, 7.0) * 0.1) * step(0.0, dot(gN, uSunDir));
     }
+    // red obstruction lights on the top corners of tall buildings
+    if (height > 60.0) gEmissive += vec3(5.0, 0.2, 0.12) * uNight * step(u * cellW, 1.1) * step(height - 1.3, v);
     gPane = pane * (1.0 - 0.7 * far) * (1.0 - 0.85 * uNight * on); // (a lit room shows itself, not a reflection)
     // the lintel shades the top of the opening
     diffuseColor.rgb *= 1.0 - 0.35 * inWin * (1.0 - smoothstep(0.0, 0.18, wmax.y - pm.y)) * (1.0 - far);
@@ -258,7 +274,7 @@ function facadeMaterial(tex) {
       .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.directSpecular += gGlint * smoothstep(0.0, 0.002, dot(reflectedLight.directDiffuse, vec3(0.333)));')
       .replace('#include <opaque_fragment>', '#include <opaque_fragment>\ngl_FragColor.a = 1.0 - 0.95 * gPane;');
   };
-  m.customProgramCacheKey = () => 'facade-v14';
+  m.customProgramCacheKey = () => 'facade-v15';
   return m;
 }
 
