@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { EffectComposer, RenderPass, EffectPass, Effect, BloomEffect, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
 import { N8AOPostPass } from 'n8ao';
-import { AerialPerspectiveEffect, PrecomputedTexturesGenerator } from '@takram/three-atmosphere';
+import { AerialPerspectiveEffect, PrecomputedTexturesGenerator, getSunDirectionECEF, getMoonDirectionECEF } from '@takram/three-atmosphere';
 import { CloudsEffect, CLOUD_SHAPE_TEXTURE_SIZE, CLOUD_SHAPE_DETAIL_TEXTURE_SIZE } from '@takram/three-clouds';
 import { DataTextureLoader, Ellipsoid, Geodetic, parseUint8Array, radians, STBNLoader } from '@takram/three-geospatial';
 
@@ -141,7 +141,7 @@ export class Atmosphere {
     this.bloom = new BloomEffect({ intensity: 0.5, luminanceThreshold: 0.9, luminanceSmoothing: 0.2, mipmapBlur: true });
     this.composer.addPass(new EffectPass(camera, this.bloom, new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC })));
     this.connect();
-    this.sun = new THREE.Vector3();
+    this.sun = new THREE.Vector3(); this.moon = new THREE.Vector3();
     this.cloudsOn = false; // volumetric clouds are heavy: off until asked for
   }
 
@@ -158,14 +158,16 @@ export class Atmosphere {
   get quality() { return this.clouds.qualityPreset; }
   set quality(v) { this.clouds.qualityPreset = v; }
 
-  // sunDir: unit vector towards the sun in world space; night 0..1 lowers it below the horizon for the sky.
-  update(sunDir, night) {
-    this.sun.copy(sunDir);
-    this.sun.y = THREE.MathUtils.lerp(sunDir.y, -0.3, night);
-    this.sun.normalize().applyMatrix3(this.rotation);
-    this.aerial.sunDirection.copy(this.sun);
-    this.plain.sunDirection.copy(this.sun);
+  // Puts the sun and the moon where they stand over the area at `date`. Returns their directions in world
+  // space (unit vectors, y up) for the scene's own light.
+  setDate(date) {
+    getSunDirectionECEF(date, this.sun);
+    getMoonDirectionECEF(date, this.moon);
+    for (const fx of [this.aerial, this.plain]) { fx.sunDirection.copy(this.sun); fx.moonDirection.copy(this.moon); }
     this.clouds.sunDirection.copy(this.sun);
+    // world -> ECEF is a rotation: its transpose brings a direction back
+    const toWorld = this.toWorld ??= this.rotation.clone().transpose();
+    return { sun: this.sun.clone().applyMatrix3(toWorld), moon: this.moon.clone().applyMatrix3(toWorld) };
   }
 
   setSize(w, h) { this.composer.setSize(w, h); }

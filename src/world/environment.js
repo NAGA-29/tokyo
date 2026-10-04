@@ -11,12 +11,15 @@ const NIGHT = {
   env: 1.0, exposure: 1.15, bloom: 0.45,
 };
 
+const SUNSET = new THREE.Color(0xff9a52);
+const MOON_STAND_IN = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 40), THREE.MathUtils.degToRad(205));
+
 export class Environment {
   constructor(scene, renderer) {
     this.scene = scene;
     this.renderer = renderer;
     this.night = 0;
-    this.target = 0;
+    this.daylight = 1; this.moonlight = 0; this.warmth = 0; this.elevation = 40;
     this.time = 0;
     this.sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 40), THREE.MathUtils.degToRad(205));
 
@@ -57,9 +60,22 @@ export class Environment {
     old?.dispose();
   }
 
-  toggle() { this.target = this.target > 0.5 ? 0 : 1; }
-
-  setNight(v) { this.night = this.target = v; this.apply(); this.bakeEnvironment(); }
+  // sun, moon: unit vectors towards them (world space). The light is the sun by day — dimmer and warmer as it
+  // sinks — and the moon by night (or a stand-in for it while the moon is down); the change of direction
+  // happens around sunset, when neither casts a shadow to speak of.
+  setSky(sun, moon) {
+    const deg = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(sun.y, -1, 1))), step = THREE.MathUtils.smoothstep;
+    this.elevation = deg;
+    this.night = 1 - step(deg, -6, 4);
+    this.daylight = step(deg, -1, 9);          // how much of the sun's light arrives
+    this.moonlight = 1 - step(deg, -8, -2);
+    this.warmth = 1 - step(deg, 3, 24);        // 1 at the horizon: orange light
+    if (deg > -1.5) this.sunDir.copy(sun).setY(Math.max(sun.y, 0.06)).normalize(); // (never quite grazing: shadows stay finite)
+    else if (moon.y > 0.2) this.sunDir.copy(moon);
+    else this.sunDir.copy(MOON_STAND_IN);
+    this.apply();
+    if ((this.night > 0.5 ? 1 : 0) !== this.baked) this.bakeEnvironment();
+  }
 
   // The sky follows the camera; the shadow frustum follows the focus, snapped to texels so shadows do not shimmer.
   follow(focus, camera) {
@@ -83,20 +99,14 @@ export class Environment {
   update(dt) {
     this.time += dt;
     this.sky.material.uniforms.uTime.value = this.time;
-    if (this.night === this.target) return;
-    const step = dt / 1.5;
-    this.night = this.target > this.night ? Math.min(this.target, this.night + step) : Math.max(this.target, this.night - step);
-    this.apply();
-    // swap the environment map at the midpoint, where apply() has faded it down
-    if ((this.night > 0.5 ? 1 : 0) !== this.baked) this.bakeEnvironment();
   }
 
   apply() {
     const t = this.night, lerp = (a, b) => a + (b - a) * t;
     this.sky.material.uniforms.uNight.value = t;
     this.hemi.intensity = lerp(DAY.hemi, NIGHT.hemi);
-    this.sun.intensity = lerp(DAY.sun, NIGHT.sun);
-    this.sun.color.copy(DAY.sunColor).lerp(NIGHT.sunColor, t);
+    this.sun.intensity = DAY.sun * this.daylight + NIGHT.sun * this.moonlight;
+    this.sun.color.copy(DAY.sunColor).lerp(SUNSET, this.warmth).lerp(NIGHT.sunColor, this.moonlight);
     // The environment map is baked for day or night; fade it out mid-transition so it never over-lights.
     this.scene.environmentIntensity = lerp(DAY.env, NIGHT.env) * (0.25 + 0.75 * Math.abs(1 - 2 * t));
     this.renderer.toneMappingExposure = lerp(DAY.exposure, NIGHT.exposure);

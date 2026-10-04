@@ -1,6 +1,6 @@
 // Procedural Tokyo client: streams the compiled city and renders it. Free camera for now; the car comes next.
 //
-// URL parameters: ?area=shibuya  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0  ?ortho=0  ?clouds=0.25 (on, with that cover)
+// URL parameters: ?area=shibuya  ?time=18.5 (Tokyo hour; default: now)  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0  ?ortho=0  ?clouds=0.25 (on, with that cover)
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import GUI from 'lil-gui';
@@ -47,7 +47,24 @@ controls.maxDistance = 3500;
 controls.enableZoom = false; // the wheel is handled below, with inertia
 
 const env = new Environment(scene, renderer);
-if (params.get('night') === '1') env.setNight(1);
+// Time of day, as Tokyo's clock (JST = UTC + 9 h): the real time, or an hour set by hand.
+const clockTime = {
+  live: params.get('time') == null && params.get('night') !== '1',
+  hour: params.get('time') != null ? Number(params.get('time')) : params.get('night') === '1' ? 22 : 12,
+  // the moment on today's Tokyo date at which its clock shows `hour`
+  date() {
+    const JST = 9 * 3600e3, now = Date.now();
+    if (this.live) { const t = new Date(now + JST); this.hour = t.getUTCHours() + t.getUTCMinutes() / 60 + t.getUTCSeconds() / 3600; return new Date(now); }
+    const midnight = Math.floor((now + JST) / 864e5) * 864e5 - JST;
+    return new Date(midnight + this.hour * 3600e3);
+  },
+  // the hour and the minute on their own, for the panel; setting either stops the live clock
+  get h() { return Math.floor(this.hour) % 24; },
+  set h(v) { this.live = false; this.hour = v + this.m / 60; },
+  get m() { return Math.floor((this.hour % 1) * 60 + 1e-6); },
+  set m(v) { this.live = false; this.hour = this.h + v / 60; },
+  label() { const h = this.h, m = this.m; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`; },
+};
 
 const materials = createMaterials(await loadTextures(renderer));
 const props = new Props();
@@ -94,7 +111,7 @@ let guiState;
   const state = {
     city: AREA,
     get info() { return document.getElementById('hud').style.display !== 'none'; }, set info(v) { document.getElementById('hud').style.display = v ? '' : 'none'; },
-    get night() { return env.target > 0.5; }, set night(v) { env.target = v ? 1 : 0; },
+
     get traffic() { return !!traffic.group.parent; }, set traffic(v) { if (v) scene.add(traffic.group); else scene.remove(traffic.group); },
     get trains() { return trains.visible; }, set trains(v) { trains.visible = v; },
     get photo() { return shared.uOrthoOn.value > 0; }, set photo(v) { shared.uOrthoOn.value = v && orthoLoaded ? 1 : 0; },
@@ -111,7 +128,10 @@ let guiState;
     url.searchParams.set('area', id);
     location.href = url.href;
   });
-  gui.add(state, 'night').listen(); // (N toggles it too)
+  const time = gui.addFolder('Time (Tokyo)');
+  time.add(clockTime, 'live').name('live clock').listen();
+  time.add(clockTime, 'h', 0, 23, 1).name('hour').listen();
+  time.add(clockTime, 'm', 0, 59, 1).name('minute').listen();
   gui.add(state, 'traffic');
   gui.add(state, 'trains');
   gui.add(state, 'photo').name('aerial photo').listen();
@@ -143,7 +163,7 @@ addEventListener('keydown', (e) => {
   // A panel control that was clicked keeps the keyboard: the arrow keys would then step its slider or its
   // city list instead of moving the view. Movement keys always belong to the scene.
   if (MOVE_KEYS.has(e.code)) { e.preventDefault(); if (el && el !== document.body) el.blur(); }
-  if (e.code === 'KeyN') env.toggle();
+  if (e.code === 'KeyN') { clockTime.live = false; clockTime.hour = env.night > 0.5 ? 12 : 22; } // noon <-> night
   keys.add(e.code);
 }, { capture: true });
 addEventListener('keyup', (e) => keys.delete(e.code));
@@ -225,10 +245,10 @@ function frame() {
   signs.update();
   railways.userData.trains.update(dt, env.night);
   if (traffic.group.parent) traffic.update(dt, controls.target);
+  env.setSky(...Object.values(atmosphere.setDate(clockTime.date())));
   env.update(dt);
   env.follow(controls.target, camera);
   atmosphere.bloom.intensity = guiState.bloom ? env.bloom * 3 : 0;
-  atmosphere.update(env.sunDir, env.night);
   atmosphere.render(dt);
 
   frames++; fpsTime += dt;
@@ -237,6 +257,7 @@ function frame() {
   const [lon, lat] = proj.unproject(controls.target.x, controls.target.z);
   hud.textContent =
     `${manifest.name}  ${lat.toFixed(5)}N ${lon.toFixed(5)}E  ${controls.target.y.toFixed(1)} m\n` +
+    `Tokyo ${clockTime.label()}${clockTime.live ? ' (live)' : ''} · sun ${env.elevation.toFixed(0)}°\n` +
     `${fps.toFixed(0)} fps · ${info.calls} draws · ${(info.triangles / 1e6).toFixed(2)}M tris\n` +
     `tiles ${s.loaded}/${manifest.tiles.length}${streamer.pending ? ` (+${streamer.pending})` : ''} · ${s.buildings} buildings\n` +
     (picked ? `\n▸ ${USAGE[picked.usage] ?? 'usage ' + picked.usage}, ${picked.height.toFixed(1)} m` +
