@@ -25,7 +25,7 @@ import { LampLight, installLampLight } from './world/lamplight.js';
 installLampLight(); // (before any material is compiled)
 
 const params = new URLSearchParams(location.search);
-const AREA = params.get('area') || 'shiba'; // (the first of the city switch: Tokyo Tower)
+const AREA = params.get('area') || 'tokyo'; // (the first of the city switch)
 
 // The loading screen (index.html): the city's name, a bar and what is being done.
 const loader = {

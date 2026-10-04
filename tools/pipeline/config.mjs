@@ -6,14 +6,14 @@ import { meshBlock, meshBounds3 } from '../../src/shared/geo.js';
 
 export const AREAS = {
   // (in the order of the city switch; the first is the one the site opens with)
-  shiba: {
-    name: 'Shiba (Tokyo Tower)',
-    origin: [139.74543, 35.65858], // Tokyo Tower
-    radius: 1,
-  },
   tokyo: {
     name: 'Tokyo',
     origin: [139.76712, 35.68124], // Tokyo Station, between Marunouchi and Yaesu
+    radius: 1,
+  },
+  shiba: {
+    name: 'Shiba (Tokyo Tower)',
+    origin: [139.74543, 35.65858], // Tokyo Tower
     radius: 1,
   },
   shibuya: {
