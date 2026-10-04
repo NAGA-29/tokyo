@@ -13,6 +13,8 @@ export const shared = {
   uTime: { value: 0 },  // seconds, for wind and signals
   // aerial photo over the area: texture, and its rectangle in world x/z as (minX, minZ, sizeX, sizeZ)
   uOrtho: { value: null }, uOrthoRect: { value: new THREE.Vector4(0, 0, 1, 1) }, uOrthoOn: { value: 0 },
+  // the sun in the window glass: direction to the sun (world), and its colour times how much of it there is
+  uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunGlint: { value: new THREE.Color(0, 0, 0) }, uGlintOn: { value: 1 },
   // wall photos: the distances (m) between which a facade goes from generated to photo, and how much photo at most
   uPhotoRange: { value: new THREE.Vector2(140, 420) }, uPhotoMix: { value: 1 },
 };
@@ -45,6 +47,9 @@ normal = normalize((viewMatrix * vec4(normalize(gT * gNm.x + gB * gNm.y + gN * g
 // ---------------------------------------------------------------- facade
 const FACADE_PARS = /* glsl */ `
 uniform float uNight;
+uniform vec3 uSunDir;
+uniform vec3 uSunGlint;
+uniform float uGlintOn;
 uniform sampler2DArray uWallAlb;
 uniform sampler2DArray uWallNor;
 uniform float uWallScale[6];
@@ -54,6 +59,7 @@ varying vec4 vBldg;
 varying vec3 vWPos;
 varying vec3 vWNrm;
 float gRough, gMetal;
+vec3 gGlint = vec3(0.0); // the sun mirrored in a pane (added to the specular light where the sun reaches it)
 float gPane = 0.0; // how much of a mirror this fragment is: window glass (written to alpha for the reflection pass)
 vec3 gEmissive, gT, gB, gN, gNm;
 ${NOISE}
@@ -167,6 +173,16 @@ const FACADE_MAIN = /* glsl */ `
     gNm = mix(gNm, normalize(vec3((hash12(room + 5.1) - 0.5) * 0.03, (hash12(room + 9.4) - 0.5) * 0.03, 1.0)), inWin);
     float daylight = (1.0 - uNight) * (shop ? 0.3 : cat > 4.5 ? 0.06 : 0.12);
     gEmissive = pane * interior * (daylight + uNight * on * glow * 1.25 * lamp);
+    // The sun in the glass. Each pane sits a little out of true and float glass is never quite flat, so the
+    // mirrored sun is a hot core with a glare around it that wanders from pane to pane as the view moves. The
+    // third, wide term is not physics: the true mirror image is only seen from below the sun's own height, and
+    // this lets glass facing the sun catch some of its light from the air too.
+    {
+      vec3 wobble = vec3(vnoise(st * 0.8 + seed * 9.0) - 0.5, vnoise(st * 0.8 + 31.0 + seed * 9.0) - 0.5, 0.0) * 0.035;
+      vec3 paneN = normalize(gT * (gNm.x + wobble.x) + gB * (gNm.y + wobble.y) + gN * gNm.z);
+      float s = max(dot(reflect(normalize(vWPos - cameraPosition), paneN), uSunDir), 0.0);
+      gGlint = pane * uGlintOn * uSunGlint * (pow(s, 1400.0) * 14.0 + pow(s, 90.0) * 0.35 + pow(s, 7.0) * 0.1) * step(0.0, dot(gN, uSunDir));
+    }
     gPane = pane * (1.0 - 0.7 * far) * (1.0 - 0.85 * uNight * on); // (a lit room shows itself, not a reflection)
     // the lintel shades the top of the opening
     diffuseColor.rgb *= 1.0 - 0.35 * inWin * (1.0 - smoothstep(0.0, 0.18, wmax.y - pm.y)) * (1.0 - far);
@@ -211,7 +227,7 @@ function facadeMaterial(tex) {
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, {
       uPhoto: m.userData.photo, uPhotoOn: m.userData.photoOn, uPhotoRange: shared.uPhotoRange, uPhotoMix: shared.uPhotoMix,
-      uNight: shared.uNight, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
+      uNight: shared.uNight, uSunDir: shared.uSunDir, uSunGlint: shared.uSunGlint, uGlintOn: shared.uGlintOn, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
       uWallScale: { value: tex.wall.scales }, uWallDetail: { value: tex.wall.details },
     });
     shader.vertexShader = shader.vertexShader
@@ -224,9 +240,11 @@ function facadeMaterial(tex) {
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = gMetal;')
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + APPLY_NORMAL)
       .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += gEmissive;')
+      // (the direct diffuse light is zero in shadow: it tells whether the sun reaches this pane)
+      .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.directSpecular += gGlint * smoothstep(0.0, 0.002, dot(reflectedLight.directDiffuse, vec3(0.333)));')
       .replace('#include <opaque_fragment>', '#include <opaque_fragment>\ngl_FragColor.a = 1.0 - 0.95 * gPane;');
   };
-  m.customProgramCacheKey = () => 'facade-v9';
+  m.customProgramCacheKey = () => 'facade-v11';
   return m;
 }
 

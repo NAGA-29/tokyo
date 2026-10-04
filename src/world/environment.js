@@ -73,6 +73,8 @@ export class Environment {
     if (deg > -1.5) this.sunDir.copy(sun).setY(Math.max(sun.y, 0.06)).normalize(); // (never quite grazing: shadows stay finite)
     else if (moon.y > 0.2) this.sunDir.copy(moon);
     else this.sunDir.copy(MOON_STAND_IN);
+    shared.uSunDir.value.copy(sun);
+    shared.uSunGlint.value.copy(DAY.sunColor).lerp(SUNSET, this.warmth).multiplyScalar(this.daylight * 3);
     this.apply();
     if ((this.night > 0.5 ? 1 : 0) !== this.baked) this.bakeEnvironment();
   }

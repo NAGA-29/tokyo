@@ -151,6 +151,7 @@ let guiState;
   const quality = gui.addFolder('Rendering');
   quality.add(state, 'radius', 500, 4000, 100).name('view radius (m)');
   quality.add(atmosphere, 'reflect').name('window reflections');
+  quality.add(shared.uGlintOn, 'value', 0, 1, 1).name('sun in the windows');
   quality.add(state, 'shadows');
   quality.add(state, 'occlusion').name('ambient occlusion');
   quality.add(state, 'bloom');
@@ -269,4 +270,4 @@ function frame() {
 }
 requestAnimationFrame(frame);
 
-window.__app = { scene, camera, controls, streamer, env, renderer, materials, ao, atmosphere, traffic };
+window.__app = { scene, camera, controls, streamer, env, renderer, materials, ao, atmosphere, traffic, shared };
