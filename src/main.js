@@ -32,7 +32,7 @@ const loader = {
   set(fraction, step) { this.el.querySelector('.fill').style.width = `${Math.round(fraction * 100)}%`; if (step != null) this.el.querySelector('.step').textContent = step; },
   hide() { this.el.classList.add('done'); },
 };
-loader.show(AREA.charAt(0).toUpperCase() + AREA.slice(1), 'textures');
+loader.show(null, 'textures'); // (index.html has already written the city's name)
 const USAGE = {
   401: 'office', 402: 'commercial', 403: 'hotel', 404: 'commercial complex', 411: 'house', 412: 'apartments',
   413: 'house + shop', 414: 'apartments + shop', 415: 'house + workshop', 421: 'government', 422: 'school / hospital / culture',
@@ -85,8 +85,7 @@ const signs = new Signs();
 const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 3000 });
 loader.set(0.08, 'terrain');
 const manifest = await streamer.init();
-loader.show(manifest.name, 'railways and roads');
-loader.set(0.14);
+loader.set(0.14, 'railways and roads');
 const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
 // Beyond the area: plain ground in the grey of the area's own unbuilt land, out to the haze of the horizon.
 {
@@ -106,8 +105,8 @@ env.sky.visible = false; // the atmosphere draws the sky (the environment map ke
 const ao = atmosphere.ao;
 if (params.get('reflect') === '0') atmosphere.reflect = false;
 if (Number(params.get('clouds')) > 0) { atmosphere.coverage = Number(params.get('clouds')); atmosphere.cloudsOn = true; }
-let orthoLoaded = false; // fills in when the tiles arrive
-if (params.get('ortho') !== '0') loadOrtho(`ortho/${AREA}`, proj, manifest.bounds, renderer).then((ok) => { orthoLoaded = ok; });
+let orthoLoaded = false, orthoWanted = true; // (the photo fills in when the tiles arrive; the panel may have switched it off by then)
+if (params.get('ortho') !== '0') loadOrtho(`ortho/${AREA}`, proj, manifest.bounds, renderer).then((ok) => { orthoLoaded = ok; shared.uOrthoOn.value = ok && orthoWanted ? 1 : 0; });
 const railways = await buildRailways(`tiles/${AREA}/${manifest.rails}`, (x, z) => streamer.ground(x, z), streamer.cover);
 scene.add(railways);
 scene.add(await buildFlyovers(`tiles/${AREA}/${manifest.roads}`, (x, z) => streamer.ground(x, z)));
@@ -136,13 +135,15 @@ let guiState, clockText;
 
     get traffic() { return !!traffic.group.parent; }, set traffic(v) { if (v) scene.add(traffic.group); else scene.remove(traffic.group); },
     get trains() { return trains.visible; }, set trains(v) { trains.visible = v; },
-    get photo() { return shared.uOrthoOn.value > 0; }, set photo(v) { shared.uOrthoOn.value = v && orthoLoaded ? 1 : 0; },
+    get photo() { return orthoWanted; }, set photo(v) { orthoWanted = v; shared.uOrthoOn.value = v && orthoLoaded ? 1 : 0; },
     get shadows() { return env.sun.castShadow; }, set shadows(v) { env.sun.castShadow = v; },
     get occlusion() { return ao.configuration.intensity > 0; }, set occlusion(v) { ao.configuration.intensity = v ? AO : 0; },
     bloom: true,
     get radius() { return streamer.radius; }, set radius(v) { streamer.radius = v; },
   };
   guiState = state;
+  // the names of the cities, for the loading screen of the next visit (index.html reads them)
+  try { for (const a of areas) localStorage.setItem(`procedural-tokyo:name:${a.id}`, a.name); } catch { /* storage unavailable */ }
   const gui = new GUI({ title: 'Scene' });
   gui.add(state, 'city', Object.fromEntries(areas.map((a) => [a.name, a.id]))).onChange((id) => {
     const url = new URL(location.href);
@@ -190,6 +191,26 @@ let guiState, clockText;
   quality.add(state, 'shadows');
   quality.add(state, 'occlusion').name('ambient occlusion');
   quality.add(state, 'bloom');
+
+  // The panel's settings are kept (in this browser) and are the same for every city: what is switched off in
+  // one is off in the next. A URL that sets something itself (?time=, ?cars=, ...) is taken as it stands.
+  const KEY = 'procedural-tokyo:settings';
+  const explicit = [...params.keys()].some((k) => k !== 'area');
+  const strip = (saved) => { delete saved.controllers?.city; return saved; }; // (the city is the page's, not a setting)
+  if (!explicit) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null');
+      if (saved) {
+        gui.load(strip(saved));
+        // (loading the time moved the slider, which stops the live clock: put the saved choice back)
+        const live = saved.folders?.['Time (Tokyo)']?.controllers?.['live clock'];
+        if (live != null) clockTime.live = live;
+      }
+    } catch (e) { console.warn('settings not restored:', e.message); }
+  }
+  const keep = () => { try { localStorage.setItem(KEY, JSON.stringify(strip(gui.save()))); } catch { /* storage unavailable: nothing is kept */ } };
+  gui.onFinishChange(keep);
+  addEventListener('pagehide', keep);
 }
 
 // ---------------------------------------------------------------- input

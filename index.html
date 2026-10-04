@@ -33,10 +33,18 @@
   <body>
     <div id="loader">
       <div class="jp">東京</div>
-      <div class="city">Procedural Tokyo</div>
+      <div class="city"></div>
       <div class="bar"><div class="fill"></div></div>
       <div class="step">starting…</div>
     </div>
+    <script>
+      // The city's name goes on the loading screen before anything else runs, so it never changes under the eye.
+      (function () {
+        var id = new URLSearchParams(location.search).get('area') || 'shibuya', name = null;
+        try { name = localStorage.getItem('procedural-tokyo:name:' + id); } catch (e) {}
+        document.querySelector('#loader .city').textContent = name || id.charAt(0).toUpperCase() + id.slice(1);
+      })();
+    </script>
     <div id="hud">loading…</div>
     <div id="credits"></div>
     <script type="module" src="/src/main.js"></script>
