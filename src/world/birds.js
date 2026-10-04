@@ -105,6 +105,9 @@ export function createBirds() {
   const mesh = new THREE.Mesh(birdGeometry(), material);
   mesh.frustumCulled = false; // (they are placed in the shader)
   mesh.name = 'birds';
+  // shadows: the shadow pass must place the birds as the picture does, so it gets the same vertex shader
+  mesh.castShadow = true;
+  mesh.customDepthMaterial = new THREE.ShaderMaterial({ side: THREE.DoubleSide, uniforms: material.uniforms, vertexShader: material.vertexShader, fragmentShader: 'void main() { gl_FragColor = vec4(1.0); }' });
   mesh.geometry.instanceCount = 100;
 
   // ---- the flocks: which tree, and flying / coming down / in the tree / leaving it
