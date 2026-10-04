@@ -1,4 +1,4 @@
-// Birds over the city: flocks that wander above the area, each bird circling within its flock and beating
+// Birds over the city: flocks of white pigeons and, fewer, of black crows, that wander above the area, each bird circling within its flock and beating
 // its wings. One instanced mesh; every position comes out of the vertex shader from the time and a few random
 // numbers per bird, so a thousand birds cost the CPU nothing.
 import * as THREE from 'three';
@@ -39,12 +39,14 @@ export function createBirds(bounds, ground = 20) {
       uReach: { value: new THREE.Vector2((bounds.maxX - bounds.minX) * 0.42, (bounds.maxZ - bounds.minZ) * 0.42) },
     },
     vertexShader: /* glsl */ `
+      #define PIGEONS 0.7 // share of the flocks that are pigeons
       attribute float aWing;
       attribute vec4 aSeed;
       uniform float uTime;
       uniform vec3 uCentre;
       uniform vec2 uReach;
       varying float vShade;
+      varying float vCrow;
       float hash(float n) { return fract(sin(n * 127.1) * 43758.5453); }
       // where bird and flock are at time t
       vec3 place(float t) {
@@ -64,8 +66,11 @@ export function createBirds(bounds, ground = 20) {
         vec3 fwd = normalize(ahead - p), right = normalize(cross(vec3(0.0, 1.0, 0.0), fwd)), up = cross(fwd, right);
         // wings: beat for a while, then glide with the wings held a little up
         float beat = smoothstep(-0.2, 0.3, sin(uTime * 0.35 + 6.28 * aSeed.y));
-        float lift = mix(0.18, sin(uTime * (7.0 + 4.0 * aSeed.z) + 6.28 * aSeed.w), beat) * 0.55;
-        vec3 local = position;
+        // a flock is of one kind: pigeons (the larger share: white, smaller, quick wings) or crows (black, slow wings)
+        float crow = step(PIGEONS, hash(aSeed.x + 9.0));
+        float lift = mix(0.18, sin(uTime * mix(11.0, 5.5, crow) * (0.85 + 0.3 * aSeed.z) + 6.28 * aSeed.w), beat) * 0.55;
+        vec3 local = position * mix(0.7, 1.0, crow);
+        vCrow = crow;
         local.y += abs(local.x) * lift * aWing;
         local.x *= 1.0 - 0.22 * abs(lift) * aWing;
         vec3 world = p + right * local.x + up * local.y + fwd * local.z;
@@ -75,7 +80,8 @@ export function createBirds(bounds, ground = 20) {
     fragmentShader: /* glsl */ `
       uniform float uNight;
       varying float vShade;
-      void main() { gl_FragColor = vec4(vec3(0.045, 0.045, 0.05) * vShade * mix(1.0, 0.25, uNight), 1.0); }`,
+      varying float vCrow;
+      void main() { gl_FragColor = vec4(mix(vec3(0.82, 0.82, 0.84), vec3(0.03, 0.03, 0.035), vCrow) * vShade * mix(1.0, 0.25, uNight), 1.0); }`,
   });
   const mesh = new THREE.Mesh(birdGeometry(), material);
   mesh.frustumCulled = false; // (they are placed in the shader)
