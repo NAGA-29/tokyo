@@ -36,9 +36,8 @@ export class WaterMirror {
   }
 
   // Draws the mirror picture for this frame. hide: objects that are left out of it.
-  // street: the level of the ground at the focus, used while the ground is wet (it mirrors the city then).
-  update(scene, camera, tiles, focus, hide = [], street = null) {
-    const y = !this.enabled ? null : street != null ? street : this.level(tiles, camera, focus);
+  update(scene, camera, tiles, focus, hide = []) {
+    const y = this.enabled ? this.level(tiles, camera, focus) : null;
     if (y == null) { shared.uMirrorOn.value = 0; return; }
     const r = this.renderer;
     r.getDrawingBufferSize(this.size).multiplyScalar(SCALE).floor();
@@ -79,7 +78,7 @@ export class WaterMirror {
     r.setClearColor(state.clear, state.alpha);
     r.shadowMap.autoUpdate = state.shadows; scene.background = state.background;
     for (const o of hidden) o.visible = true;
-    shared.uMirror.value = this.target.texture; shared.uMirrorOn.value = 1; shared.uMirrorY.value = y;
+    shared.uMirror.value = this.target.texture; shared.uMirrorOn.value = 1;
   }
 }
 

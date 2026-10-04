@@ -148,20 +148,6 @@ let guiState, clockText;
     get occlusion() { return ao.configuration.intensity > 0; }, set occlusion(v) { ao.configuration.intensity = v ? AO : 0; },
     bloom: true,
     // the whole city at once, or only what lies within the view radius of the point looked at (fewer tiles: more frames)
-    // the weather: rain leaves everything wet (no drops are drawn) under a grey sky
-    rain: false, fair: null,
-    get weather() { return this.rain ? 'rainy' : 'sunny'; },
-    set weather(v) {
-      const rain = v === 'rainy';
-      if (rain === this.rain) return;
-      this.rain = rain;
-      // the sky to go with it: cloud all over while it rains, and what was there before when it clears
-      if (rain) {
-        this.fair = { on: atmosphere.cloudsOn, coverage: atmosphere.coverage, overCity: atmosphere.overCity };
-        Object.assign(atmosphere, { cloudsOn: true, coverage: 0.72, overCity: false });
-      } else if (this.fair) Object.assign(atmosphere, { cloudsOn: this.fair.on, coverage: this.fair.coverage, overCity: this.fair.overCity });
-      gui?.controllersRecursive().forEach((c) => c.updateDisplay());
-    },
     wholeCity: false, near: Number(params.get('radius')) || 900,
     get whole() { return this.wholeCity; }, set whole(v) { this.wholeCity = v; streamer.radius = v ? 1e5 : this.near; },
     get radius() { return this.near; }, set radius(v) { this.near = v; if (!this.wholeCity) streamer.radius = v; },
@@ -186,7 +172,6 @@ let guiState, clockText;
   clockText = document.createElement('span');
   clockText.style.cssText = 'min-width: 3.4em; padding-left: 8px; text-align: right; font-variant-numeric: tabular-nums;';
   slider.$widget.appendChild(clockText);
-  gui.add(state, 'weather', ['sunny', 'rainy']);
   gui.add(state, 'traffic');
   gui.add(traffic, 'count', 0, MAX_CARS, 10).name('cars');
   gui.add(traffic, 'highway', 0, 20, 0.5).name('highway traffic');
@@ -347,12 +332,8 @@ function frame() {
   env.follow(controls.target, camera);
   lampLight.update(scene, controls.target, camera.position, env.night);
   atmosphere.bloom.intensity = guiState.bloom ? env.bloom * 3 : 0;
-  // the weather comes and goes over a few seconds
-  const wetTarget = guiState?.rain ? 1 : 0;
-  shared.uWet.value += Math.sign(wetTarget - shared.uWet.value) * Math.min(Math.abs(wetTarget - shared.uWet.value), dt / 4);
-  env.wet = shared.uWet.value;
   waterMirror.enabled = atmosphere.reflect;
-  waterMirror.update(scene, camera, streamer.tiles, controls.target, [], shared.uWet.value > 0.01 ? streamer.surface(controls.target.x, controls.target.z) + 0.06 : null);
+  waterMirror.update(scene, camera, streamer.tiles, controls.target, [traffic.group.parent ? null : traffic.group]);
   atmosphere.render(dt);
 
   frames++; fpsTime += dt;
