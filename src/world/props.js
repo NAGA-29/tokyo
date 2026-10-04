@@ -223,13 +223,21 @@ function vendingTexture() {
 }
 const VENDING_BODY = [[0.92, 0.92, 0.9], [0.75, 0.1, 0.12], [0.12, 0.3, 0.62], [0.9, 0.86, 0.72]];
 
+// The light a lamp throws on the ground under it, as a share of what falls straight below: it thins with the
+// square of the distance and with the slant, (1 + (r / h)^2)^-1.5 for a lamp h above the ground. The quad
+// reaches POOL_REACH lamp heights out; the little that is left there is taken off so the edge is at zero.
+const POOL_REACH = 2.6;
 function glowTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d'), grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  grad.addColorStop(0, 'rgba(255,255,255,1)'); grad.addColorStop(0.35, 'rgba(255,255,255,0.45)'); grad.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = grad; g.fillRect(0, 0, 128, 128);
-  return new THREE.CanvasTexture(c);
+  const N = 128, data = new Uint8Array(N * N * 4), edge = (1 + POOL_REACH ** 2) ** -1.5;
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const d = Math.hypot(i + 0.5 - N / 2, j + 0.5 - N / 2) / (N / 2);
+    const v = d >= 1 ? 0 : Math.max(0, ((1 + (POOL_REACH * d) ** 2) ** -1.5 - edge) / (1 - edge));
+    data.set([v * 255, v * 255, v * 255, 255], (j * N + i) * 4);
+  }
+  const t = new THREE.DataTexture(data, N, N);
+  t.magFilter = t.minFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  return t;
 }
 
 // Road symbols: one atlas cell per DECAL variant; [width, length] on the road in metres.
@@ -411,8 +419,11 @@ export class Props {
       vending: new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.2 }),
       panel: new THREE.MeshBasicMaterial({ map: vendingTexture() }),
       lamp: new THREE.MeshBasicMaterial({ color: 0xfff2d8 }),
+      // Lamp light on the ground. It multiplies what is there (result = ground + ground * light) rather than
+      // laying a disc of colour over it: asphalt stays asphalt, paint and paving show in the light.
       pool: new THREE.MeshBasicMaterial({
-        map: glowTexture(), color: 0xffd9a0, transparent: true, opacity: 0, blending: THREE.AdditiveBlending,
+        map: glowTexture(), color: 0x000000, transparent: true, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
+        blendSrc: THREE.DstColorFactor, blendDst: THREE.OneFactor,
         depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8, fog: false,
       }),
       lens: lensMaterial(),
@@ -423,8 +434,7 @@ export class Props {
       }),
       wire: new THREE.LineBasicMaterial({ color: 0x14161a }),
     };
-    this.mats.poolCool = this.mats.pool.clone();
-    this.mats.poolCool.color.set(0xdfe8ff); // white LED lamps on the back streets
+    this.mats.poolCool = this.mats.pool.clone(); // white LED lamps on the back streets
     this.time = 0;
   }
 
@@ -433,7 +443,10 @@ export class Props {
     const night = shared.uNight.value;
     shared.uTime.value = this.time;
     this.mats.lens.uniforms.uTime.value = this.time;
-    for (const m of [this.mats.pool, this.mats.poolCool]) { m.opacity = night * 0.5; m.visible = night > 0.02; }
+    // how many times brighter than its surroundings the ground is straight under a lamp, in the lamp's colour
+    this.mats.pool.color.setRGB(7.5 * night, 6.0 * night, 4.0 * night);       // sodium-warm on the avenues
+    this.mats.poolCool.color.setRGB(4.6 * night, 5.0 * night, 5.6 * night);
+    for (const m of [this.mats.pool, this.mats.poolCool]) m.visible = night > 0.02;
     this.mats.lamp.color.setRGB(0.35 + 2.4 * night, 0.34 + 2.2 * night, 0.32 + 1.8 * night);
     this.mats.panel.color.setScalar(0.85 + 1.1 * night);
   }
@@ -478,11 +491,11 @@ export class Props {
       } else if (kind === PROP.POLE) {
         instanced(rows, this.models.pole[variant % 2], this.mats.metal);
         instanced(rows, this.models.lamp, this.mats.lamp, { shadow: false, local: [POLE_LAMP.x, POLE_LAMP.y - 0.02, 0], scale: () => [1.6, 1, 0.3] });
-        instanced(rows, this.models.pool, this.mats.poolCool, { lift: 0.2, shadow: false, local: [POLE_LAMP.x + 0.6, 0, 0], scale: () => 13 });
+        instanced(rows, this.models.pool, this.mats.poolCool, { lift: 0.2, shadow: false, local: [POLE_LAMP.x + 0.6, 0, 0], scale: () => 2 * POOL_REACH * POLE_LAMP.y });
       } else if (kind === PROP.LIGHT) {
         instanced(rows, this.models.light, this.mats.metal, { lift: 0.15 });
         instanced(rows, this.models.lamp, this.mats.lamp, { lift: 0.15, shadow: false, local: [0, LAMP.y, LAMP.z] });
-        instanced(rows, this.models.pool, this.mats.pool, { lift: 0.34, shadow: false, local: [0, 0, LAMP.z + 1], scale: () => 17 });
+        instanced(rows, this.models.pool, this.mats.pool, { lift: 0.34, shadow: false, local: [0, 0, LAMP.z + 1], scale: () => 2 * POOL_REACH * LAMP.y });
       } else if (kind === PROP.VENDING) {
         const body = instanced(rows, this.models.vending, this.mats.vending, { lift: 0.02 });
         rows.forEach((i, n) => body.setColorAt(n, new THREE.Color().setRGB(...VENDING_BODY[props[i + 1] % 4], THREE.SRGBColorSpace)));
