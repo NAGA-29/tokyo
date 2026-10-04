@@ -51,15 +51,17 @@ export function createBirds(bounds, ground = 20) {
       // where bird and flock are at time t
       vec3 place(float t) {
         float f = aSeed.x;
-        // the flock: a slow, never-repeating loop over the area, 60 to 260 m up
+        // the flock: a slow, never-repeating loop over the area, anywhere from just over the roofs to 450 m up
         vec3 c = uCentre + vec3(
           uReach.x * sin(t * (0.004 + 0.005 * hash(f + 1.0)) + 6.28 * hash(f + 2.0)),
-          60.0 + 200.0 * hash(f + 3.0) + 22.0 * sin(t * 0.02 + 6.28 * hash(f + 4.0)),
+          45.0 + 400.0 * pow(hash(f + 3.0), 2.0) + 35.0 * sin(t * 0.02 + 6.28 * hash(f + 4.0)),
           uReach.y * sin(t * (0.004 + 0.005 * hash(f + 5.0)) + 6.28 * hash(f + 6.0)));
         // the bird: round the flock on its own circle, rising and falling a little
         float radius = 8.0 + 55.0 * aSeed.y, turn = (0.5 + aSeed.z) * 4.5 / radius * (hash(f + 7.0) < 0.5 ? -1.0 : 1.0);
         float a = t * turn + 6.28 * aSeed.w;
-        return c + vec3(cos(a) * radius, 9.0 * sin(t * 0.21 + 6.28 * aSeed.z) + 14.0 * (aSeed.w - 0.5), sin(a) * radius * 0.8);
+        vec3 at = c + vec3(cos(a) * radius, 9.0 * sin(t * 0.21 + 6.28 * aSeed.z) + 70.0 * (aSeed.w - 0.5), sin(a) * radius * 0.8);
+        at.y = max(at.y, uCentre.y + 22.0 + 10.0 * aSeed.y); // (never down among the houses)
+        return at;
       }
       void main() {
         vec3 p = place(uTime), ahead = place(uTime + 0.25);
@@ -86,6 +88,6 @@ export function createBirds(bounds, ground = 20) {
   const mesh = new THREE.Mesh(birdGeometry(), material);
   mesh.frustumCulled = false; // (they are placed in the shader)
   mesh.name = 'birds';
-  mesh.geometry.instanceCount = 150;
+  mesh.geometry.instanceCount = 1000;
   return mesh;
 }
