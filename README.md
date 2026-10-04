@@ -163,4 +163,7 @@ photos: Geospatial Information Authority of Japan (GSI). Road network, railways 
 contributors (ODbL); a redistributed compiled area is a derived database under the ODbL. Textures: Poly Haven
 (CC0). Trees: ez-tree (MIT). Atmosphere and clouds: takram three-geospatial (MIT).
 
-Code: MIT.
+## License
+
+The code is under the [MIT License](LICENSE). The licence covers the code only: the city data keeps the terms of
+its sources listed above, and the cloud textures in `public/assets/takram` are from takram three-geospatial (MIT).
