@@ -21,6 +21,15 @@ import { createBirds, MAX_BIRDS } from './world/birds.js';
 
 const params = new URLSearchParams(location.search);
 const AREA = params.get('area') || 'shibuya';
+
+// The loading screen (index.html): the city's name, a bar and what is being done.
+const loader = {
+  el: document.getElementById('loader'),
+  show(city, step = '') { this.el.classList.remove('done'); if (city) this.el.querySelector('.city').textContent = city; this.set(0, step); },
+  set(fraction, step) { this.el.querySelector('.fill').style.width = `${Math.round(fraction * 100)}%`; if (step != null) this.el.querySelector('.step').textContent = step; },
+  hide() { this.el.classList.add('done'); },
+};
+loader.show(AREA.charAt(0).toUpperCase() + AREA.slice(1), 'textures');
 const USAGE = {
   401: 'office', 402: 'commercial', 403: 'hotel', 404: 'commercial complex', 411: 'house', 412: 'apartments',
   413: 'house + shop', 414: 'apartments + shop', 415: 'house + workshop', 421: 'government', 422: 'school / hospital / culture',
@@ -71,7 +80,10 @@ const materials = createMaterials(await loadTextures(renderer));
 const props = new Props();
 const signs = new Signs();
 const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 3000 });
+loader.set(0.08, 'terrain');
 const manifest = await streamer.init();
+loader.show(manifest.name, 'railways and roads');
+loader.set(0.14);
 const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
 // Beyond the area: plain ground in the grey of the area's own unbuilt land, out to the haze of the horizon.
 {
@@ -131,7 +143,8 @@ let guiState, clockText;
     const url = new URL(location.href);
     url.search = '';
     url.searchParams.set('area', id);
-    location.href = url.href;
+    loader.show(areas.find((a) => a.id === id)?.name ?? id, 'leaving for the next city');
+    setTimeout(() => { location.href = url.href; }, 60); // (let the screen appear first)
   });
   const time = gui.addFolder('Time (Tokyo)');
   time.add(clockTime, 'live').name('live clock').listen();
@@ -244,6 +257,7 @@ const hud = document.getElementById('hud');
 const clock = new THREE.Clock();
 let frames = 0, fpsTime = 0, fps = 0;
 
+let loading = true;
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   renderer.info.reset();
@@ -257,6 +271,13 @@ function frame() {
   if (camera.position.y < floor) camera.position.y = floor;
 
   streamer.update(controls.target, camera.position);
+  // the loading screen stays until the tiles around the view are in
+  if (loading) {
+    const size = manifest.tileSize, wanted = manifest.tiles.filter((t) => Math.hypot((t.x + 0.5) * size - controls.target.x, (t.z + 0.5) * size - controls.target.z) <= Math.min(streamer.radius, 900)).length || 1;
+    const got = Math.min(1, streamer.stats.loaded / wanted);
+    loader.set(0.2 + 0.8 * got, `city tiles ${streamer.stats.loaded} / ${manifest.tiles.length}`);
+    if (got >= 1) { loading = false; loader.hide(); }
+  }
   props.update(dt);
   signs.update();
   railways.userData.trains.update(dt, env.night);

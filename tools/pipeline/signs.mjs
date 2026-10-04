@@ -5,8 +5,8 @@
 //   title    the building's own name, large, under the roofline
 import fs from 'node:fs';
 
-export const SIGN = { FASCIA: 0, BLADE: 1, TITLE: 2, BILLBOARD: 3, SCREEN: 4, ROOFTOP: 5 };
-const POSTERS = 16; // invented posters in the client's atlas (src/world/ads.js); a sign's colour field picks one
+export const SIGN = { FASCIA: 0, BLADE: 1, TITLE: 2, BILLBOARD: 3, SCREEN: 4, ROOFTOP: 5, BANNER: 6 };
+const POSTERS = 24, BANNERS = 8; // invented posters in the client's atlas (src/world/ads.js); a sign's colour field picks one
 
 // Colour schemes [background, text]; the index is stored per sign and must match SIGN_COLORS in the client.
 export const SIGN_COLORS = [
@@ -73,6 +73,13 @@ export function placeAds(buildings, centre = [0, 0]) {
           const screen = h2 < (d < 260 ? 0.45 : d < 600 ? 0.12 : 0.03);
           ads.push({ style: screen ? SIGN.SCREEN : SIGN.BILLBOARD, color: Math.floor(h2 * 997) % POSTERS, x: mx, z: mz, y, nx: w.nx, nz: w.nz, w: width, h, text: '' });
         }
+      }
+      // down the side of the building: a vertical banner near one end of the wall
+      const h4 = hash('banner' + bi + ':' + wi);
+      if (w.len >= 6 && b.height >= 15 && h4 < (d < 260 ? 0.7 : d < 600 ? 0.4 : d < 1100 ? 0.2 : 0.08)) {
+        const width = 1.6 + 1.2 * hash('bw' + bi + ':' + wi), h = Math.min(b.height * 0.55, width * 6.5, 18), end = h4 * 1000 % 1 < 0.5 ? 0.9 + width / 2 : w.len - 0.9 - width / 2;
+        ads.push({ style: SIGN.BANNER, color: POSTERS + (Math.floor(h4 * 9973) % BANNERS), x: w.ax + w.dx * end, z: w.az + w.dz * end,
+          y: b.base + Math.max(4.5 + h / 2, b.height * 0.5), nx: w.nx, nz: w.nz, w: width, h, text: '' });
       }
       // on the roof, on a frame
       if (wi === 0 && b.height < 60 && h3 < (d < 450 ? 0.38 : d < 900 ? 0.12 : 0.03)) {

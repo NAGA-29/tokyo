@@ -11,7 +11,7 @@
 //   r_<x>_<z>.jpg   per tile, where there are any: PLATEAU's aerial photos of the LOD2 roofs, packed into one atlas
 //   w_<x>_<z>.jpg   the same for the walls (shown from a distance)
 //   rails.json      surface and elevated railway lines from OSM, with their height profile (y = track bed)
-// Usage: node tools/pipeline/compile.mjs [--area=shibuya] [--ads]   (--ads: add invented billboards and screens)
+// Usage: node tools/pipeline/compile.mjs [--area=shibuya] [--no-ads]   (--no-ads: leave out the invented billboards, screens and banners)
 import fs from 'node:fs';
 import path from 'node:path';
 import { resolveArea, ROOT } from './config.mjs';
@@ -463,10 +463,10 @@ log(`lattice towers (OSM): ${lattice}`);
 const places = readPlaces(path.join(area.rawDir, 'osm_poi.json'), proj.project);
 const signBuildings = [...tiles.values()].flatMap((t) => t.buildings.map((b) => ({ ring: b.polygons[0][0], base: b.base, height: b.height, usage: b.usage, storeys: b.storeys < 255 ? b.storeys : 0 })));
 const signs = placeSigns(places, signBuildings, (x, z) => idx.road.has(x, z));
-// Billboards and screens are invented, not mapped data, so they are off unless asked for with --ads.
-const ads = process.argv.includes('--ads') ? placeAds(signBuildings) : []; // (the origin is the Scramble Crossing)
+// Billboards, screens and banners are invented, not mapped data: --no-ads leaves them out.
+const ads = process.argv.includes('--no-ads') ? [] : placeAds(signBuildings); // (the origin is the Scramble Crossing)
 signs.push(...ads);
-log(`ads: ${ads.filter((s) => s.style === 3).length} billboards, ${ads.filter((s) => s.style === 4).length} screens, ${ads.filter((s) => s.style === 5).length} rooftop boards`);
+log(`ads: ${ads.filter((s) => s.style === 3).length} billboards, ${ads.filter((s) => s.style === 4).length} screens, ${ads.filter((s) => s.style === 5).length} rooftop boards, ${ads.filter((s) => s.style === 6).length} banners`);
 for (const s of signs) if (inBounds(s.x, s.z)) tileFor(s.x, s.z).signs.push({ ...s, x: r2(s.x), y: r2(s.y), z: r2(s.z), w: r2(s.w), h: r2(s.h) });
 log(`signs: ${signs.length} from ${places.length} named places (fascia ${signs.filter((s) => s.style === 0).length}, blade ${signs.filter((s) => s.style === 1).length}, building names ${signs.filter((s) => s.style === 2).length})`);
 
