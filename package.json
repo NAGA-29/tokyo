@@ -10,6 +10,7 @@
     "fetch": "node tools/pipeline/fetch.mjs",
     "compile": "node --max-old-space-size=4096 tools/pipeline/compile.mjs",
     "preview": "node tools/pipeline/preview.mjs",
+    "deploy": "node tools/deploy.mjs",
     "test": "node tools/tests/tileformat.test.mjs && node tools/tests/road-markings.test.mjs"
   },
   "license": "MIT",
