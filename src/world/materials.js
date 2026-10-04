@@ -96,9 +96,12 @@ const FACADE_MAIN = /* glsl */ `
 
   // steelwork of a lattice tower (src/world/tower.js): painted steel in the vertex colour, floodlit at night
   if (kind > 3.5) {
-    diffuseColor.rgb = vColor.rgb * (0.94 + 0.12 * vnoise(st * 0.7));
+    // (a colour brighter than 1 is a lamp: dark glass by day, lit at night; the steel keeps its own paint
+    // under the floodlights)
+    float lampOn = step(1.5, max(vColor.r, max(vColor.g, vColor.b)));
+    diffuseColor.rgb = mix(vColor.rgb * (0.94 + 0.12 * vnoise(st * 0.7)), vec3(0.12), lampOn);
     gRough = 0.5; gMetal = 0.25; gNm = vec3(0.0, 0.0, 1.0);
-    gEmissive = mix(vColor.rgb, vec3(1.0, 0.5, 0.12), 0.6) * uNight * 1.3;
+    gEmissive = mix(vColor.rgb * 0.75, vColor.rgb * 1.6, lampOn) * uNight;
   }
 
   if (kind < 0.5 && cellW > 0.5) {
@@ -244,7 +247,7 @@ function facadeMaterial(tex) {
       .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.directSpecular += gGlint * smoothstep(0.0, 0.002, dot(reflectedLight.directDiffuse, vec3(0.333)));')
       .replace('#include <opaque_fragment>', '#include <opaque_fragment>\ngl_FragColor.a = 1.0 - 0.95 * gPane;');
   };
-  m.customProgramCacheKey = () => 'facade-v11';
+  m.customProgramCacheKey = () => 'facade-v12';
   return m;
 }
 

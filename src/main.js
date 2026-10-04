@@ -1,6 +1,6 @@
 // Procedural Tokyo client: streams the compiled city and renders it. Free camera for now; the car comes next.
 //
-// URL parameters: ?area=shibuya  ?time=18.5 (Tokyo hour; default: now)  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0  ?ortho=0  ?clouds=0.25 (on, with that cover)
+// URL parameters: ?area=shibuya  ?time=18.5 (Tokyo hour; default: now)  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0  ?ortho=0  ?clouds=0.25 (on, with that cover)  ?birds=150
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import GUI from 'lil-gui';
@@ -17,6 +17,7 @@ import { buildStructures } from './world/structures.js';
 import { loadOrtho } from './world/ortho.js';
 import { Environment } from './world/environment.js';
 import { Atmosphere } from './world/atmosphere.js';
+import { createBirds, MAX_BIRDS } from './world/birds.js';
 
 const params = new URLSearchParams(location.search);
 const AREA = params.get('area') || 'shibuya';
@@ -80,6 +81,9 @@ const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
   plain.name = 'plain';
   scene.add(plain);
 }
+const birds = createBirds(manifest.bounds, streamer.ground(0, 0));
+if (params.get('birds') != null) birds.geometry.instanceCount = Math.min(MAX_BIRDS, Number(params.get('birds')) || 0);
+scene.add(birds);
 // post-processing: ambient occlusion, sky, aerial perspective, volumetric clouds, bloom, tone mapping
 const atmosphere = new Atmosphere(renderer, scene, camera, manifest.origin, manifest.bounds);
 env.sky.visible = false; // the atmosphere draws the sky (the environment map keeps its own)
@@ -140,6 +144,7 @@ let guiState, clockText;
   gui.add(state, 'traffic');
   gui.add(state, 'trains');
   gui.add(state, 'photo').name('aerial photo').listen();
+  gui.add(birds.geometry, 'instanceCount', 0, MAX_BIRDS, 10).name('birds');
   gui.add(state, 'info').name('info panel');
   const sky = gui.addFolder('Clouds');
   sky.add(atmosphere, 'cloudsOn').name('clouds');
