@@ -223,16 +223,14 @@ const FACADE_MAIN = /* glsl */ `
       float s = max(dot(reflect(normalize(vWPos - cameraPosition), paneN), uSunDir), 0.0);
       gGlint = pane * uGlintOn * uSunGlint * (pow(s, 1400.0) * 14.0 + pow(s, 90.0) * 0.35 + pow(s, 7.0) * 0.1) * step(0.0, dot(gN, uSunDir));
     }
-    // Architectural lighting on some towers (more of them as uNightBlue rises): a strip of light up the edge of
-    // each wall, a line along every fourth floor, and the rooms themselves in the same colour — blue or golden
-    // yellow for most, cyan or violet for a few.
+    // Some towers (more of them as uNightBlue rises) are lit in one colour throughout: their lit rooms shine
+    // blue or golden yellow — a few cyan or violet — instead of white. (Window light only: thin lines of light
+    // along edges and floors shimmer at a distance.)
     {
       float pickA = fract(seed * 31.7), hue = fract(seed * 47.3);
       float accent = tall * step(0.7 - 0.45 * uNightBlue, pickA) * uNight;
       vec3 accentCol = hue < 0.42 ? vec3(0.12, 0.38, 1.0) : hue < 0.76 ? vec3(1.0, 0.72, 0.16) : hue < 0.89 ? vec3(0.1, 0.85, 1.0) : vec3(0.75, 0.3, 1.0);
-      float edge = step(u * cellW, 0.55), slab = step(mod(row, 4.0), 0.5) * step(fy, 0.07);
-      gEmissive = mix(gEmissive, accentCol * dot(gEmissive, vec3(0.6)), accent * 0.75);
-      gEmissive += accentCol * accent * (edge * 3.2 + slab * 1.8) * (1.0 - 0.6 * far);
+      gEmissive = mix(gEmissive, accentCol * dot(gEmissive, vec3(0.9)), accent * 0.8);
     }
     // The city in the glass of a tower at night. The mirrored view ray is followed down to street level, where
     // the lights of the city lie as a field of points fixed to the ground (a lamp or a window every 26 m or
@@ -315,7 +313,7 @@ function facadeMaterial(tex) {
       .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.directSpecular += gGlint * smoothstep(0.0, 0.002, dot(reflectedLight.directDiffuse, vec3(0.333)));')
       .replace('#include <opaque_fragment>', '#include <opaque_fragment>\ngl_FragColor.a = 1.0 - 0.95 * gPane;');
   };
-  m.customProgramCacheKey = () => 'facade-v20';
+  m.customProgramCacheKey = () => 'facade-v21';
   return m;
 }
 
