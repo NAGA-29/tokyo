@@ -15,6 +15,8 @@ export const shared = {
   uOrtho: { value: null }, uOrthoRect: { value: new THREE.Vector4(0, 0, 1, 1) }, uOrthoOn: { value: 0 },
   // lit windows at night: the share of rooms whose light comes and goes, and how fast (1: every 1.5 to 5.5 minutes)
   uWindowLife: { value: new THREE.Vector2(0.5, 4) },
+  // how strongly the glass of tall buildings mirrors the lights of the city at night (0: off)
+  uCityGlass: { value: 1 },
   // the sun in the window glass: direction to the sun (world), and its colour times how much of it there is
   uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunGlint: { value: new THREE.Color(0, 0, 0) }, uGlintOn: { value: 1 },
   // wall photos: the distances (m) between which a facade goes from generated to photo, and how much photo at most
@@ -51,6 +53,7 @@ const FACADE_PARS = /* glsl */ `
 uniform float uNight;
 uniform float uTime;
 uniform vec2 uWindowLife;
+uniform float uCityGlass;
 uniform vec3 uSunDir;
 uniform vec3 uSunGlint;
 uniform float uGlintOn;
@@ -170,6 +173,9 @@ const FACADE_MAIN = /* glsl */ `
     float b1 = fract(seed * 11.7), b2 = fract(seed * 17.3), b3 = fract(seed * 23.9);
     onRate *= mix(0.35, 1.9, b1);
     if (!shop && cat > 2.5 && b2 > 0.4) onRate = mix(0.05, 0.9, step(0.5, hash12(vec2(row * 3.0 + mod(sid, 37.0), mod(sid, 53.0)))));
+    // A tower at night is mostly dark glass: a few storeys lit as bands, the rest a mirror for the city.
+    float tall = smoothstep(70.0, 110.0, height);
+    if (!shop) onRate = mix(onRate, 0.02 + 0.8 * step(0.9, hash12(vec2(row * 5.0 + mod(sid, 41.0), mod(sid, 59.0)))), tall);
     onRate = clamp(onRate, 0.0, 0.95);
     // Some rooms stay as they are all night. The others (uWindowLife.x of them) are lived in: every so often,
     // each room on its own clock (90 to 330 s, divided by the pace uWindowLife.y), someone may come in or
@@ -211,8 +217,25 @@ const FACADE_MAIN = /* glsl */ `
       float s = max(dot(reflect(normalize(vWPos - cameraPosition), paneN), uSunDir), 0.0);
       gGlint = pane * uGlintOn * uSunGlint * (pow(s, 1400.0) * 14.0 + pow(s, 90.0) * 0.35 + pow(s, 7.0) * 0.1) * step(0.0, dot(gN, uSunDir));
     }
-    // red obstruction lights on the top corners of tall buildings
-    if (height > 60.0) gEmissive += vec3(5.0, 0.2, 0.12) * uNight * step(u * cellW, 1.1) * step(height - 1.3, v);
+    // The city in the glass of a tower at night. The mirrored view ray is followed down to street level, where
+    // the lights of the city lie as a field of points fixed to the ground (a lamp or a window every 26 m or
+    // so, warm or cool), so the reflection slides over the glass as the view moves, as a real one does.
+    if (tall > 0.0 && uNight > 0.01 && uCityGlass > 0.0) {
+      vec3 paneN = normalize(gT * gNm.x + gB * gNm.y + gN * gNm.z), R = reflect(V, paneN);
+      float fresnel = 0.1 + 0.9 * pow(1.0 - max(dot(-V, paneN), 0.0), 4.0);
+      vec3 city = vec3(0.0);
+      if (R.y < -0.015) {
+        float reach = (vWPos.y - 12.0) / -R.y;                      // metres along the ray to street level
+        vec2 g = (vWPos.xz + R.xz * reach) / 26.0, cell = floor(g);
+        vec2 at = vec2(hash12(cell + 3.1), hash12(cell + 7.7));
+        float d = length(fract(g) - at) * 26.0, kind = hash12(cell + 13.0);
+        float spot = exp(-d * d / (3.0 + reach * 0.03)) * step(0.3, kind);
+        vec3 tintC = kind > 0.8 ? vec3(0.8, 0.9, 1.0) : kind > 0.72 ? vec3(1.0, 0.25, 0.2) : vec3(1.0, 0.72, 0.42);
+        city = tintC * spot * 5.0 / (1.0 + reach * reach / 4.0e5);
+        city += vec3(1.0, 0.75, 0.5) * 0.035 * smoothstep(0.0, 900.0, reach);  // and their haze towards the horizon
+      }
+      gEmissive += city * fresnel * pane * tall * uNight * uCityGlass * (1.0 - on * 0.9);
+    }
     gPane = pane * (1.0 - 0.7 * far) * (1.0 - 0.85 * uNight * on); // (a lit room shows itself, not a reflection)
     // the lintel shades the top of the opening
     diffuseColor.rgb *= 1.0 - 0.35 * inWin * (1.0 - smoothstep(0.0, 0.18, wmax.y - pm.y)) * (1.0 - far);
@@ -257,7 +280,7 @@ function facadeMaterial(tex) {
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, {
       uPhoto: m.userData.photo, uPhotoOn: m.userData.photoOn, uPhotoRange: shared.uPhotoRange, uPhotoMix: shared.uPhotoMix,
-      uNight: shared.uNight, uTime: shared.uTime, uWindowLife: shared.uWindowLife, uSunDir: shared.uSunDir, uSunGlint: shared.uSunGlint, uGlintOn: shared.uGlintOn, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
+      uNight: shared.uNight, uTime: shared.uTime, uWindowLife: shared.uWindowLife, uCityGlass: shared.uCityGlass, uSunDir: shared.uSunDir, uSunGlint: shared.uSunGlint, uGlintOn: shared.uGlintOn, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
       uWallScale: { value: tex.wall.scales }, uWallDetail: { value: tex.wall.details },
     });
     shader.vertexShader = shader.vertexShader
@@ -274,7 +297,7 @@ function facadeMaterial(tex) {
       .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.directSpecular += gGlint * smoothstep(0.0, 0.002, dot(reflectedLight.directDiffuse, vec3(0.333)));')
       .replace('#include <opaque_fragment>', '#include <opaque_fragment>\ngl_FragColor.a = 1.0 - 0.95 * gPane;');
   };
-  m.customProgramCacheKey = () => 'facade-v15';
+  m.customProgramCacheKey = () => 'facade-v17';
   return m;
 }
 

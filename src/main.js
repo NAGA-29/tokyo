@@ -156,6 +156,7 @@ let guiState, clockText;
   const rooms = gui.addFolder('Night windows');
   rooms.add(shared.uWindowLife.value, 'x', 0, 1, 0.05).name('rooms that change');
   rooms.add(shared.uWindowLife.value, 'y', 0.2, 30, 0.1).name('pace');
+  rooms.add(shared.uCityGlass, 'value', 0, 3, 0.05).name('city in tower glass');
   const walls = gui.addFolder('Wall photos');
   walls.add(shared.uPhotoMix, 'value', 0, 1, 0.05).name('amount');
   walls.add(shared.uPhotoRange.value, 'x', 0, 1000, 10).name('from (m)');
