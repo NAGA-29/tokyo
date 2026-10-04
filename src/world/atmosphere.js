@@ -114,6 +114,15 @@ export class Atmosphere {
     const stbn = new STBNLoader().load(`${ASSETS}/stbn.bin`);
     clouds.stbnTexture = stbn; aerial.stbnTexture = stbn;
 
+    // The same sky without clouds, for when they are switched off: the cloud passes then cost nothing.
+    const plain = this.plain = new AerialPerspectiveEffect(camera);
+    plain.sky = true;
+    plain.ground = false;
+    plain.worldToECEFMatrix.copy(this.worldToECEF);
+    plain.setFragmentShader(aerial.getFragmentShader());
+    Object.assign(plain, generator.textures);
+    plain.stbnTexture = stbn;
+
     // ---- the passes
     this.composer = new EffectComposer(renderer, { frameBufferType: THREE.HalfFloatType, multisampling: 0 });
     this.composer.addPass(new RenderPass(scene, camera));
@@ -126,14 +135,18 @@ export class Atmosphere {
     this.composer.addPass(new EffectPass(camera, new Scale(UNITS)));
     this.cloudPass = new EffectPass(camera, clouds, aerial);
     this.composer.addPass(this.cloudPass);
+    this.skyPass = new EffectPass(camera, plain);
+    this.composer.addPass(this.skyPass);
     this.composer.addPass(new EffectPass(camera, new Scale(1 / UNITS)));
     this.bloom = new BloomEffect({ intensity: 0.5, luminanceThreshold: 0.9, luminanceSmoothing: 0.2, mipmapBlur: true });
     this.composer.addPass(new EffectPass(camera, this.bloom, new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC })));
     this.connect();
     this.sun = new THREE.Vector3();
-    this.cloudsOn = true;
+    this.cloudsOn = false; // volumetric clouds are heavy: off until asked for
   }
 
+  get cloudsOn() { return this.cloudPass.enabled; }
+  set cloudsOn(v) { this.cloudPass.enabled = v; this.skyPass.enabled = !v; }
   get coverage() { return this.clouds.coverage; }
   set coverage(v) { this.clouds.coverage = v; }
   // Altitude of the base of the two low cloud layers (the second starts 250 m above the first, as by default).
@@ -151,6 +164,7 @@ export class Atmosphere {
     this.sun.y = THREE.MathUtils.lerp(sunDir.y, -0.3, night);
     this.sun.normalize().applyMatrix3(this.rotation);
     this.aerial.sunDirection.copy(this.sun);
+    this.plain.sunDirection.copy(this.sun);
     this.clouds.sunDirection.copy(this.sun);
   }
 

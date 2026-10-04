@@ -1,6 +1,6 @@
 // Procedural Tokyo client: streams the compiled city and renders it. Free camera for now; the car comes next.
 //
-// URL parameters: ?area=shibuya  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0  ?ortho=0  ?clouds=0.4 (cover)
+// URL parameters: ?area=shibuya  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0  ?ortho=0  ?clouds=0.25 (on, with that cover)
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import GUI from 'lil-gui';
@@ -67,7 +67,7 @@ const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
 const atmosphere = new Atmosphere(renderer, scene, camera, manifest.origin, manifest.bounds);
 env.sky.visible = false; // the atmosphere draws the sky (the environment map keeps its own)
 const ao = atmosphere.ao;
-if (params.get('clouds') != null) atmosphere.coverage = Number(params.get('clouds'));
+if (Number(params.get('clouds')) > 0) { atmosphere.coverage = Number(params.get('clouds')); atmosphere.cloudsOn = true; }
 let orthoLoaded = false; // fills in when the tiles arrive
 if (params.get('ortho') !== '0') loadOrtho(`ortho/${AREA}`, proj, manifest.bounds, renderer).then((ok) => { orthoLoaded = ok; });
 const railways = await buildRailways(`tiles/${AREA}/${manifest.rails}`, (x, z) => streamer.ground(x, z), streamer.cover);
@@ -117,6 +117,7 @@ let guiState;
   gui.add(state, 'photo').name('aerial photo').listen();
   gui.add(state, 'info').name('info panel');
   const sky = gui.addFolder('Clouds');
+  sky.add(atmosphere, 'cloudsOn').name('clouds');
   sky.add(atmosphere, 'coverage', 0, 1, 0.05);
   sky.add(atmosphere, 'base', 200, 2000, 50).name('base altitude (m)');
   sky.add(atmosphere, 'overCity').name('over the city only');
