@@ -149,6 +149,7 @@ export class Ads {
     // uv: position within the board (0-1); aAd: x poster index, y 0 board / 1 screen / 2 banner, z seed
     this.material = new THREE.MeshStandardMaterial({ map: atlas(), roughness: 0.5 });
     this.material.onBeforeCompile = (shader) => {
+    shader.uniforms.uLampOn = { value: 0 }; shader.uniforms.uLampMap = shared.uLampMap; // (no lamp light here; the sampler still needs its texture)
       shader.uniforms.uNight = shared.uNight;
       shader.uniforms.uTime = shared.uTime;
       shader.vertexShader = shader.vertexShader

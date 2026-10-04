@@ -3,6 +3,7 @@
 // at the other.
 import * as THREE from 'three';
 import { beamTexture } from './traffic.js';
+import { LAMP_LAYER, lampMaterial } from './lamplight.js';
 
 // Line name (substring) -> rolling stock. Colours follow the real line colours.
 const STOCK = [
@@ -145,10 +146,7 @@ export class Trains {
     this.group.name = 'trains';
     this.sets = [];
     const paths = chain(lines);
-    this.beam = new THREE.MeshBasicMaterial({
-      map: beamTexture(), color: 0x000000, transparent: true, side: THREE.DoubleSide, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
-      blendSrc: THREE.DstColorFactor, blendDst: THREE.OneFactor, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -10, polygonOffsetUnits: -40,
-    });
+    this.beam = lampMaterial(beamTexture());
     const stocks = new Map(); // stock -> paths
     for (const p of paths) {
       const stock = STOCK.find((s) => p.name.includes(s.match)) ?? DEFAULT_STOCK;
@@ -167,6 +165,7 @@ export class Trains {
       pool.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1], 2));
       const beams = new THREE.InstancedMesh(pool, this.beam, list.length);
       beams.frustumCulled = false;
+      beams.layers.set(LAMP_LAYER);
       this.group.add(beams);
       this.sets.push({ stock, mesh, beams, material, trains: list.map((path, i) => ({ path, s: (i * 613) % (path.length + GAP) })) });
     }
@@ -176,7 +175,7 @@ export class Trains {
 
   update(dt, night) {
     const { dummy, a, b } = this;
-    this.beam.color.setRGB(7 * night, 6.6 * night, 5.6 * night);
+    this.beam.color.setRGB(2.2 * night, 2.1 * night, 1.8 * night);
     this.beam.visible = night > 0.02;
     for (const { stock, mesh, beams, material, trains } of this.sets) {
       material.emissiveIntensity = 0.2 + night * 2.2; // the saloon lights and the lamps are always on

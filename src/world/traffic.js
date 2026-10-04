@@ -12,6 +12,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { shared } from './materials.js';
+import { LAMP_LAYER, lampMaterial } from './lamplight.js';
 
 const LANE = 3.0;
 const CAR_RADIUS = 330, CARS = 260; // the default number of cars, and the distance from the focus they keep within
@@ -76,8 +77,9 @@ function vehicle({ L, W, belt, roof, z0, z1, box, rake = 0.5, tyre = 0.31 }) {
 export function beamTexture() {
   const W = 64, H = 128, data = new Uint8Array(W * H * 4);
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
-    const u = ((i + 0.5) / W) * 2 - 1, v = (j + 0.5) / H, spread = 0.2 + 0.75 * v;
-    const value = Math.exp(-((u / spread) ** 2) * 1.3) * THREE.MathUtils.smoothstep(v, 0, 0.07) * Math.exp(-v * 3.1) * (1 - THREE.MathUtils.smoothstep(v, 0.8, 1)) * (1 - THREE.MathUtils.smoothstep(Math.abs(u), 0.8, 1));
+    // a fan: narrow at the lamps, wider and fainter down the road, with soft sides and no edge anywhere
+    const u = ((i + 0.5) / W) * 2 - 1, v = (j + 0.5) / H, spread = 0.12 + 0.5 * v;
+    const value = Math.exp(-((u / spread) ** 2) * 2.2) * THREE.MathUtils.smoothstep(v, 0, 0.07) * Math.exp(-v * 3.1) * (1 - THREE.MathUtils.smoothstep(v, 0.8, 1)) * (1 - THREE.MathUtils.smoothstep(Math.abs(u), 0.8, 1));
     data.set([value * 255, value * 255, value * 255, 255], (j * W + i) * 4);
   }
   const t = new THREE.DataTexture(data, W, H);
@@ -119,6 +121,7 @@ export function parkedVehicles() {
 function carMaterial(lit = true) {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.28, metalness: 0.5 });
   m.onBeforeCompile = (shader) => {
+    shader.uniforms.uLampOn = { value: 0 }; shader.uniforms.uLampMap = shared.uLampMap; // (no lamp light here; the sampler still needs its texture)
     shader.uniforms.uNight = shared.uNight;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nattribute float aGlow;\nvarying float vGlow;')
@@ -161,7 +164,7 @@ function buildGraph({ nodes, edges, signals }) {
       // on its left half (left-hand traffic). A two-way single-lane street is shared down the middle.
       const offset = (k) => (e.oneway ? (k - (n - 1) / 2) * LANE : e.lanes >= 2 ? -(k + 0.5) * LANE : -1.15);
       const lane = {
-        pts: p, cum, length: cum.at(-1), from: fwd ? e.a : e.b, to: fwd ? e.b : e.a, n, offset, speed, weight,
+        pts: p, cum, length: cum.at(-1), from: fwd ? e.a : e.b, to: fwd ? e.b : e.a, n, offset, speed, weight, motorway: e.highway.startsWith('motorway'),
         raised: !!e.flyover, hidden: !!e.tunnel, signal: signalled.has(fwd ? e.b : e.a), edge: e, cars: [],
       };
       // which way the signal for this approach is phased (see lensMaterial in props.js)
@@ -221,31 +224,22 @@ export class Traffic {
     this.seed = 12345;
 
     const material = carMaterial();
-    this.beam = new THREE.MeshBasicMaterial({
-      map: beamTexture(), vertexColors: true, color: 0x000000, transparent: true, side: THREE.DoubleSide, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
-      blendSrc: THREE.DstColorFactor, blendDst: THREE.OneFactor, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -10, polygonOffsetUnits: -40,
-    });
-    // The pool multiplies the road, so on an unlit road (a flyover, a bridge) there is little to multiply:
-    // a second, faint layer adds light outright, as lamps do on dark asphalt.
-    this.beamAdd = new THREE.MeshBasicMaterial({
-      map: this.beam.map, vertexColors: true, color: 0x000000, transparent: true, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
-      depthWrite: false, polygonOffset: true, polygonOffsetFactor: -10, polygonOffsetUnits: -40,
-    });
+    // what the lamps throw on the road, for the light map (lamplight.js)
+    this.beam = lampMaterial(beamTexture(), { vertexColors: true });
     this.fleets = TYPES.map((t) => {
       const mesh = new THREE.InstancedMesh(vehicle(t.spec), material, Math.ceil(MAX_CARS * t.share * 1.25) + 8);
       mesh.castShadow = true; mesh.frustumCulled = false; mesh.count = 0;
       const beams = new THREE.InstancedMesh(beamGeometry(t.L), this.beam, mesh.instanceMatrix.count);
       beams.instanceMatrix = mesh.instanceMatrix; // the lamps go where the cars go
       beams.frustumCulled = false; beams.count = 0;
-      const fill = new THREE.InstancedMesh(beams.geometry, this.beamAdd, mesh.instanceMatrix.count);
-      fill.instanceMatrix = mesh.instanceMatrix;
-      fill.frustumCulled = false; fill.count = 0;
-      this.group.add(mesh, beams, fill);
-      return { ...t, mesh, beams, fill };
+      beams.layers.set(LAMP_LAYER);
+      this.group.add(mesh, beams);
+      return { ...t, mesh, beams };
     });
     this.cars = [];
     this.count = CARS;   // how many cars there are (the panel changes it)
-    this.headlights = 5; // how many times brighter the road is just ahead of a car at night
+    this.highway = 5;    // how much busier the expressway is than its class alone would make it
+    this.headlights = 5; // strength of the light the lamps throw on the road at night
     this.dummy = new THREE.Object3D();
     this.dummy.rotation.order = 'YXZ'; // heading first, then pitch about the car's own axle
     this.color = new THREE.Color();
@@ -260,7 +254,8 @@ export class Traffic {
       if (!filter(l)) continue;
       const m = l.pts[l.pts.length >> 1];
       if (Math.hypot(m.x - focus.x, m.z - focus.z) > radius) continue;
-      const key = Math.pow(this.rnd(), 1 / (l.weight * Math.min(l.length, 120))); // weighted reservoir sampling
+      // weighted reservoir sampling: by the importance of the road, its length and its lanes; the expressway busier still
+      const key = Math.pow(this.rnd(), 1 / (l.weight * Math.min(l.length, 120) * l.n * (l.motorway ? this.highway : 1)));
       if (key > bestKey) { bestKey = key; best = l; }
     }
     return best;
@@ -409,11 +404,10 @@ export class Traffic {
       fleet.mesh.setColorAt(i, this.color.setHex(car.color));
     }
     const night = shared.uNight.value;
-    this.beam.color.setScalar(this.headlights * night); // how many times brighter the road is just ahead of a car
-    this.beamAdd.color.setScalar(0.014 * this.headlights * night);
-    this.beam.visible = this.beamAdd.visible = night > 0.02;
+    this.beam.color.setScalar(0.36 * this.headlights * night); // the light on the road just ahead of a car
+    this.beam.visible = night > 0.02;
     this.fleets.forEach((f, i) => {
-      f.mesh.count = f.beams.count = f.fill.count = counts[i];
+      f.mesh.count = f.beams.count = counts[i];
       f.mesh.instanceMatrix.needsUpdate = true;
       if (f.mesh.instanceColor) f.mesh.instanceColor.needsUpdate = true;
     });

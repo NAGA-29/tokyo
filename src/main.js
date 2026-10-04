@@ -18,6 +18,9 @@ import { loadOrtho } from './world/ortho.js';
 import { Environment } from './world/environment.js';
 import { Atmosphere } from './world/atmosphere.js';
 import { createBirds, MAX_BIRDS } from './world/birds.js';
+import { LampLight, installLampLight } from './world/lamplight.js';
+
+installLampLight(); // (before any material is compiled)
 
 const params = new URLSearchParams(location.search);
 const AREA = params.get('area') || 'shibuya';
@@ -96,6 +99,7 @@ const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
 const birds = createBirds(manifest.bounds, streamer.ground(0, 0));
 if (params.get('birds') != null) birds.geometry.instanceCount = Math.min(MAX_BIRDS, Number(params.get('birds')) || 0);
 scene.add(birds);
+const lampLight = new LampLight(renderer);
 // post-processing: ambient occlusion, sky, aerial perspective, volumetric clouds, bloom, tone mapping
 const atmosphere = new Atmosphere(renderer, scene, camera, manifest.origin, manifest.bounds);
 env.sky.visible = false; // the atmosphere draws the sky (the environment map keeps its own)
@@ -157,6 +161,7 @@ let guiState, clockText;
   slider.$widget.appendChild(clockText);
   gui.add(state, 'traffic');
   gui.add(traffic, 'count', 0, MAX_CARS, 10).name('cars');
+  gui.add(traffic, 'highway', 0, 20, 0.5).name('highway traffic');
   gui.add(traffic, 'headlights', 0, 20, 0.5).name('car headlights');
   gui.add(state, 'trains');
   gui.add(state, 'photo').name('aerial photo').listen();
@@ -290,6 +295,7 @@ function frame() {
   clockText.textContent = clockTime.label();
   env.update(dt);
   env.follow(controls.target, camera);
+  lampLight.update(scene, controls.target, camera.position, env.night);
   atmosphere.bloom.intensity = guiState.bloom ? env.bloom * 3 : 0;
   atmosphere.render(dt);
 

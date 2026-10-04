@@ -19,6 +19,8 @@ export const shared = {
   uCityGlass: { value: 1 },
   // how blue the lights of the city are at night (0: mostly warm, 1: a cool blue city)
   uNightBlue: { value: 0.55 },
+  // lamp light on the ground (src/world/lamplight.js): on at night, the light map, where it lies
+  uLampOn: { value: 0 }, uLampMap: { value: null }, uLampRect: { value: new THREE.Vector4(0, 0, 1, 0) },
   // the sun in the window glass: direction to the sun (world), and its colour times how much of it there is
   uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunGlint: { value: new THREE.Color(0, 0, 0) }, uGlintOn: { value: 1 },
   // wall photos: the distances (m) between which a facade goes from generated to photo, and how much photo at most
@@ -294,6 +296,7 @@ function facadeMaterial(tex) {
   m.userData.photo = { value: NO_PHOTO }; m.userData.photoOn = { value: 0 };
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, {
+      uLampOn: { value: 0 }, uLampMap: shared.uLampMap, // (no lamp light on buildings; the sampler still needs its texture)
       uPhoto: m.userData.photo, uPhotoOn: m.userData.photoOn, uPhotoRange: shared.uPhotoRange, uPhotoMix: shared.uPhotoMix,
       uNight: shared.uNight, uTime: shared.uTime, uWindowLife: shared.uWindowLife, uCityGlass: shared.uCityGlass, uNightBlue: shared.uNightBlue, uSunDir: shared.uSunDir, uSunGlint: shared.uSunGlint, uGlintOn: shared.uGlintOn, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
       uWallScale: { value: tex.wall.scales }, uWallDetail: { value: tex.wall.details },
@@ -377,6 +380,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       uGroundAlb: { value: tex.ground.albedo }, uGroundNor: { value: tex.ground.normal },
       uGroundScale: { value: tex.ground.scales }, uFixedLayer: { value: fixedLayer },
       uOrtho: shared.uOrtho, uOrthoRect: shared.uOrthoRect, uOrthoOn: shared.uOrthoOn,
+      uLampOn: shared.uLampOn, uLampMap: shared.uLampMap, uLampRect: shared.uLampRect,
     });
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\nattribute float aLayer;\nvarying float vLayer;\n${WORLD_VARYINGS_VERT}`)
@@ -387,7 +391,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = gRough;')
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + APPLY_NORMAL);
   };
-  m.customProgramCacheKey = () => 'ground-v2';
+  m.customProgramCacheKey = () => 'ground-v3';
   return m;
 }
 

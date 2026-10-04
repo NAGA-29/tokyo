@@ -6,6 +6,7 @@ import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometr
 import { Tree } from '@dgreenheck/ez-tree';
 import { PROP, DECAL } from '../shared/tileformat.js';
 import { shared } from './materials.js';
+import { LAMP_LAYER, lampMaterial } from './lamplight.js';
 import { parkedVehicles } from './traffic.js';
 import { DECAL_COLS, DECAL_ROWS } from './decals.js';
 
@@ -333,6 +334,7 @@ const TREES = [
 function leafMaterial(map, tint, recolor = false) {
   const m = new THREE.MeshStandardMaterial({ map, color: tint, alphaTest: 0.18, side: THREE.DoubleSide, roughness: 0.85 });
   m.onBeforeCompile = (shader) => {
+    shader.uniforms.uLampOn = { value: 0 }; shader.uniforms.uLampMap = shared.uLampMap; // (no lamp light here; the sampler still needs its texture)
     if (recolor) shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', `
       vec4 leaf = texture2D(map, vMapUv);
       diffuseColor.rgb *= 0.55 + 0.7 * dot(leaf.rgb, vec3(0.3, 0.6, 0.1));
@@ -419,13 +421,8 @@ export class Props {
       vending: new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.2 }),
       panel: new THREE.MeshBasicMaterial({ map: vendingTexture() }),
       lamp: new THREE.MeshBasicMaterial({ color: 0xfff2d8 }),
-      // Lamp light on the ground. It multiplies what is there (result = ground + ground * light) rather than
-      // laying a disc of colour over it: asphalt stays asphalt, paint and paving show in the light.
-      pool: new THREE.MeshBasicMaterial({
-        map: glowTexture(), color: 0x000000, transparent: true, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
-        blendSrc: THREE.DstColorFactor, blendDst: THREE.OneFactor,
-        depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8, fog: false,
-      }),
+      // the footprint of a lamp's light, drawn into the light map (lamplight.js), not into the picture
+      pool: lampMaterial(glowTexture()),
       lens: lensMaterial(),
       poolCool: null,
       decal: new THREE.MeshStandardMaterial({
@@ -434,7 +431,7 @@ export class Props {
       }),
       wire: new THREE.LineBasicMaterial({ color: 0x14161a }),
     };
-    this.mats.poolCool = this.mats.pool.clone(); // white LED lamps on the back streets
+    this.mats.poolCool = lampMaterial(this.mats.pool.map); // white LED lamps on the back streets
     this.time = 0;
   }
 
@@ -443,10 +440,9 @@ export class Props {
     const night = shared.uNight.value;
     shared.uTime.value = this.time;
     this.mats.lens.uniforms.uTime.value = this.time;
-    // how many times brighter than its surroundings the ground is straight under a lamp, in the lamp's colour
-    this.mats.pool.color.setRGB(5.2 * night, 4.2 * night, 2.8 * night);       // sodium-warm on the avenues
-    this.mats.poolCool.color.setRGB(3.4 * night, 3.7 * night, 4.1 * night);
-    for (const m of [this.mats.pool, this.mats.poolCool]) m.visible = night > 0.02;
+    // the light straight under a lamp, in its colour: sodium-warm on the avenues, white on the back streets
+    this.mats.pool.color.setRGB(1.9 * night, 1.5 * night, 0.95 * night);
+    this.mats.poolCool.color.setRGB(1.15 * night, 1.25 * night, 1.4 * night);
     this.mats.lamp.color.setRGB(0.35 + 2.4 * night, 0.34 + 2.2 * night, 0.32 + 1.8 * night);
     this.mats.panel.color.setScalar(0.85 + 1.1 * night);
   }
@@ -491,11 +487,11 @@ export class Props {
       } else if (kind === PROP.POLE) {
         instanced(rows, this.models.pole[variant % 2], this.mats.metal);
         instanced(rows, this.models.lamp, this.mats.lamp, { shadow: false, local: [POLE_LAMP.x, POLE_LAMP.y - 0.02, 0], scale: () => [1.6, 1, 0.3] });
-        instanced(rows, this.models.pool, this.mats.poolCool, { lift: 0.2, shadow: false, local: [POLE_LAMP.x + 0.6, 0, 0], scale: () => 2 * POOL_REACH * POLE_LAMP.y });
+        instanced(rows, this.models.pool, this.mats.poolCool, { lift: 0.2, shadow: false, local: [POLE_LAMP.x + 0.6, 0, 0], scale: () => 2 * POOL_REACH * POLE_LAMP.y }).layers.set(LAMP_LAYER);
       } else if (kind === PROP.LIGHT) {
         instanced(rows, this.models.light, this.mats.metal, { lift: 0.15 });
         instanced(rows, this.models.lamp, this.mats.lamp, { lift: 0.15, shadow: false, local: [0, LAMP.y, LAMP.z] });
-        instanced(rows, this.models.pool, this.mats.pool, { lift: 0.34, shadow: false, local: [0, 0, LAMP.z + 1], scale: () => 2 * POOL_REACH * LAMP.y });
+        instanced(rows, this.models.pool, this.mats.pool, { lift: 0.34, shadow: false, local: [0, 0, LAMP.z + 1], scale: () => 2 * POOL_REACH * LAMP.y }).layers.set(LAMP_LAYER);
       } else if (kind === PROP.VENDING) {
         const body = instanced(rows, this.models.vending, this.mats.vending, { lift: 0.02 });
         rows.forEach((i, n) => body.setColorAt(n, new THREE.Color().setRGB(...VENDING_BODY[props[i + 1] % 4], THREE.SRGBColorSpace)));

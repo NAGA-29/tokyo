@@ -5,6 +5,7 @@ import { tileKey } from '../shared/geo.js';
 import { sampleGrid } from '../shared/terrain.js';
 import { makeSurface, makeCover } from '../shared/decks.js';
 import { SIGN_LOD_DISTANCE } from './signs.js';
+import { shared } from './materials.js';
 
 const WORKERS = Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) >> 1));
 const MAX_IN_FLIGHT = WORKERS * 2;
@@ -182,6 +183,7 @@ export class Streamer {
       // plain grey until the photo has arrived
       const m = new THREE.Mesh(geometry(buildings.photo, [['position', 3], ['normal', 3], ['uv', 2]]), new THREE.MeshStandardMaterial({ color: 0x777776, roughness: 0.9, metalness: 0 }));
       m.castShadow = m.receiveShadow = true;
+      m.material.onBeforeCompile = (shader) => { shader.uniforms.uLampOn = { value: 0 }; shader.uniforms.uLampMap = shared.uLampMap; }; // (no lamp light up here: see lamplight.js)
       m.userData.own = [m.material]; // freed with the tile
       atlases.push(this.atlas(msg.key, t, this.available.get(msg.key).atlas, ROOFS_FULL, (map) => {
         const first = !m.material.map;

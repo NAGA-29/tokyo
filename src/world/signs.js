@@ -53,6 +53,7 @@ export class Signs {
     // far: coloured panels, lit at night through their own colour
     this.panel = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.6, side: THREE.DoubleSide });
     this.panel.onBeforeCompile = (shader) => {
+    shader.uniforms.uLampOn = { value: 0 }; shader.uniforms.uLampMap = shared.uLampMap; // (no lamp light here; the sampler still needs its texture)
       shader.uniforms.uNight = shared.uNight;
       shader.fragmentShader = shader.fragmentShader
         .replace('#include <common>', '#include <common>\nuniform float uNight;')
