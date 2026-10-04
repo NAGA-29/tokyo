@@ -380,7 +380,9 @@ const GROUND_MAIN = /* glsl */ `
     float t = uTime;
     vec2 swell = vec2(vnoise(st * 0.33 + vec2(t * 0.21, t * 0.08)), vnoise(st * 0.33 + 17.0 + vec2(-t * 0.15, t * 0.19))) - 0.5;
     vec2 chop = vec2(vnoise(st * 1.7 + vec2(-t * 0.6, t * 0.35)), vnoise(st * 1.7 + 41.0 + vec2(t * 0.5, t * 0.55))) - 0.5;
-    gNm = normalize(vec3(swell * 0.05 + chop * 0.03, 1.0));
+    gNm = normalize(vec3(swell * 0.1 + chop * 0.06, 1.0));
+    // (the little waves are seen on open water too: their sunward sides a shade lighter)
+    diffuseColor.rgb *= 1.0 + 0.45 * (swell.x + swell.y) + 0.3 * (chop.x + chop.y);
     gRough = 0.1;
     gMetal = 0.1;
     gWater = 1.0;
@@ -413,16 +415,19 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       .replace('#include <opaque_fragment>', `
         if (gWater > 0.5 && uMirrorOn > 0.5) {
           vec4 mc = uMirrorMatrix * vec4(vWPos, 1.0);
-          vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + gNm.xy * 0.012;
+          // little waves: each tilts the mirror its own way, so the picture wavers (more up and down than sideways,
+          // and less far away, where a wave is smaller than a pixel)
+          float near = clamp(70.0 / distance(cameraPosition, vWPos), 0.12, 1.6);
+          vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + gNm.xy * vec2(0.22, 0.4) * near;
           vec4 mirrored = texture2D(uMirror, clamp(muv, 0.001, 0.999));
           float facing = max(dot(normalize(cameraPosition - vWPos), vec3(0.0, 1.0, 0.0)), 0.0);
-          float share = (0.62 + 0.38 * pow(1.0 - facing, 3.0)) * step(0.02, mirrored.a + dot(mirrored.rgb, vec3(1.0)));
+          float share = (0.55 + 0.45 * pow(1.0 - facing, 3.0)) * step(0.02, mirrored.a + dot(mirrored.rgb, vec3(1.0)));
           outgoingLight = mix(outgoingLight, mirrored.rgb * vec3(0.9, 0.94, 0.96), share);
         }
         #include <opaque_fragment>
         gl_FragColor.a = 1.0 - gWater * (1.0 - uMirrorOn);`);
   };
-  m.customProgramCacheKey = () => 'ground-v6';
+  m.customProgramCacheKey = () => 'ground-v8';
   return m;
 }
 
