@@ -95,7 +95,7 @@ const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
   plain.name = 'plain';
   scene.add(plain);
 }
-const birds = createBirds(manifest.bounds, streamer.ground(0, 0));
+const birds = createBirds();
 if (params.get('birds') != null) birds.geometry.instanceCount = Math.min(MAX_BIRDS, Number(params.get('birds')) || 0);
 scene.add(birds);
 const lampLight = new LampLight(renderer);
@@ -313,6 +313,7 @@ function frame() {
     if (got >= 1) { loading = false; loader.hide(); }
   }
   props.update(dt);
+  if (birds.geometry.instanceCount) birds.userData.update(dt, controls.target, camera, streamer);
   signs.update();
   railways.userData.trains.update(dt, env.night);
   if (traffic.group.parent) traffic.update(dt, controls.target);

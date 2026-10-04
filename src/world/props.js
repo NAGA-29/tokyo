@@ -448,12 +448,14 @@ export class Props {
   }
 
   // props: Float32Array of [kind, variant, rot, x, z, scale] rows; wires: Float32Array of [x1, z1, x2, z2] rows.
-  // Returns { group, near, far, count } — `near` holds the full trees, `far` the simple ones; count = trees.
+  // Returns { group, near, far, count, roosts } — `near` holds the full trees, `far` the simple ones; count =
+  // trees; roosts = [x, y, z, ...] of the tree crowns (where the birds come down).
   build(props, wires, ground) {
     const group = new THREE.Group(), near = new THREE.Group(), far = new THREE.Group();
     group.add(near, far);
-    const by = new Map();
+    const by = new Map(), roosts = [];
     for (let i = 0; i < props.length; i += 6) {
+      if (props[i] === PROP.TREE) roosts.push(props[i + 3], ground(props[i + 3], props[i + 4]) + this.trees[props[i + 1] % this.trees.length].height * props[i + 5] * 0.72, props[i + 4]);
       // one instanced mesh per kind and model; parked cars share a model per vehicle type (their variant also carries the colour)
       const key = props[i] * 16 + (props[i] === PROP.PARKED ? props[i + 1] & 3 : props[i] === PROP.TREE || props[i] === PROP.POLE || this.furniture[props[i]] ? props[i + 1] : 0);
       if (!by.has(key)) by.set(key, []);
@@ -535,7 +537,7 @@ export class Props {
       g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
       near.add(new THREE.LineSegments(g, this.mats.wire)); // hair-thin: only worth drawing close up
     }
-    return { group, near, far, count: (by.get(PROP.TREE * 16) ?? []).length + (by.get(PROP.TREE * 16 + 1) ?? []).length + (by.get(PROP.TREE * 16 + 2) ?? []).length + (by.get(PROP.TREE * 16 + 3) ?? []).length };
+    return { group, near, far, roosts, count: (by.get(PROP.TREE * 16) ?? []).length + (by.get(PROP.TREE * 16 + 1) ?? []).length + (by.get(PROP.TREE * 16 + 2) ?? []).length + (by.get(PROP.TREE * 16 + 3) ?? []).length };
   }
 
   static lodDistance = TREE_LOD_DISTANCE;
