@@ -75,11 +75,14 @@ function vehicle({ L, W, belt, roof, z0, z1, box, rake = 0.5, tyre = 0.31 }) {
 // instanced mesh per vehicle type that shares the cars' own matrices. Like the street lamps' pools
 // (props.js), it multiplies the road under it.
 export function beamTexture() {
-  const W = 64, H = 128, data = new Uint8Array(W * H * 4);
+  const W = 128, H = 128, data = new Uint8Array(W * H * 4), step = THREE.MathUtils.smoothstep;
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
-    // a fan: narrow at the lamps, wider and fainter down the road, with soft sides and no edge anywhere
-    const u = ((i + 0.5) / W) * 2 - 1, v = (j + 0.5) / H, spread = 0.12 + 0.5 * v;
-    const value = Math.exp(-((u / spread) ** 2) * 2.2) * THREE.MathUtils.smoothstep(v, 0, 0.07) * Math.exp(-v * 3.1) * (1 - THREE.MathUtils.smoothstep(v, 0.8, 1)) * (1 - THREE.MathUtils.smoothstep(Math.abs(u), 0.8, 1));
+    // A fan opening from the lamps (the middle of the near edge) to the full width of the quad at its far
+    // end: straight sides that fade softly, a rounded far edge, brightest near the car.
+    const u = ((i + 0.5) / W) * 2 - 1, v = (j + 0.5) / H;
+    const side = 1 - step(Math.abs(u) / Math.max(v, 0.03), 0.62, 0.98);  // inside the two straight edges
+    const reach = 1 - step(Math.hypot(u * 0.55, v), 0.72, 0.99);          // the arc at the far end
+    const value = side * reach * step(v, 0, 0.06) * (0.25 + 0.75 * Math.exp(-v * 3.2));
     data.set([value * 255, value * 255, value * 255, 255], (j * W + i) * 4);
   }
   const t = new THREE.DataTexture(data, W, H);
@@ -94,8 +97,8 @@ function beamGeometry(L) {
     uv.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1);
     for (let i = 0; i < 6; i++) col.push(...rgb);
   };
-  quad(5.5, L / 2 - 0.6, L / 2 + 26, [1, 0.95, 0.84]);       // headlamps, dipped: 26 m of road
-  quad(-2.6, -L / 2 + 0.4, -L / 2 - 7, [0.34, 0.02, 0.012]);  // tail lamps
+  quad(10, L / 2 - 0.3, L / 2 + 24, [1, 0.95, 0.84]);        // headlamps, dipped: a fan 24 m long, 45 degrees wide
+  quad(-3.2, -L / 2 + 0.3, -L / 2 - 6, [0.34, 0.02, 0.012]);  // tail lamps
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
