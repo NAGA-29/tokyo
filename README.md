@@ -13,6 +13,10 @@ npm run dev                            # http://localhost:5280  (needs compiled 
 
 Streams the 256 m tiles around the camera; meshing runs in Web Workers (`src/world/meshing.js`).
 
+Road surfaces, painted lines and road symbols share the terrain mesh's triangulation (`src/world/drape.js`),
+so markings stay above the asphalt on slopes and bridge approaches, including across tile boundaries.
+`npm test` checks their geometric clearance; `node tools/tests/road-markings.test.mjs --all` checks every locally compiled tile.
+
 - **Buildings**: real footprints and heights; walls textured by use (tile, concrete panel, plaster, brick tile, metal
   siding); windows fitted per wall with frames, mullions and interior-mapped rooms that light up at night; parapets,
   rooftop equipment, balconies on apartment blocks, pitched roofs on houses, shop sign bands.

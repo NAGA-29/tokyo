@@ -122,7 +122,7 @@ export class Streamer {
     // a tile that cannot be read stays marked as failed: asking for it again every frame would only repeat the error
     if (msg.type === 'error') { console.warn(`tile ${msg.key}: ${msg.message}`); if (t) t.state = 'failed'; return; }
     if (!t) return; // unloaded while in flight
-    const { terrain, roads, paint, buildings, info, props, wires, signs: signList, models } = msg.mesh;
+    const { terrain, roads, paint, decals, buildings, info, props, wires, signs: signList, models } = msg.mesh;
     const group = new THREE.Group();
     group.name = `tile ${msg.key}`;
     const atlases = [];
@@ -139,6 +139,12 @@ export class Streamer {
     if (paint.position.length) {
       const m = new THREE.Mesh(geometry(paint, [['position', 3], ['normal', 3], ['color', 3], ['aLayer', 1]]), this.materials.paint);
       m.receiveShadow = true;
+      group.add(m);
+    }
+    if (decals.position.length) {
+      const m = new THREE.Mesh(geometry(decals, [['position', 3], ['normal', 3], ['uv', 2]]), this.props.mats.decal);
+      m.receiveShadow = true;
+      m.renderOrder = 2;
       group.add(m);
     }
     let trees = null;

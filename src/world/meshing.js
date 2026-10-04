@@ -4,8 +4,9 @@ import earcut from 'earcut';
 import { AREA, SPORT, BARRIER, MATERIAL, BFLAG } from '../shared/tileformat.js';
 import { sampleGrid } from '../shared/terrain.js';
 import { KIND, CAT, WALL, GROUND } from './constants.js';
-import { deckOf } from '../shared/decks.js';
 import { buildTower } from './tower.js';
+import { createDraper } from './drape.js';
+import { decalMesh } from './decals.js';
 
 // ---------------------------------------------------------------- helpers
 const srgbToLinear = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
@@ -113,43 +114,27 @@ const BARRIERS = {
 };
 const isPaint = (a) => a.kind === AREA.MARK_WHITE || a.kind === AREA.MARK_YELLOW;
 const KERB = { color: lin([0.68, 0.68, 0.66]), layer: GROUND.CONCRETE, foot: 0.03 };
-// Metres: longer triangle edges are split so the surface follows the terrain. Paint is laid in small pieces
-// that follow the terrain exactly, so the road beneath must not stray from it by more than the paint is lifted.
+// Maximum segment length for vertical walls (ground layers use the shared terrain triangulation).
 const DRAPE_EDGE = 6;
 
 // surface(x, z, deck): the height roads lie on — the terrain, or a bridge deck (src/shared/decks.js).
 // walls: bridge parapets as rows of [x1, z1, x2, z2, deck].
-export function roadMesh(areas, grid, surface, walls = []) {
+export function roadMesh(areas, grid, surface, walls = [], drape = createDraper(grid, surface)) {
   const pos = new Buf(), nor = new Buf(), col = new Buf(), lay = new Buf();
-  let deck = -1; // deck of the area being meshed
+  let deck = -1; // deck of the parapet being meshed
   const emit = (p, style) => {
-    const y = surface(p[0], p[1], deck) + style.lift;
+    const y = drape.height(p[0], p[1]) + style.lift;
     pos.push(p[0], y, p[1]); nor.push(...groundNormal(grid, p[0], p[1])); col.push(...style.color); lay.push(style.layer);
   };
-  // Splits every edge longer than DRAPE_EDGE at its midpoint. Whether an edge is split depends only on
-  // the edge itself, so two triangles sharing it always agree and the draped surface has no cracks.
+  // Vertical walls are independent of the ground-layer triangulation.
   const long = (p, q) => (p[0] - q[0]) ** 2 + (p[1] - q[1]) ** 2 > DRAPE_EDGE * DRAPE_EDGE;
   const mid = (p, q) => [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
-  const subdivide = (a, b, c, style, depth) => {
-    const ab = long(a, b), bc = long(b, c), ca = long(c, a);
-    if (depth > 12 || (!ab && !bc && !ca)) { emit(a, style); emit(b, style); emit(c, style); return; }
-    const d = depth + 1, mab = ab && mid(a, b), mbc = bc && mid(b, c), mca = ca && mid(c, a);
-    const go = (p, q, r) => subdivide(p, q, r, style, d);
-    if (ab && bc && ca) { go(a, mab, mca); go(mab, b, mbc); go(mca, mbc, c); go(mab, mbc, mca); }
-    else if (ab && bc) { go(mab, b, mbc); go(a, mab, mbc); go(a, mbc, c); }
-    else if (bc && ca) { go(mca, mbc, c); go(a, b, mbc); go(a, mbc, mca); }
-    else if (ca && ab) { go(a, mab, mca); go(mab, b, c); go(mab, c, mca); }
-    else if (ab) { go(a, mab, c); go(mab, b, c); }
-    else if (bc) { go(a, b, mbc); go(a, mbc, c); }
-    else { go(a, b, mca); go(mca, b, c); }
-  };
-  // Vertical kerb face along one edge, halved like the surface above it so the two stay joined.
+  // Vertical kerb face; its caller splits it at the same boundaries as the sidewalk above it.
   const kerb = (x0, z0, x1, z1, lift) => {
     const len = Math.hypot(x1 - x0, z1 - z0);
-    if (len < 0.05) return;
-    if (long([x0, z0], [x1, z1])) { const [mx, mz] = mid([x0, z0], [x1, z1]); kerb(x0, z0, mx, mz, lift); kerb(mx, mz, x1, z1, lift); return; }
+    if (len < 1e-8) return;
     const n = [-(z1 - z0) / len, 0, (x1 - x0) / len];
-    const ga = surface(x0, z0, deck), gb = surface(x1, z1, deck);
+    const ga = drape.height(x0, z0), gb = drape.height(x1, z1);
     const quad = [[x0, ga + KERB.foot, z0], [x1, gb + KERB.foot, z1], [x1, gb + lift, z1], [x0, ga + KERB.foot, z0], [x1, gb + lift, z1], [x0, ga + lift, z0]];
     for (const p of quad) { pos.push(...p); nor.push(...n); col.push(...KERB.color); lay.push(KERB.layer); }
   };
@@ -182,13 +167,16 @@ export function roadMesh(areas, grid, surface, walls = []) {
     else parapet(walls[i], walls[i + 1], walls[i + 2], walls[i + 3]);
   }
   for (const a of areas) {
-    deck = deckOf(a.code);
     const style = styleOf(a);
     for (const rings of a.polygons) {
-      for (const [p, q, r] of triangulate(rings)) subdivide(p, q, r, style, 0);
+      for (const [p, q, r] of triangulate(rings)) drape.triangle(p, q, r, (a, b, c) => {
+        emit(a, style); emit(b, style); emit(c, style);
+      });
       if (style.kerb) for (const ring of rings) {
         const n = ring.length / 2;
-        for (let k = 0; k < n; k++) kerb(ring[k * 2], ring[k * 2 + 1], ring[((k + 1) % n) * 2], ring[((k + 1) % n) * 2 + 1], style.lift);
+        for (let k = 0; k < n; k++) drape.segment(
+          [ring[k * 2], ring[k * 2 + 1]], [ring[((k + 1) % n) * 2], ring[((k + 1) % n) * 2 + 1]],
+          (a, b) => kerb(a[0], a[1], b[0], b[1], style.lift));
       }
     }
   }
@@ -532,10 +520,12 @@ export function buildingMesh(buildings, tx, tz) {
 
 export function buildTile(tile, grid, tileSize, surface = (x, z) => sampleGrid(grid, x, z)) {
   // (the default surface ignores decks: fine for tests, the worker passes makeSurface())
+  const drape = createDraper(grid, surface, tileSize);
   return {
     terrain: terrainMesh(grid, tile.tx, tile.tz, tileSize),
-    roads: roadMesh(tile.areas.filter((a) => !isPaint(a)), grid, surface, tile.walls),
-    paint: roadMesh(tile.areas.filter(isPaint), grid, surface),
+    roads: roadMesh(tile.areas.filter((a) => !isPaint(a)), grid, surface, tile.walls, drape),
+    paint: roadMesh(tile.areas.filter(isPaint), grid, surface, [], drape),
+    decals: decalMesh(tile.props, drape),
     buildings: buildingMesh(tile.buildings, tile.tx, tile.tz),
     info: tile.buildings.map((b) => [b.usage, b.storeys, b.height, b.base]),
     props: Float32Array.from(tile.props.flatMap((p) => [p.kind, p.variant, p.rot, p.x, p.z, p.scale])),

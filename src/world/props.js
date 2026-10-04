@@ -7,6 +7,7 @@ import { Tree } from '@dgreenheck/ez-tree';
 import { PROP, DECAL } from '../shared/tileformat.js';
 import { shared } from './materials.js';
 import { parkedVehicles } from './traffic.js';
+import { DECAL_COLS, DECAL_ROWS } from './decals.js';
 
 const TREE_LOD_DISTANCE = 160; // metres from the camera to the nearest point of a tile; beyond it trees are simple shapes
 
@@ -232,8 +233,7 @@ function glowTexture() {
 }
 
 // Road symbols: one atlas cell per DECAL variant; [width, length] on the road in metres.
-const DECAL_COLS = 4, DECAL_ROWS = 3, CELL_W = 256, CELL_H = 512;
-const DECAL_SIZE = (v) => (v <= DECAL.THROUGH_RIGHT ? [1.7, 5] : v === DECAL.STOP ? [1.6, 5.4] : [2.1, 4.6]);
+const CELL_W = 256, CELL_H = 512;
 function decalTexture() {
   const c = document.createElement('canvas');
   c.width = DECAL_COLS * CELL_W; c.height = DECAL_ROWS * CELL_H;
@@ -494,7 +494,7 @@ export class Props {
         const models = this.furniture[kind];
         instanced(rows, models[variant % models.length], this.mats.metal, { lift: 0.12 });
       } else if (kind === PROP.DECAL) {
-        // built below as one mesh
+        // Draped over the road in the tile worker and attached by Streamer.
       } else if (kind === PROP.SIGNAL) {
         instanced(rows, this.models.signal, this.mats.metal, { lift: 0.15 });
         // three lenses per head; crossing directions alternate phase
@@ -508,34 +508,6 @@ export class Props {
           mesh.geometry.setAttribute('aLens', new THREE.InstancedBufferAttribute(a, 2));
         }
       }
-    }
-
-    // road symbols: quads laid on the ground in four strips so they follow the slope
-    const decals = by.get(PROP.DECAL * 16);
-    if (decals) {
-      const STRIPS = 4, pos = [], uv = [], nor = [];
-      for (const i of decals) {
-        const variant = props[i + 1], [w, len] = DECAL_SIZE(variant), x = props[i + 3], z = props[i + 4];
-        const dx = Math.sin(props[i + 2]), dz = Math.cos(props[i + 2]), rx = -dz, rz = dx; // travel direction, its right
-        const u0 = (variant % DECAL_COLS) / DECAL_COLS, v1 = 1 - Math.floor(variant / DECAL_COLS) / DECAL_ROWS;
-        const corner = (s, t) => { // s: -1 left .. 1 right, t: 0 near .. 1 far
-          const px = x + rx * s * w / 2 + dx * (t - 0.5) * len, pz = z + rz * s * w / 2 + dz * (t - 0.5) * len;
-          pos.push(px, ground(px, pz) + 0.17, pz); nor.push(0, 1, 0);
-          uv.push(u0 + ((s + 1) / 2) / DECAL_COLS, v1 - (1 - t) / DECAL_ROWS);
-        };
-        for (let k = 0; k < STRIPS; k++) {
-          const a = k / STRIPS, b = (k + 1) / STRIPS;
-          corner(-1, a); corner(1, a); corner(1, b); corner(-1, a); corner(1, b); corner(-1, b);
-        }
-      }
-      const g = new THREE.BufferGeometry();
-      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-      g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-      g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-      const mesh = new THREE.Mesh(g, this.mats.decal);
-      mesh.receiveShadow = true;
-      mesh.renderOrder = 2;
-      group.add(mesh);
     }
 
     // wires: catenaries between pole tops
