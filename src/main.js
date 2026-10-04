@@ -155,7 +155,8 @@ let guiState, clockText;
   guiState = state;
   // the names of the cities, for the loading screen of the next visit (index.html reads them)
   try { for (const a of areas) localStorage.setItem(`procedural-tokyo:name:${a.id}`, a.name); } catch { /* storage unavailable */ }
-  const gui = new GUI({ title: 'Scene' });
+  const gui = new GUI({ title: 'Settings' });
+  gui.close(); // (out of the way until it is asked for)
   gui.add(state, 'city', Object.fromEntries(areas.map((a) => [a.name, a.id]))).onChange((id) => {
     const url = new URL(location.href);
     url.search = '';
