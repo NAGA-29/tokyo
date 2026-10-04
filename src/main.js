@@ -222,7 +222,7 @@ addEventListener('keydown', (e) => {
   // A panel control that was clicked keeps the keyboard: the arrow keys would then step its slider or its
   // city list instead of moving the view. Movement keys always belong to the scene.
   if (MOVE_KEYS.has(e.code)) { e.preventDefault(); if (el && el !== document.body) el.blur(); }
-  if (e.code === 'KeyN') { clockTime.live = false; clockTime.hour = env.night > 0.5 ? 12 : 22; } // noon <-> night
+  if (e.code === 'KeyN') { clockTime.live = false; clockTime.hour = env.dark > 0.5 ? 12 : 22; } // noon <-> night
   keys.add(e.code);
 }, { capture: true });
 addEventListener('keyup', (e) => keys.delete(e.code));

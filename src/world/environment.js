@@ -18,7 +18,8 @@ export class Environment {
   constructor(scene, renderer) {
     this.scene = scene;
     this.renderer = renderer;
-    this.night = 0;
+    this.night = 0;  // how far the city's lights are on: they come on while it is still light
+    this.dark = 0;   // how dark it is: this follows the sun all the way down through twilight
     this.daylight = 1; this.moonlight = 0; this.warmth = 0; this.elevation = 40;
     this.time = 0;
     this.sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 40), THREE.MathUtils.degToRad(205));
@@ -51,9 +52,9 @@ export class Environment {
     this.apply();
   }
 
-  // Renders the environment map for day or night (whichever the blend is closer to).
+  // Renders the environment map for the sky as dark as it now is (again whenever that has changed a little).
   bakeEnvironment() {
-    this.baked = this.night > 0.5 ? 1 : 0;
+    this.baked = this.dark;
     this.envSky.material.uniforms.uNight.value = this.baked;
     const old = this.scene.environment;
     this.scene.environment = this.pmrem.fromScene(this.envScene, 0, 0.1, 10).texture;
@@ -66,17 +67,20 @@ export class Environment {
   setSky(sun, moon) {
     const deg = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(sun.y, -1, 1))), step = THREE.MathUtils.smoothstep;
     this.elevation = deg;
-    this.night = 1 - step(deg, -6, 4);
-    this.daylight = step(deg, -1, 9);          // how much of the sun's light arrives
-    this.moonlight = 1 - step(deg, -8, -2);
+    // Dusk in order: the lights come on as the sun nears the horizon and are all on when it sets; the dark
+    // then comes slowly, with the sun, until the end of nautical twilight (and the other way round at dawn).
+    this.night = 1 - step(deg, 0, 9);
+    this.dark = 1 - step(deg, -13, 5);
+    this.daylight = step(deg, -5, 9);          // how much of the sun's light arrives (the afterglow included)
+    this.moonlight = 1 - step(deg, -14, -5.5);
     this.warmth = 1 - step(deg, 3, 24);        // 1 at the horizon: orange light
-    if (deg > -1.5) this.sunDir.copy(sun).setY(Math.max(sun.y, 0.06)).normalize(); // (never quite grazing: shadows stay finite)
+    if (deg > -5.5) this.sunDir.copy(sun).setY(Math.max(sun.y, 0.06)).normalize(); // (never quite grazing: shadows stay finite)
     else if (moon.y > 0.2) this.sunDir.copy(moon);
     else this.sunDir.copy(MOON_STAND_IN);
     shared.uSunDir.value.copy(sun);
     shared.uSunGlint.value.copy(DAY.sunColor).lerp(SUNSET, this.warmth).multiplyScalar(this.daylight * 3);
     this.apply();
-    if ((this.night > 0.5 ? 1 : 0) !== this.baked) this.bakeEnvironment();
+    if (Math.abs(this.dark - this.baked) > 0.04 || (this.dark !== this.baked && (this.dark === 0 || this.dark === 1))) this.bakeEnvironment();
   }
 
   // The sky follows the camera; the shadow frustum follows the focus, snapped to texels so shadows do not shimmer.
@@ -104,15 +108,14 @@ export class Environment {
   }
 
   apply() {
-    const t = this.night, lerp = (a, b) => a + (b - a) * t;
+    const t = this.dark, lerp = (a, b) => a + (b - a) * t;
     this.sky.material.uniforms.uNight.value = t;
     this.hemi.intensity = lerp(DAY.hemi, NIGHT.hemi);
     this.sun.intensity = DAY.sun * this.daylight + NIGHT.sun * this.moonlight;
     this.sun.color.copy(DAY.sunColor).lerp(SUNSET, this.warmth).lerp(NIGHT.sunColor, this.moonlight);
-    // The environment map is baked for day or night; fade it out mid-transition so it never over-lights.
-    this.scene.environmentIntensity = lerp(DAY.env, NIGHT.env) * (0.25 + 0.75 * Math.abs(1 - 2 * t));
+    this.scene.environmentIntensity = lerp(DAY.env, NIGHT.env); // (the map itself darkens with the sky)
     this.renderer.toneMappingExposure = lerp(DAY.exposure, NIGHT.exposure);
     this.bloom = lerp(DAY.bloom, NIGHT.bloom);
-    shared.uNight.value = t;
+    shared.uNight.value = this.night;
   }
 }
