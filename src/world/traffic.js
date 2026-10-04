@@ -148,7 +148,7 @@ function carMaterial(lit = true) {
 }
 
 // ---------------------------------------------------------------- the graph, as directed lanes
-function buildGraph({ nodes, edges, signals }) {
+function buildGraph({ nodes, edges, signals }, surface) {
   const signalled = new Set(signals), out = nodes.map(() => []), into = nodes.map(() => []), lanes = [];
   for (const e of edges) {
     if (e.highway === 'service' && e.lanes <= 1) continue; // driveways and yards: not through traffic
@@ -166,8 +166,16 @@ function buildGraph({ nodes, edges, signals }) {
       // lateral offset of lane k, to the right of travel: one-way roads centred on the line; two-way ones
       // on its left half (left-hand traffic). A two-way single-lane street is shared down the middle.
       const offset = (k) => (e.oneway ? (k - (n - 1) / 2) * LANE : e.lanes >= 2 ? -(k + 0.5) * LANE : -1.15);
+      // An expressway ramp climbing to its flyover is a structure of its own (flyovers.js builds it where the
+      // road's level stands 1.5 m above the ground somewhere): cars follow the road's level there too.
+      let ramp = false;
+      if (!e.flyover && !e.span && !e.tunnel && e.highway.startsWith('motorway')) {
+        for (let i = 1; i < p.length && !ramp; i++) for (let s = 0; s <= 1; s += Math.min(1, 3 / (cum[i] - cum[i - 1] || 1))) {
+          if (p[i - 1].y + (p[i].y - p[i - 1].y) * s - surface(p[i - 1].x + (p[i].x - p[i - 1].x) * s, p[i - 1].z + (p[i].z - p[i - 1].z) * s) > 1.5) { ramp = true; break; }
+        }
+      }
       const lane = {
-        pts: p, cum, length: cum.at(-1), from: fwd ? e.a : e.b, to: fwd ? e.b : e.a, n, offset, speed, weight, motorway: e.highway.startsWith('motorway'),
+        ramp, pts: p, cum, length: cum.at(-1), from: fwd ? e.a : e.b, to: fwd ? e.b : e.a, n, offset, speed, weight, motorway: e.highway.startsWith('motorway'),
         raised: !!e.flyover, hidden: !!e.tunnel, signal: signalled.has(fwd ? e.b : e.a), edge: e, cars: [],
       };
       // which way the signal for this approach is phased (see lensMaterial in props.js)
@@ -218,7 +226,7 @@ export class Traffic {
   // roads: parsed roads.json; surface(x, z): height of the road surface there.
   constructor(roads, surface) {
     this.surface = surface;
-    this.graph = buildGraph(roads);
+    this.graph = buildGraph(roads, surface);
     // which approach holds each junction: { lane, until, straight (everyone crossing is going straight on) }
     this.crossing = roads.nodes.map(() => ({ lane: null, until: 0, straight: false }));
     this.group = new THREE.Group();
@@ -398,9 +406,11 @@ export class Traffic {
       const fleet = this.fleets[car.type];
       if (counts[car.type] >= fleet.mesh.instanceMatrix.count) continue; // (more of this type than there are instances for)
       const i = counts[car.type]++;
-      d.position.set(px, car.lane.raised ? tmp.y + 0.04 : this.surface(px, pz) + 0.07, pz);
+      // (a ramp comes down to the ground: the higher of its level and the ground)
+      const onRamp = car.lane.ramp && tmp.y > this.surface(px, pz) + 0.03;
+      d.position.set(px, car.lane.raised || onRamp ? tmp.y + 0.04 : this.surface(px, pz) + 0.07, pz);
       // nose up or down with the road (and with it the light the lamps throw on it): the slope over the car's length
-      const slope = car.lane.raised ? tmp2.y : (this.surface(px + tmp2.x * 5, pz + tmp2.z * 5) - this.surface(px - tmp2.x * 5, pz - tmp2.z * 5)) / 10;
+      const slope = car.lane.raised || onRamp ? tmp2.y : (this.surface(px + tmp2.x * 5, pz + tmp2.z * 5) - this.surface(px - tmp2.x * 5, pz - tmp2.z * 5)) / 10;
       d.rotation.set(-Math.atan(slope), Math.atan2(tmp2.x, tmp2.z), 0);
       d.updateMatrix();
       fleet.mesh.setMatrixAt(i, d.matrix);
