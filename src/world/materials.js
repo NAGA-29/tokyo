@@ -335,6 +335,7 @@ uniform float uTime;
 uniform sampler2D uMirror;
 uniform mat4 uMirrorMatrix;
 uniform float uMirrorOn;
+uniform float uDark;
 varying float vLayer;
 varying vec3 vWPos;
 varying vec3 vWNrm;
@@ -342,7 +343,19 @@ vec3 gT, gB, gN, gNm;
 float gRough;
 float gMetal = 0.0;
 float gWater = 0.0; // 1 on water: written to alpha for the reflection pass, which mirrors the world in it
+vec3 gWaveN = vec3(0.0, 1.0, 0.0); // the water's surface normal with its ripples (world space)
 ${NOISE}
+// Calm harbour water: the height of its ripples (in units of about 3.5 cm) at a point of the ground plan. Long
+// low waves from several quarters crossing each other, bent out of line so they never look ruled.
+float ripple(vec2 p, float t) {
+  p += 3.2 * vec2(vnoise(p * 0.11 + t * 0.03), vnoise(p * 0.11 + 9.0 - t * 0.03)) + 0.9 * vec2(vnoise(p * 0.45 - t * 0.05), vnoise(p * 0.45 + 23.0 + t * 0.05));
+  float h = 0.3 * sin(dot(p, vec2(0.92, 0.39)) * 1.1 + t * 1.1);
+  h += 0.28 * sin(dot(p, vec2(-0.45, 0.89)) * 1.6 - t * 1.4 + 1.3);
+  h += 0.22 * sin(dot(p, vec2(0.2, -0.98)) * 2.7 + t * 1.9 + 4.0);
+  h += 0.14 * sin(dot(p, vec2(-0.8, -0.6)) * 4.3 - t * 2.6);
+  h += 0.9 * (vnoise(p * 0.8 + vec2(t * 0.25, -t * 0.18)) - 0.5) + 0.45 * (vnoise(p * 1.9 - vec2(t * 0.4, t * 0.3)) - 0.5);
+  return h;
+}
 `;
 const GROUND_MAIN = /* glsl */ `
 {
@@ -373,18 +386,15 @@ const GROUND_MAIN = /* glsl */ `
     }
   }
   if (water) {
-    // Water: clear and blue, a shade deeper here and there; two sets of gentle ripples drifting across each
-    // other, and a finer chop on top. Smooth, so the sun stands in it.
-    float depth = vnoise(st * 0.012 + 7.3);
-    diffuseColor.rgb = tint * mix(0.9, 1.06, depth);
-    float t = uTime;
-    vec2 swell = vec2(vnoise(st * 0.33 + vec2(t * 0.21, t * 0.08)), vnoise(st * 0.33 + 17.0 + vec2(-t * 0.15, t * 0.19))) - 0.5;
-    vec2 chop = vec2(vnoise(st * 1.7 + vec2(-t * 0.6, t * 0.35)), vnoise(st * 1.7 + 41.0 + vec2(t * 0.5, t * 0.55))) - 0.5;
-    gNm = normalize(vec3(swell * 0.1 + chop * 0.06, 1.0));
-    // (the little waves are seen on open water too: their sunward sides a shade lighter)
-    diffuseColor.rgb *= 1.0 + 0.45 * (swell.x + swell.y) + 0.3 * (chop.x + chop.y);
-    gRough = 0.1;
-    gMetal = 0.1;
+    // Water: dark and a little green in itself (what is seen of it is mostly what it mirrors, see the end of the
+    // shader); its ripples flatten out with distance, where they are smaller than a pixel.
+    diffuseColor.rgb = tint * 0.5;
+    float t = uTime, e = 0.12, amp = 0.045 * clamp(260.0 / distance(cameraPosition, vWPos), 0.25, 1.0);
+    vec2 slope = vec2(ripple(vWPos.xz + vec2(e, 0.0), t) - ripple(vWPos.xz - vec2(e, 0.0), t), ripple(vWPos.xz + vec2(0.0, e), t) - ripple(vWPos.xz - vec2(0.0, e), t)) * (amp / (2.0 * e));
+    gWaveN = normalize(vec3(-slope.x, 1.0, -slope.y));
+    gNm = vec3(gWaveN.x, gWaveN.z, gWaveN.y);
+    gRough = 0.08;
+    gMetal = 0.0;
     gWater = 1.0;
   }
 }
@@ -397,7 +407,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       uGroundAlb: { value: tex.ground.albedo }, uGroundNor: { value: tex.ground.normal },
       uGroundScale: { value: tex.ground.scales }, uFixedLayer: { value: fixedLayer },
       uOrtho: shared.uOrtho, uOrthoRect: shared.uOrthoRect, uOrthoOn: shared.uOrthoOn, uTime: shared.uTime,
-      uMirror: shared.uMirror, uMirrorMatrix: shared.uMirrorMatrix, uMirrorOn: shared.uMirrorOn,
+      uMirror: shared.uMirror, uMirrorMatrix: shared.uMirrorMatrix, uMirrorOn: shared.uMirrorOn, uDark: shared.uDark,
       uLampOn: shared.uLampOn, uLampMap: shared.uLampMap, uLampRect: shared.uLampRect,
     });
     shader.vertexShader = shader.vertexShader
@@ -413,21 +423,32 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       // a good deal more (a clear mirror is wanted), its ripples shifting it a little. Without one, alpha 0 leaves
       // the water to the reflections found on the screen (reflections.js).
       .replace('#include <opaque_fragment>', `
-        if (gWater > 0.5 && uMirrorOn > 0.5) {
-          vec4 mc = uMirrorMatrix * vec4(vWPos, 1.0);
-          // little waves: each tilts the mirror its own way, so the picture wavers (more up and down than sideways,
-          // and less far away, where a wave is smaller than a pixel)
-          float near = clamp(70.0 / distance(cameraPosition, vWPos), 0.12, 1.6);
-          vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + gNm.xy * vec2(0.22, 0.4) * near;
-          vec4 mirrored = texture2D(uMirror, clamp(muv, 0.001, 0.999));
-          float facing = max(dot(normalize(cameraPosition - vWPos), vec3(0.0, 1.0, 0.0)), 0.0);
-          float share = (0.55 + 0.45 * pow(1.0 - facing, 3.0)) * step(0.02, mirrored.a + dot(mirrored.rgb, vec3(1.0)));
-          outgoingLight = mix(outgoingLight, mirrored.rgb * vec3(0.9, 0.94, 0.96), share);
+        if (gWater > 0.5) {
+          // What water shows is what it mirrors, by Fresnel's share: hardly anything looking straight down
+          // (the dark water itself), nearly everything at a glancing angle. Every ripple turns its sides to
+          // different parts of the sky, which is what draws the ripples: light streaks and dark.
+          vec3 wv = normalize(vWPos - cameraPosition), wr = reflect(wv, gWaveN);
+          float fresnel = 0.05 + 0.95 * pow(1.0 - max(dot(-wv, gWaveN), 0.0), 4.0);
+          vec3 seen = mix(vec3(0.8, 0.86, 0.92), vec3(0.3, 0.48, 0.74), pow(clamp(abs(wr.y), 0.0, 1.0), 0.5)) * (0.03 + 0.97 * (1.0 - uDark)) * 0.9;
+          float thing = 0.0;
+          if (uMirrorOn > 0.5) {
+            // the city in the mirror picture (mirror.js), shifted by the ripples and drawn out lengthwise
+            vec4 mc = uMirrorMatrix * vec4(vWPos, 1.0);
+            float near = clamp(70.0 / distance(cameraPosition, vWPos), 0.12, 1.6);
+            vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + gWaveN.xz * vec2(0.5, 0.9) * near;
+            vec4 mirrored = vec4(0.0);
+            for (int i = -1; i <= 1; i++) mirrored += texture2D(uMirror, clamp(muv + vec2(0.0, float(i) * 0.004 * near), 0.001, 0.999));
+            mirrored /= 3.0;
+            thing = smoothstep(0.0, 0.3, mirrored.a + dot(mirrored.rgb, vec3(1.0)));
+            seen = mix(seen, mirrored.rgb * vec3(0.88, 0.93, 0.95), thing);
+          }
+          // (the city is wanted in the water from above as well: more of it than Fresnel would give)
+          outgoingLight = mix(outgoingLight, seen, max(fresnel, 0.42 * thing));
         }
         #include <opaque_fragment>
         gl_FragColor.a = 1.0 - gWater * (1.0 - uMirrorOn);`);
   };
-  m.customProgramCacheKey = () => 'ground-v8';
+  m.customProgramCacheKey = () => 'ground-v10';
   return m;
 }
 
