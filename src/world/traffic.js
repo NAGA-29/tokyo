@@ -85,13 +85,13 @@ function beamTexture() {
   return t;
 }
 function beamGeometry(L) {
-  const g = new THREE.BufferGeometry(), y = 0.03, pos = [], uv = [], col = [];
+  const g = new THREE.BufferGeometry(), y = 0.14, pos = [], uv = [], col = []; // (held clear of the road: it must never dip under it)
   const quad = (x, zNear, zFar, rgb) => {
     pos.push(-x, y, zNear, x, y, zNear, x, y, zFar, -x, y, zNear, x, y, zFar, -x, y, zFar);
     uv.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1);
     for (let i = 0; i < 6; i++) col.push(...rgb);
   };
-  quad(5.5, L / 2 - 0.6, L / 2 + 30, [1, 0.95, 0.84]);       // headlamps, dipped: 30 m of road
+  quad(5.5, L / 2 - 0.6, L / 2 + 26, [1, 0.95, 0.84]);       // headlamps, dipped: 26 m of road
   quad(-2.6, -L / 2 + 0.4, -L / 2 - 7, [0.34, 0.02, 0.012]);  // tail lamps
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
@@ -221,8 +221,8 @@ export class Traffic {
 
     const material = carMaterial();
     this.beam = new THREE.MeshBasicMaterial({
-      map: beamTexture(), vertexColors: true, color: 0x000000, transparent: true, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
-      blendSrc: THREE.DstColorFactor, blendDst: THREE.OneFactor, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8,
+      map: beamTexture(), vertexColors: true, color: 0x000000, transparent: true, side: THREE.DoubleSide, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
+      blendSrc: THREE.DstColorFactor, blendDst: THREE.OneFactor, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -10, polygonOffsetUnits: -40,
     });
     this.fleets = TYPES.map((t) => {
       const mesh = new THREE.InstancedMesh(vehicle(t.spec), material, Math.ceil(CARS * t.share) + 2);
@@ -235,6 +235,7 @@ export class Traffic {
     });
     this.cars = [];
     this.dummy = new THREE.Object3D();
+    this.dummy.rotation.order = 'YXZ'; // heading first, then pitch about the car's own axle
     this.color = new THREE.Color();
   }
 
@@ -383,13 +384,15 @@ export class Traffic {
       const off = car.lane.offset(car.k), px = tmp.x - tmp2.z * off, pz = tmp.z + tmp2.x * off;
       const fleet = this.fleets[car.type], i = counts[car.type]++;
       d.position.set(px, car.lane.raised ? tmp.y + 0.04 : this.surface(px, pz) + 0.07, pz);
-      d.rotation.set(0, Math.atan2(tmp2.x, tmp2.z), 0);
+      // nose up or down with the road (and with it the light the lamps throw on it): the slope over the car's length
+      const slope = car.lane.raised ? tmp2.y : (this.surface(px + tmp2.x * 5, pz + tmp2.z * 5) - this.surface(px - tmp2.x * 5, pz - tmp2.z * 5)) / 10;
+      d.rotation.set(-Math.atan(slope), Math.atan2(tmp2.x, tmp2.z), 0);
       d.updateMatrix();
       fleet.mesh.setMatrixAt(i, d.matrix);
       fleet.mesh.setColorAt(i, this.color.setHex(car.color));
     }
     const night = shared.uNight.value;
-    this.beam.color.setScalar(9 * night); // how many times brighter the road is just ahead of a car
+    this.beam.color.setScalar(16 * night); // how many times brighter the road is just ahead of a car
     this.beam.visible = night > 0.02;
     this.fleets.forEach((f, i) => {
       f.mesh.count = f.beams.count = counts[i];

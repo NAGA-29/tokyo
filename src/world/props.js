@@ -444,8 +444,8 @@ export class Props {
     shared.uTime.value = this.time;
     this.mats.lens.uniforms.uTime.value = this.time;
     // how many times brighter than its surroundings the ground is straight under a lamp, in the lamp's colour
-    this.mats.pool.color.setRGB(7.5 * night, 6.0 * night, 4.0 * night);       // sodium-warm on the avenues
-    this.mats.poolCool.color.setRGB(4.6 * night, 5.0 * night, 5.6 * night);
+    this.mats.pool.color.setRGB(5.2 * night, 4.2 * night, 2.8 * night);       // sodium-warm on the avenues
+    this.mats.poolCool.color.setRGB(3.4 * night, 3.7 * night, 4.1 * night);
     for (const m of [this.mats.pool, this.mats.poolCool]) m.visible = night > 0.02;
     this.mats.lamp.color.setRGB(0.35 + 2.4 * night, 0.34 + 2.2 * night, 0.32 + 1.8 * night);
     this.mats.panel.color.setScalar(0.85 + 1.1 * night);
