@@ -368,16 +368,16 @@ const GROUND_MAIN = /* glsl */ `
     }
   }
   if (water) {
-    // Water: deep and a little green, darker where the bed drops away; two sets of ripples drifting across each
-    // other, and a finer chop on top. Smooth and half a mirror, so the sky and the sun stand in it.
-    float depth = vnoise(st * 0.02 + 7.3);
-    diffuseColor.rgb = tint * mix(vec3(0.55, 0.75, 0.8), vec3(1.15, 1.2, 1.1), depth);
+    // Water: clear and blue, a shade deeper here and there; two sets of gentle ripples drifting across each
+    // other, and a finer chop on top. Smooth, so the sun stands in it.
+    float depth = vnoise(st * 0.012 + 7.3);
+    diffuseColor.rgb = tint * mix(0.9, 1.06, depth);
     float t = uTime;
     vec2 swell = vec2(vnoise(st * 0.33 + vec2(t * 0.21, t * 0.08)), vnoise(st * 0.33 + 17.0 + vec2(-t * 0.15, t * 0.19))) - 0.5;
     vec2 chop = vec2(vnoise(st * 1.7 + vec2(-t * 0.6, t * 0.35)), vnoise(st * 1.7 + 41.0 + vec2(t * 0.5, t * 0.55))) - 0.5;
-    gNm = normalize(vec3(swell * 0.16 + chop * 0.07, 1.0));
-    gRough = 0.07;
-    gMetal = 0.45;
+    gNm = normalize(vec3(swell * 0.05 + chop * 0.03, 1.0));
+    gRough = 0.1;
+    gMetal = 0.1;
     gWater = 1.0;
   }
 }
@@ -403,7 +403,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + APPLY_NORMAL)
       .replace('#include <opaque_fragment>', '#include <opaque_fragment>\ngl_FragColor.a = 1.0 - gWater;'); // (alpha 0: water, see reflections.js)
   };
-  m.customProgramCacheKey = () => 'ground-v4';
+  m.customProgramCacheKey = () => 'ground-v5';
   return m;
 }
 

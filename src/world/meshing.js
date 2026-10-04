@@ -86,7 +86,7 @@ const ROAD_STYLE = {
   [AREA.PARK]: { lift: 0.02, color: lin([0.4, 0.5, 0.28]), layer: GROUND.GRASS },
   [AREA.WOOD]: { lift: 0.02, color: lin([0.3, 0.4, 0.23]), layer: GROUND.GRASS },
   [AREA.PITCH]: { lift: 0.025, color: lin([0.63, 0.56, 0.43]), layer: GROUND.CONCRETE },
-  [AREA.WATER]: { lift: 0.08, color: lin([0.16, 0.25, 0.26]), layer: GROUND.WATER },
+  [AREA.WATER]: { lift: 0.08, color: lin([0.13, 0.36, 0.5]), layer: GROUND.WATER },
   [AREA.MARK_WHITE]: { lift: 0.15, color: lin([0.9, 0.9, 0.87]), layer: GROUND.CONCRETE },
   [AREA.MARK_YELLOW]: { lift: 0.15, color: lin([0.88, 0.66, 0.12]), layer: GROUND.CONCRETE },
   [AREA.PATH]: { lift: 0.035, color: lin([0.7, 0.68, 0.63]), layer: GROUND.CONCRETE },
