@@ -13,6 +13,8 @@ export const shared = {
   uTime: { value: 0 },  // seconds, for wind and signals
   // aerial photo over the area: texture, and its rectangle in world x/z as (minX, minZ, sizeX, sizeZ)
   uOrtho: { value: null }, uOrthoRect: { value: new THREE.Vector4(0, 0, 1, 1) }, uOrthoOn: { value: 0 },
+  // lit windows at night: the share of rooms whose light comes and goes, and how fast (1: every 1.5 to 5.5 minutes)
+  uWindowLife: { value: new THREE.Vector2(0.5, 4) },
   // the sun in the window glass: direction to the sun (world), and its colour times how much of it there is
   uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunGlint: { value: new THREE.Color(0, 0, 0) }, uGlintOn: { value: 1 },
   // wall photos: the distances (m) between which a facade goes from generated to photo, and how much photo at most
@@ -48,6 +50,7 @@ normal = normalize((viewMatrix * vec4(normalize(gT * gNm.x + gB * gNm.y + gN * g
 const FACADE_PARS = /* glsl */ `
 uniform float uNight;
 uniform float uTime;
+uniform vec2 uWindowLife;
 uniform vec3 uSunDir;
 uniform vec3 uSunGlint;
 uniform float uGlintOn;
@@ -162,10 +165,11 @@ const FACADE_MAIN = /* glsl */ `
 
     // lit rooms at night: shops and offices more often than homes
     float onRate = shop ? 0.75 : cat > 2.5 ? 0.32 : 0.22;
-    // Most rooms stay as they are all night. Three in ten are lived in: every few minutes (each room on its
-    // own clock) someone may come in or leave, and the light goes on or off over a second.
-    float fickle = step(0.7, hash12(room + 31.0));
-    float period = 90.0 + 240.0 * hash12(room + 37.0);
+    // Some rooms stay as they are all night. The others (uWindowLife.x of them) are lived in: every so often,
+    // each room on its own clock (90 to 330 s, divided by the pace uWindowLife.y), someone may come in or
+    // leave, and the light goes on or off over a second.
+    float fickle = step(1.0 - uWindowLife.x, hash12(room + 31.0));
+    float period = (90.0 + 240.0 * hash12(room + 37.0)) / max(uWindowLife.y, 0.01);
     float clock = uTime / period + hash12(room + 41.0), slot = floor(clock);
     float lit = mix(step(1.0 - onRate, hash12(room + 43.0 + (slot - 1.0) * 7.0)), step(1.0 - onRate, hash12(room + 43.0 + slot * 7.0)), smoothstep(0.0, 1.2 / period, fract(clock)));
     float on = mix(step(1.0 - onRate, hash12(room + 23.0)), lit, fickle);
@@ -237,7 +241,7 @@ function facadeMaterial(tex) {
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, {
       uPhoto: m.userData.photo, uPhotoOn: m.userData.photoOn, uPhotoRange: shared.uPhotoRange, uPhotoMix: shared.uPhotoMix,
-      uNight: shared.uNight, uTime: shared.uTime, uSunDir: shared.uSunDir, uSunGlint: shared.uSunGlint, uGlintOn: shared.uGlintOn, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
+      uNight: shared.uNight, uTime: shared.uTime, uWindowLife: shared.uWindowLife, uSunDir: shared.uSunDir, uSunGlint: shared.uSunGlint, uGlintOn: shared.uGlintOn, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
       uWallScale: { value: tex.wall.scales }, uWallDetail: { value: tex.wall.details },
     });
     shader.vertexShader = shader.vertexShader
@@ -254,7 +258,7 @@ function facadeMaterial(tex) {
       .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.directSpecular += gGlint * smoothstep(0.0, 0.002, dot(reflectedLight.directDiffuse, vec3(0.333)));')
       .replace('#include <opaque_fragment>', '#include <opaque_fragment>\ngl_FragColor.a = 1.0 - 0.95 * gPane;');
   };
-  m.customProgramCacheKey = () => 'facade-v13';
+  m.customProgramCacheKey = () => 'facade-v14';
   return m;
 }
 
