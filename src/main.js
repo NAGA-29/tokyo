@@ -43,7 +43,9 @@ const USAGE = {
 
 // ---------------------------------------------------------------- renderer, scene, camera
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const fullRatio = Math.min(devicePixelRatio, 2);
+let renderScale = fullRatio > 1.5 ? 0.75 : 1; // (of the screen's pixels: a Retina screen at full resolution is four times the work)
+renderer.setPixelRatio(fullRatio * renderScale);
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.shadowMap.enabled = true;
@@ -148,6 +150,10 @@ let guiState, clockText;
     get occlusion() { return ao.configuration.intensity > 0; }, set occlusion(v) { ao.configuration.intensity = v ? AO : 0; },
     bloom: true,
     // the whole city at once, or only what lies within the view radius of the point looked at (fewer tiles: more frames)
+    get resolution() { return renderScale; },
+    set resolution(v) { renderScale = v; renderer.setPixelRatio(fullRatio * v); renderer.setSize(innerWidth, innerHeight); atmosphere.setSize(innerWidth, innerHeight); },
+    mirror: true, // water mirrors the city (the city is drawn a second time for it)
+    get shadowDetail() { return env.shadowSize; }, set shadowDetail(v) { env.shadowSize = Number(v); },
     wholeCity: false, near: Number(params.get('radius')) || 300,
     get whole() { return this.wholeCity; }, set whole(v) { this.wholeCity = v; streamer.radius = v ? 1e5 : this.near; },
     get radius() { return this.near; }, set radius(v) { this.near = v; if (!this.wholeCity) streamer.radius = v; },
@@ -197,17 +203,30 @@ let guiState, clockText;
   walls.add(shared.uPhotoRange.value, 'x', 0, 1000, 10).name('from (m)');
   walls.add(shared.uPhotoRange.value, 'y', 10, 2000, 10).name('full at (m)');
   const quality = gui.addFolder('Rendering');
+  // one choice that sets the others below (and the traffic and the clouds): for a slower or a faster machine
+  const PRESETS = {
+    low: { resolution: 0.5, 'view radius (m), if not': 300, 'whole city': false, 'window reflections': false, 'water mirror': false, shadows: false, 'ambient occlusion': false, bloom: false, clouds: false, cars: 120 },
+    medium: { resolution: 0.75, 'view radius (m), if not': 300, 'whole city': false, 'window reflections': true, 'water mirror': false, shadows: true, 'shadow detail': 2048, 'ambient occlusion': false, bloom: true, cars: 260 },
+    high: { resolution: 1, 'view radius (m), if not': 900, 'whole city': false, 'window reflections': true, 'water mirror': true, shadows: true, 'shadow detail': 4096, 'ambient occlusion': true, bloom: true, cars: 260 },
+  };
+  state.preset = '';
+  quality.add(state, 'preset', { 'choose…': '', low: 'low', medium: 'medium', high: 'high' }).name('quality preset').onChange((name) => {
+    for (const [key, value] of Object.entries(PRESETS[name] ?? {})) gui.controllersRecursive().find((c) => c._name === key)?.setValue(value);
+  });
+  quality.add(state, 'resolution', 0.4, 1, 0.05);
   quality.add(state, 'whole').name('whole city');
   quality.add(state, 'radius', 300, 3000, 50).name('view radius (m), if not');
-  quality.add(atmosphere, 'reflect').name('window and water reflections');
+  quality.add(atmosphere, 'reflect').name('window reflections');
+  quality.add(state, 'mirror').name('water mirror');
   quality.add(shared.uGlintOn, 'value', 0, 1, 1).name('sun in the windows');
   quality.add(state, 'shadows');
+  quality.add(state, 'shadowDetail', { low: 1024, medium: 2048, high: 4096 }).name('shadow detail');
   quality.add(state, 'occlusion').name('ambient occlusion');
   quality.add(state, 'bloom');
 
   // The panel's settings are kept (in this browser) and are the same for every city: what is switched off in
   // one is off in the next. A URL that sets something itself (?time=, ?cars=, ...) is taken as it stands.
-  const KEY = 'procedural-tokyo:settings:3'; // (a new number when the defaults change: what was kept before is left behind)
+  const KEY = 'procedural-tokyo:settings:4'; // (a new number when the defaults change: what was kept before is left behind)
   const explicit = [...params.keys()].some((k) => k !== 'area');
   const strip = (saved) => { delete saved.controllers?.city; return saved; }; // (the city is the page's, not a setting)
   if (!explicit) {
@@ -332,7 +351,7 @@ function frame() {
   env.follow(controls.target, camera);
   lampLight.update(scene, controls.target, camera.position, env.night);
   atmosphere.bloom.intensity = guiState.bloom ? env.bloom * 3 : 0;
-  waterMirror.enabled = atmosphere.reflect;
+  waterMirror.enabled = guiState ? guiState.mirror : true;
   waterMirror.update(scene, camera, streamer.tiles, controls.target, [traffic.group.parent ? null : traffic.group]);
   atmosphere.render(dt);
 
