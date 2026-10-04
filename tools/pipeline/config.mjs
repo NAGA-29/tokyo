@@ -5,20 +5,21 @@ import path from 'node:path';
 import { meshBlock, meshBounds3 } from '../../src/shared/geo.js';
 
 export const AREAS = {
-  shibuya: {
-    name: 'Shibuya',
-    origin: [139.70045, 35.65948], // Shibuya Scramble Crossing [lon, lat]
-    radius: 1,                     // 3 x 3 meshes, about 3.4 x 2.8 km
+  // (in the order of the city switch; the first is the one the site opens with)
+  shiba: {
+    name: 'Shiba (Tokyo Tower)',
+    origin: [139.74543, 35.65858], // Tokyo Tower
+    radius: 1,
   },
   tokyo: {
     name: 'Tokyo',
     origin: [139.76712, 35.68124], // Tokyo Station, between Marunouchi and Yaesu
     radius: 1,
   },
-  shiba: {
-    name: 'Shiba (Tokyo Tower)',
-    origin: [139.74543, 35.65858], // Tokyo Tower
-    radius: 1,
+  shibuya: {
+    name: 'Shibuya',
+    origin: [139.70045, 35.65948], // Shibuya Scramble Crossing [lon, lat]
+    radius: 1,                     // 3 x 3 meshes, about 3.4 x 2.8 km
   },
   fujinomiya: {
     name: 'Fujinomiya (Mt Fuji)',

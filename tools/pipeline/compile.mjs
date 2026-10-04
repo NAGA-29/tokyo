@@ -20,7 +20,7 @@ import { encodeTile, AREA, BFLAG, PROP, VERSION } from '../../src/shared/tilefor
 import { readBuildings, readRoads } from './citygml.mjs';
 import { readOsm, buildRoadGraph, buildRailways } from './osm.mjs';
 import { buildHeightGrid, sampleGrid, buildBackdropGrid } from './terrain.mjs';
-import { BACKDROP } from './config.mjs';
+import { BACKDROP, AREAS } from './config.mjs';
 import { PolyIndex, readLand, clipRing, placeProps } from './landscape.mjs';
 import { buildMarkings } from './markings.mjs';
 import { splitOutlineRoads } from './roadsplit.mjs';
@@ -572,9 +572,11 @@ const manifest = {
 };
 fs.writeFileSync(path.join(area.outDir, 'manifest.json'), JSON.stringify(manifest, null, 1));
 // the list of compiled areas, for the client's city switch
+const order = (id) => { const i = Object.keys(AREAS).indexOf(id); return i < 0 ? 1e9 : i; };
 const tilesDir = path.join(ROOT, 'public/tiles');
 const compiled = fs.readdirSync(tilesDir).filter((d) => fs.existsSync(path.join(tilesDir, d, 'manifest.json')))
-  .map((d) => ({ id: d, name: JSON.parse(fs.readFileSync(path.join(tilesDir, d, 'manifest.json'), 'utf8')).name }));
+  .map((d) => ({ id: d, name: JSON.parse(fs.readFileSync(path.join(tilesDir, d, 'manifest.json'), 'utf8')).name }))
+  .sort((p, q) => order(p.id) - order(q.id)); // (as listed in config.mjs)
 fs.writeFileSync(path.join(tilesDir, 'areas.json'), JSON.stringify(compiled));
 const mb = (n) => (n / 1e6).toFixed(1) + ' MB';
 const size = (f) => fs.statSync(path.join(area.outDir, f)).size;

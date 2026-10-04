@@ -40,7 +40,7 @@
     <script>
       // The city's name goes on the loading screen before anything else runs, so it never changes under the eye.
       (function () {
-        var id = new URLSearchParams(location.search).get('area') || 'shibuya', name = null;
+        var id = new URLSearchParams(location.search).get('area') || 'shiba', name = null;
         try { name = localStorage.getItem('procedural-tokyo:name:' + id); } catch (e) {}
         document.querySelector('#loader .city').textContent = name || id.charAt(0).toUpperCase() + id.slice(1);
       })();
