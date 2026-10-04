@@ -433,7 +433,7 @@ const GROUND_MAIN = /* glsl */ `
     float dips = 0.6 * vnoise(vWPos.xz * 0.11) + 0.3 * vnoise(vWPos.xz * 0.37 + 5.1) + 0.1 * vnoise(vWPos.xz * 1.3);
     gPuddle = smoothstep(0.62 - 0.14 * uWet, 0.7 - 0.14 * uWet, dips) * level * hard * smoothstep(0.3, 0.8, uWet);
     gFilm = uWet * mix(0.55, 1.0, hard);
-    diffuseColor.rgb *= mix(1.0, mix(0.72, 0.5, gPuddle), gFilm);
+    diffuseColor.rgb *= mix(1.0, mix(0.62, 0.42, gPuddle), gFilm);
     gRough = mix(gRough, mix(0.34 + 0.2 * blotch, 0.03, gPuddle), gFilm);
     gNm = normalize(mix(gNm, vec3(0.0, 0.0, 1.0), max(gPuddle, 0.45 * gFilm)));
   }
@@ -483,7 +483,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
           // different parts of the sky, which is what draws the ripples: light streaks and dark.
           vec3 wv = normalize(vWPos - cameraPosition), wr = reflect(wv, gWaveN);
           float fresnel = 0.05 + 0.95 * pow(1.0 - max(dot(-wv, gWaveN), 0.0), 4.0);
-          vec3 seen = mix(vec3(0.8, 0.86, 0.92), vec3(0.3, 0.48, 0.74), pow(clamp(abs(wr.y), 0.0, 1.0), 0.5)) * (0.03 + 0.97 * (1.0 - uDark)) * 0.9;
+          vec3 seen = mix(vec3(0.8, 0.86, 0.92), mix(vec3(0.3, 0.48, 0.74), vec3(0.6, 0.63, 0.67), uWet), pow(clamp(abs(wr.y), 0.0, 1.0), 0.5)) * (0.03 + 0.97 * (1.0 - uDark)) * 0.9;
           // the clouds in it: white where the sun is on them, grey towards the night
           float cloud = cloudAbove(vWPos, vec3(wr.x, abs(wr.y), wr.z));
           seen = mix(seen, vec3(0.96, 0.97, 0.98) * (0.05 + 0.95 * (1.0 - uDark)), 0.9 * cloud);
@@ -513,24 +513,19 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
           vec4 mc = uMirrorMatrix * vec4(vWPos, 1.0);
           float near = clamp(70.0 / distance(cameraPosition, vWPos), 0.12, 1.6);
           vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + rough * vec2(0.05, 0.1) * near;
-          // soft, as through a film of water: a Gaussian blur (nine taps, in the smaller copies of the picture),
-          // wider on the wet road than in a puddle, and longer than it is wide
-          float soft = mix(3.4, 2.2, gPuddle);
-          vec2 reach = vec2(0.006, 0.013) * mix(1.6, 1.0, gPuddle) * near;
+          float smear = mix(0.011, 0.0015, gPuddle) * near;
           vec4 mirrored = vec4(0.0);
-          for (int i = -1; i <= 1; i++) for (int j = -1; j <= 1; j++) {
-            float weight = (i == 0 ? 2.0 : 1.0) * (j == 0 ? 2.0 : 1.0) / 16.0;
-            mirrored += weight * textureLod(uMirror, clamp(muv + vec2(float(i), float(j)) * reach, 0.001, 0.999), soft);
-          }
+          for (int i = -2; i <= 2; i++) mirrored += texture2D(uMirror, clamp(muv + vec2(0.0, float(i) * smear), 0.001, 0.999));
+          mirrored /= 5.0;
           float thing = smoothstep(0.0, 0.3, mirrored.a + dot(mirrored.rgb, vec3(1.0)));
-          vec3 sky = vec3(0.58, 0.69, 0.84) * (0.03 + 0.97 * (1.0 - uDark)) * 0.85;
+          vec3 sky = vec3(0.6, 0.63, 0.67) * (0.03 + 0.97 * (1.0 - uDark)) * 0.8;
           float share = atLevel * mix(0.5 * gFilm, 1.0, gPuddle) * max(glance, mix(0.1, 0.38, gPuddle));
           outgoingLight = mix(outgoingLight, mix(sky, mirrored.rgb, thing), share * mix(gPuddle, 1.0, thing));
         }
         #include <opaque_fragment>
         gl_FragColor.a = 1.0 - gWater * (1.0 - uMirrorOn);`);
   };
-  m.customProgramCacheKey = () => 'ground-v15';
+  m.customProgramCacheKey = () => 'ground-v14';
   return m;
 }
 
