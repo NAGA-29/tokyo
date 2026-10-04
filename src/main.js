@@ -1,6 +1,6 @@
 // Procedural Tokyo client: streams the compiled city and renders it. Free camera for now; the car comes next.
 //
-// URL parameters: ?area=shibuya  ?time=18.5 (Tokyo hour; default: now)  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0  ?ortho=0  ?clouds=0.25 (on, with that cover)
+// URL parameters: ?area=shibuya  ?time=18.5 (Tokyo hour; default: now)  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0  ?ortho=0  ?clouds=0.25 (on, with that cover)  ?ocean=0
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import GUI from 'lil-gui';
@@ -17,6 +17,7 @@ import { buildStructures } from './world/structures.js';
 import { loadOrtho } from './world/ortho.js';
 import { Environment } from './world/environment.js';
 import { Atmosphere } from './world/atmosphere.js';
+import { createOcean } from './world/ocean.js';
 
 const params = new URLSearchParams(location.search);
 const AREA = params.get('area') || 'shibuya';
@@ -72,13 +73,15 @@ const signs = new Signs();
 const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 3000 });
 const manifest = await streamer.init();
 const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
-// Beyond the area: plain ground in the grey of the area's own unbuilt land, out to the haze of the horizon.
+// Beyond the area, out to the haze of the horizon: the sea, or (with the sea switched off) plain ground in the
+// grey of the area's own unbuilt land. Both lie just under the lowest ground of the area.
+const surround = { ocean: createOcean(), plain: new THREE.Mesh(new THREE.CircleGeometry(50000, 64).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x8a8a86, roughness: 0.95, metalness: 0 })) };
 {
-  const b = manifest.bounds, plain = new THREE.Mesh(new THREE.CircleGeometry(50000, 64).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x8a8a86, roughness: 0.95, metalness: 0 }));
-  plain.position.set((b.minX + b.maxX) / 2, manifest.terrain.min - 1, (b.minZ + b.maxZ) / 2); // just under the lowest ground
-  plain.receiveShadow = true;
-  plain.name = 'plain';
-  scene.add(plain);
+  const b = manifest.bounds;
+  for (const m of Object.values(surround)) { m.position.set((b.minX + b.maxX) / 2, manifest.terrain.min - 1, (b.minZ + b.maxZ) / 2); m.receiveShadow = true; scene.add(m); }
+  surround.plain.name = 'plain';
+  surround.plain.visible = params.get('ocean') === '0';
+  surround.ocean.visible = !surround.plain.visible;
 }
 // post-processing: ambient occlusion, sky, aerial perspective, volumetric clouds, bloom, tone mapping
 const atmosphere = new Atmosphere(renderer, scene, camera, manifest.origin, manifest.bounds);
@@ -111,6 +114,7 @@ let guiState, clockText;
   const trains = railways.userData.trains.group, AO = ao.configuration.intensity;
   const state = {
     city: AREA,
+    get ocean() { return surround.ocean.visible; }, set ocean(v) { surround.ocean.visible = v; surround.plain.visible = !v; },
     get info() { return document.getElementById('hud').style.display !== 'none'; }, set info(v) { document.getElementById('hud').style.display = v ? '' : 'none'; },
 
     get traffic() { return !!traffic.group.parent; }, set traffic(v) { if (v) scene.add(traffic.group); else scene.remove(traffic.group); },
@@ -140,6 +144,7 @@ let guiState, clockText;
   gui.add(state, 'traffic');
   gui.add(state, 'trains');
   gui.add(state, 'photo').name('aerial photo').listen();
+  gui.add(state, 'ocean');
   gui.add(state, 'info').name('info panel');
   const sky = gui.addFolder('Clouds');
   sky.add(atmosphere, 'cloudsOn').name('clouds');
