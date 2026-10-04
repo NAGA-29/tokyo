@@ -32,10 +32,12 @@ export const AREAS = {
 export const ROOT = path.resolve(import.meta.dirname, '../..');
 export const RAW = path.join(ROOT, 'data/raw');
 
-export const BACKDROP = { zoom: 10, photoZoom: 12, step: 120 }; // DEM tiles (about 125 m a pixel), photo tiles (30 m), grid step in metres
+// DEM tiles (about 125 m a pixel) and the grid made of them (metres); the photo of all of it (15 m a pixel), and a
+// sharper one (4 m) of the land within `near` kilometres: what lies just beyond the last houses
+export const BACKDROP = { zoom: 10, step: 120, photoZoom: 13, nearZoom: 15, near: 7 };
 
 // The rectangle `backdrop` kilometres around the origin, in degrees.
-function backdropBox({ origin: [lon, lat], backdrop }) {
+export function backdropBox({ origin: [lon, lat] }, backdrop) {
   const dLat = backdrop / 110.95, dLon = backdrop / (111.32 * Math.cos((lat * Math.PI) / 180));
   return { south: lat - dLat, north: lat + dLat, west: lon - dLon, east: lon + dLon };
 }
@@ -51,5 +53,5 @@ export function resolveArea(argv = process.argv) {
     south: Math.min(...b.map((m) => m.south)), west: Math.min(...b.map((m) => m.west)),
     north: Math.max(...b.map((m) => m.north)), east: Math.max(...b.map((m) => m.east)),
   };
-  return { id, ...area, meshes, bbox, backdropBbox: area.backdrop ? backdropBox(area) : null, rawDir: path.join(RAW, id), outDir: path.join(ROOT, 'public/tiles', id) };
+  return { id, ...area, meshes, bbox, backdropBbox: area.backdrop ? backdropBox(area, area.backdrop) : null, rawDir: path.join(RAW, id), outDir: path.join(ROOT, 'public/tiles', id) };
 }

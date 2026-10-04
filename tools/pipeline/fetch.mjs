@@ -6,7 +6,7 @@
 // Usage: node tools/pipeline/fetch.mjs [--area=shibuya] [--force]
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveArea, ROOT, BACKDROP } from './config.mjs';
+import { resolveArea, ROOT, BACKDROP, backdropBox } from './config.mjs';
 import { demTileRange, DEM_SOURCES } from './terrain.mjs';
 
 const area = resolveArea();
@@ -207,17 +207,20 @@ async function fetchOrtho() {
 // The land around the area: coarse elevation, and a coarse aerial photo for the client to lay over it.
 async function fetchBackdrop() {
   if (!area.backdropBbox) return;
+  const dem = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/dem_png/${z}/${x}/${y}.png`, photo = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/${z}/${x}/${y}.jpg`;
+  const out = path.join(ROOT, 'public/ortho', area.id, 'backdrop');
   const sets = [
-    [BACKDROP.zoom, (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/dem_png/${z}/${x}/${y}.png`, (z, x, y) => path.join(area.rawDir, 'dem', 'backdrop', `${z}_${x}_${y}.png`)],
-    [BACKDROP.photoZoom, (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/${z}/${x}/${y}.jpg`, (z, x, y) => path.join(ROOT, 'public/ortho', area.id, 'backdrop', `${z}_${x}_${y}.jpg`)],
+    { box: area.backdropBbox, zoom: BACKDROP.zoom, url: dem, dir: path.join(area.rawDir, 'dem', 'backdrop'), ext: 'png' },
+    { box: area.backdropBbox, zoom: BACKDROP.photoZoom, url: photo, dir: out, ext: 'jpg', index: true },
+    { box: backdropBox(area, BACKDROP.near), zoom: BACKDROP.nearZoom, url: photo, dir: path.join(out, 'near'), ext: 'jpg', index: true },
   ];
-  for (const [zoom, url, file] of sets) {
-    const { z, x0, x1, y0, y1 } = demTileRange(area.backdropBbox, zoom), jobs = [];
-    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) jobs.push({ url: url(z, x, y), file: file(z, x, y) });
+  for (const s of sets) {
+    const { z, x0, x1, y0, y1 } = demTileRange(s.box, s.zoom), jobs = [];
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) jobs.push({ url: s.url(z, x, y), file: path.join(s.dir, `${z}_${x}_${y}.${s.ext}`) });
     const todo = jobs.filter((j) => !exists(j.file));
-    log(`backdrop zoom ${zoom}: ${jobs.length} tiles, ${todo.length} to download`);
-    await pool(todo, 4, async (j) => { try { await download(j.url, j.file); } catch (e) { log(`  ${e.message} (left as a gap)`); } });
-    if (zoom === BACKDROP.photoZoom) fs.writeFileSync(path.join(ROOT, 'public/ortho', area.id, 'backdrop', 'index.json'), JSON.stringify({ z, x0, x1, y0, y1 }));
+    log(`backdrop zoom ${s.zoom}: ${jobs.length} tiles, ${todo.length} to download`);
+    await pool(todo, 6, async (j) => { try { await download(j.url, j.file); } catch (e) { log(`  ${e.message} (left as a gap)`); } });
+    if (s.index) fs.writeFileSync(path.join(s.dir, 'index.json'), JSON.stringify({ z, x0, x1, y0, y1 }));
   }
 }
 
