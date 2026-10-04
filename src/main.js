@@ -213,8 +213,8 @@ let guiState, clockText;
     } catch (e) { console.warn('settings not restored:', e.message); }
   }
   const keep = () => { try { localStorage.setItem(KEY, JSON.stringify(strip(gui.save()))); } catch { /* storage unavailable: nothing is kept */ } };
-  gui.onFinishChange(keep);
-  addEventListener('pagehide', keep);
+  // (a page opened with settings in its URL is a one-off view: it does not overwrite what is kept)
+  if (!explicit) { gui.onFinishChange(keep); addEventListener('pagehide', keep); }
 }
 
 // ---------------------------------------------------------------- input

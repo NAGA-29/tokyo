@@ -34,7 +34,7 @@ export function createBirds(bounds, ground = 20) {
   const material = new THREE.ShaderMaterial({
     side: THREE.DoubleSide,
     uniforms: {
-      uTime: shared.uTime, uNight: shared.uNight,
+      uTime: shared.uTime, uDark: shared.uDark,
       uCentre: { value: new THREE.Vector3((bounds.minX + bounds.maxX) / 2, ground, (bounds.minZ + bounds.maxZ) / 2) },
       uReach: { value: new THREE.Vector2((bounds.maxX - bounds.minX) * 0.42, (bounds.maxZ - bounds.minZ) * 0.42) },
     },
@@ -78,10 +78,10 @@ export function createBirds(bounds, ground = 20) {
         gl_Position = projectionMatrix * viewMatrix * vec4(world, 1.0);
       }`,
     fragmentShader: /* glsl */ `
-      uniform float uNight;
+      uniform float uDark;
       varying float vShade;
       varying float vCrow;
-      void main() { gl_FragColor = vec4(mix(vec3(0.82, 0.82, 0.84), vec3(0.03, 0.03, 0.035), vCrow) * vShade * mix(1.0, 0.25, uNight), 1.0); }`,
+      void main() { gl_FragColor = vec4(mix(vec3(0.82, 0.82, 0.84), vec3(0.03, 0.03, 0.035), vCrow) * vShade * mix(1.0, 0.5, uDark), 1.0); } // (still white against the night sky)`,
   });
   const mesh = new THREE.Mesh(birdGeometry(), material);
   mesh.frustumCulled = false; // (they are placed in the shader)

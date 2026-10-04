@@ -9,7 +9,8 @@
 import * as THREE from 'three';
 
 export const shared = {
-  uNight: { value: 0 }, // 0 day .. 1 night
+  uNight: { value: 0 }, // 0 day .. 1 night: how far the lights are on
+  uDark: { value: 0 },  // 0 day .. 1 night: how dark it is
   uTime: { value: 0 },  // seconds, for wind and signals
   // aerial photo over the area: texture, and its rectangle in world x/z as (minX, minZ, sizeX, sizeZ)
   uOrtho: { value: null }, uOrthoRect: { value: new THREE.Vector4(0, 0, 1, 1) }, uOrthoOn: { value: 0 },

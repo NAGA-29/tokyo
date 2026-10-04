@@ -70,6 +70,7 @@ export class Atmosphere {
     const clouds = this.clouds = new CloudsEffect(camera);
     clouds.worldToECEFMatrix.copy(this.worldToECEF);
     clouds.coverage = 0.25;
+    this.quality = 'high';
     clouds.localWeatherVelocity.set(0.001, 0);
     this.base = 450; // metres: the foot of the low clouds (the library's default is 750)
 
@@ -162,8 +163,8 @@ export class Atmosphere {
   // clouds over the area only, or over the whole sky
   get overCity() { return this.cityFade.value < 1e6; }
   set overCity(v) { this.cityFade.value = v ? FADE : 1e9; }
-  get quality() { return this.clouds.qualityPreset; }
-  set quality(v) { this.clouds.qualityPreset = v; }
+  get quality() { return this.cloudQuality; } // (the effect only takes a preset, it does not tell which it has)
+  set quality(v) { this.cloudQuality = v; this.clouds.qualityPreset = v; }
 
   // Puts the sun and the moon where they stand over the area at `date`. Returns their directions in world
   // space (unit vectors, y up) for the scene's own light.
