@@ -19,6 +19,7 @@ import { Environment } from './world/environment.js';
 import { Atmosphere } from './world/atmosphere.js';
 import { createBirds, MAX_BIRDS } from './world/birds.js';
 import { loadBackdrop } from './world/backdrop.js';
+import { WaterMirror } from './world/mirror.js';
 import { LampLight, installLampLight } from './world/lamplight.js';
 
 installLampLight(); // (before any material is compiled)
@@ -105,6 +106,7 @@ const birds = createBirds();
 if (params.get('birds') != null) birds.geometry.instanceCount = Math.min(MAX_BIRDS, Number(params.get('birds')) || 0);
 scene.add(birds);
 const lampLight = new LampLight(renderer);
+const waterMirror = new WaterMirror(renderer);
 // post-processing: ambient occlusion, sky, aerial perspective, volumetric clouds, bloom, tone mapping
 const atmosphere = new Atmosphere(renderer, scene, camera, manifest.origin, manifest.bounds);
 env.sky.visible = false; // the atmosphere draws the sky (the environment map keeps its own)
@@ -329,6 +331,8 @@ function frame() {
   env.follow(controls.target, camera);
   lampLight.update(scene, controls.target, camera.position, env.night);
   atmosphere.bloom.intensity = guiState.bloom ? env.bloom * 3 : 0;
+  waterMirror.enabled = atmosphere.reflect;
+  waterMirror.update(scene, camera, streamer.tiles, controls.target, [traffic.group.parent ? null : traffic.group]);
   atmosphere.render(dt);
 
   frames++; fpsTime += dt;

@@ -22,6 +22,8 @@ export const shared = {
   uNightBlue: { value: 0.55 },
   // lamp light on the ground (src/world/lamplight.js): on at night, the light map, where it lies
   uLampOn: { value: 0 }, uLampMap: { value: null }, uLampRect: { value: new THREE.Vector4(0, 0, 1, 0) },
+  // the city mirrored in the water (mirror.js): the picture, how a point of the world maps into it, and whether there is one
+  uMirror: { value: null }, uMirrorMatrix: { value: new THREE.Matrix4() }, uMirrorOn: { value: 0 },
   // the sun in the window glass: direction to the sun (world), and its colour times how much of it there is
   uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunGlint: { value: new THREE.Color(0, 0, 0) }, uGlintOn: { value: 1 },
   // wall photos: the distances (m) between which a facade goes from generated to photo, and how much photo at most
@@ -330,6 +332,9 @@ uniform sampler2D uOrtho;
 uniform vec4 uOrthoRect;
 uniform float uOrthoOn;
 uniform float uTime;
+uniform sampler2D uMirror;
+uniform mat4 uMirrorMatrix;
+uniform float uMirrorOn;
 varying float vLayer;
 varying vec3 vWPos;
 varying vec3 vWNrm;
@@ -390,6 +395,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       uGroundAlb: { value: tex.ground.albedo }, uGroundNor: { value: tex.ground.normal },
       uGroundScale: { value: tex.ground.scales }, uFixedLayer: { value: fixedLayer },
       uOrtho: shared.uOrtho, uOrthoRect: shared.uOrthoRect, uOrthoOn: shared.uOrthoOn, uTime: shared.uTime,
+      uMirror: shared.uMirror, uMirrorMatrix: shared.uMirrorMatrix, uMirrorOn: shared.uMirrorOn,
       uLampOn: shared.uLampOn, uLampMap: shared.uLampMap, uLampRect: shared.uLampRect,
     });
     shader.vertexShader = shader.vertexShader
@@ -401,9 +407,22 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = gRough;')
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = gMetal;')
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + APPLY_NORMAL)
-      .replace('#include <opaque_fragment>', '#include <opaque_fragment>\ngl_FragColor.a = 1.0 - gWater;'); // (alpha 0: water, see reflections.js)
+      // Water mirrors the city: the mirror picture (mirror.js) where there is one, laid on by Fresnel's share and
+      // a good deal more (a clear mirror is wanted), its ripples shifting it a little. Without one, alpha 0 leaves
+      // the water to the reflections found on the screen (reflections.js).
+      .replace('#include <opaque_fragment>', `
+        if (gWater > 0.5 && uMirrorOn > 0.5) {
+          vec4 mc = uMirrorMatrix * vec4(vWPos, 1.0);
+          vec2 muv = mc.xy / mc.w * 0.5 + 0.5 + gNm.xy * 0.012;
+          vec4 mirrored = texture2D(uMirror, clamp(muv, 0.001, 0.999));
+          float facing = max(dot(normalize(cameraPosition - vWPos), vec3(0.0, 1.0, 0.0)), 0.0);
+          float share = (0.62 + 0.38 * pow(1.0 - facing, 3.0)) * step(0.02, mirrored.a + dot(mirrored.rgb, vec3(1.0)));
+          outgoingLight = mix(outgoingLight, mirrored.rgb * vec3(0.9, 0.94, 0.96), share);
+        }
+        #include <opaque_fragment>
+        gl_FragColor.a = 1.0 - gWater * (1.0 - uMirrorOn);`);
   };
-  m.customProgramCacheKey = () => 'ground-v5';
+  m.customProgramCacheKey = () => 'ground-v6';
   return m;
 }
 

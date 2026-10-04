@@ -136,6 +136,11 @@ export class Streamer {
       const m = new THREE.Mesh(geometry(roads, [['position', 3], ['normal', 3], ['color', 3], ['aLayer', 1]]), this.materials.road);
       m.receiveShadow = true;
       group.add(m);
+      // the tile's water (for the mirror): the sphere around it, and its level
+      const box = new THREE.Box3(), v = new THREE.Vector3();
+      let sum = 0, n = 0;
+      for (let i = 0; i < roads.aLayer.length; i++) if (roads.aLayer[i] > 3.5) { box.expandByPoint(v.fromArray(roads.position, i * 3)); sum += v.y; n++; }
+      if (n) t.water = { y: sum / n, sphere: box.getBoundingSphere(new THREE.Sphere()) };
     }
     if (paint.position.length) {
       const m = new THREE.Mesh(geometry(paint, [['position', 3], ['normal', 3], ['color', 3], ['aLayer', 1]]), this.materials.paint);
