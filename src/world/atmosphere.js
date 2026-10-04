@@ -12,6 +12,7 @@ import { WindowReflections } from './reflections.js';
 import { AerialPerspectiveEffect, PrecomputedTexturesGenerator, getSunDirectionECEF, getMoonDirectionECEF } from '@takram/three-atmosphere';
 import { CloudsEffect, CLOUD_SHAPE_TEXTURE_SIZE, CLOUD_SHAPE_DETAIL_TEXTURE_SIZE } from '@takram/three-clouds';
 import { DataTextureLoader, Ellipsoid, Geodetic, parseUint8Array, radians, STBNLoader } from '@takram/three-geospatial';
+import { shared } from './materials.js';
 
 const ASSETS = 'assets/takram'; // cloud shape and weather textures and blue noise, as shipped with the packages
 const UNITS = 0.1;              // scene radiance -> the radiance the atmosphere works in (a sunlit white wall in both)
@@ -110,6 +111,9 @@ export class Atmosphere {
       wrapS: THREE.RepeatWrapping, wrapT: THREE.RepeatWrapping, wrapR: THREE.RepeatWrapping, colorSpace: THREE.NoColorSpace,
     });
     clouds.localWeatherTexture = new THREE.TextureLoader().load(`${ASSETS}/local_weather.png`, repeat);
+    shared.uCloudMap.value = clouds.localWeatherTexture;
+    shared.uWorldToECEF.value.copy(this.worldToECEF);
+    shared.uCloudRect.value.copy(this.cityRect.value);
     clouds.turbulenceTexture = new THREE.TextureLoader().load(`${ASSETS}/turbulence.png`, repeat);
     clouds.shapeTexture = volume(CLOUD_SHAPE_TEXTURE_SIZE).load(`${ASSETS}/shape.bin`);
     clouds.shapeDetailTexture = volume(CLOUD_SHAPE_DETAIL_TEXTURE_SIZE).load(`${ASSETS}/shape_detail.bin`);
@@ -179,5 +183,13 @@ export class Atmosphere {
   }
 
   setSize(w, h) { this.composer.setSize(w, h); }
-  render(dt) { this.composer.render(dt); }
+  render(dt) {
+    // what the water needs to mirror the clouds (materials.js)
+    shared.uCloudsOn.value = this.cloudsOn ? 1 : 0;
+    shared.uCloudCover.value = this.clouds.coverage;
+    shared.uCloudBase.value = this.clouds.cloudLayers[0].altitude;
+    shared.uCloudOffset.value.copy(this.clouds.localWeatherOffset);
+    shared.uCloudFade.value = this.cityFade.value;
+    this.composer.render(dt);
+  }
 }

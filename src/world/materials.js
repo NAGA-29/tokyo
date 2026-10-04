@@ -24,6 +24,10 @@ export const shared = {
   uLampOn: { value: 0 }, uLampMap: { value: null }, uLampRect: { value: new THREE.Vector4(0, 0, 1, 0) },
   // the city mirrored in the water (mirror.js): the picture, how a point of the world maps into it, and whether there is one
   uMirror: { value: null }, uMirrorMatrix: { value: new THREE.Matrix4() }, uMirrorOn: { value: 0 },
+  // the clouds, for the water to mirror (set by atmosphere.js): the weather map the cloud pass draws them from, its
+  // drift, the cover, the height of the cloud base, the place of the world on the globe, and where clouds are kept to
+  uCloudMap: { value: null }, uCloudOffset: { value: new THREE.Vector2() }, uCloudCover: { value: 0 }, uCloudBase: { value: 450 }, uCloudsOn: { value: 0 },
+  uWorldToECEF: { value: new THREE.Matrix4() }, uCloudRect: { value: new THREE.Vector4() }, uCloudFade: { value: 500 },
   // the sun in the window glass: direction to the sun (world), and its colour times how much of it there is
   uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunGlint: { value: new THREE.Color(0, 0, 0) }, uGlintOn: { value: 1 },
   // wall photos: the distances (m) between which a facade goes from generated to photo, and how much photo at most
@@ -336,6 +340,11 @@ uniform sampler2D uMirror;
 uniform mat4 uMirrorMatrix;
 uniform float uMirrorOn;
 uniform float uDark;
+uniform sampler2D uCloudMap;
+uniform vec2 uCloudOffset;
+uniform float uCloudCover, uCloudBase, uCloudsOn, uCloudFade;
+uniform mat4 uWorldToECEF;
+uniform vec4 uCloudRect;
 varying float vLayer;
 varying vec3 vWPos;
 varying vec3 vWNrm;
@@ -345,6 +354,32 @@ float gMetal = 0.0;
 float gWater = 0.0; // 1 on water: written to alpha for the reflection pass, which mirrors the world in it
 vec3 gWaveN = vec3(0.0, 1.0, 0.0); // the water's surface normal with its ripples (world space)
 ${NOISE}
+// Where a point of the globe lies in the clouds' weather map (as the cloud pass maps it: three-clouds, clouds.glsl).
+vec2 cloudMapUv(vec3 position) {
+  vec3 n = normalize(position), f = abs(n), c = n / max(f.x, max(f.y, f.z));
+  vec2 m;
+  if (all(greaterThan(f.yy, f.xz))) m = c.y > 0.0 ? vec2(-n.x, n.z) : n.xz;
+  else if (all(greaterThan(f.xx, f.yz))) m = c.x > 0.0 ? n.yz : vec2(-n.y, n.z);
+  else m = c.z > 0.0 ? n.xy : vec2(n.x, -n.y);
+  vec2 m2 = m * m;
+  float q = dot(m2.xy, vec2(-2.0, 2.0)) - 3.0;
+  vec2 uv;
+  uv.x = sqrt(1.5 + m2.x - m2.y - 0.5 * sqrt(-24.0 * m2.x + q * q)) * (m.x > 0.0 ? 1.0 : -1.0);
+  uv.y = sqrt(6.0 / (3.0 - uv.x * uv.x)) * m.y;
+  return uv * 0.5 + 0.5;
+}
+// How much cloud a ray from p towards dir (upwards) meets: 0 clear sky .. 1 cloud. The same weather map and
+// cover as the cloud pass, without its fine shapes: the clouds are where they are in the sky, a little softer.
+float cloudAbove(vec3 p, vec3 dir) {
+  if (uCloudsOn < 0.5 || dir.y < 0.03) return 0.0;
+  vec3 at = p + dir * ((uCloudBase + 320.0 - p.y) / dir.y);
+  vec2 weather = texture2D(uCloudMap, cloudMapUv((uWorldToECEF * vec4(at, 1.0)).xyz) * 100.0 + uCloudOffset).rg;
+  vec2 beyond = max(uCloudRect.xy - at.xz, at.xz - uCloudRect.zw);
+  weather *= 1.0 - smoothstep(0.0, uCloudFade, max(beyond.x, beyond.y));
+  // (the cloud pass wears the weather map down with its shape noise: only the thicker parts are cloud)
+  float edge = 1.0 - 1.25 * uCloudCover;
+  return smoothstep(edge, edge + 0.22, max(weather.r, weather.g)) * smoothstep(0.03, 0.14, dir.y);
+}
 // Calm harbour water: the height of its ripples (in units of about 3.5 cm) at a point of the ground plan. Long
 // low waves from several quarters crossing each other, bent out of line so they never look ruled.
 float ripple(vec2 p, float t) {
@@ -408,6 +443,8 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       uGroundScale: { value: tex.ground.scales }, uFixedLayer: { value: fixedLayer },
       uOrtho: shared.uOrtho, uOrthoRect: shared.uOrthoRect, uOrthoOn: shared.uOrthoOn, uTime: shared.uTime,
       uMirror: shared.uMirror, uMirrorMatrix: shared.uMirrorMatrix, uMirrorOn: shared.uMirrorOn, uDark: shared.uDark,
+      uCloudMap: shared.uCloudMap, uCloudOffset: shared.uCloudOffset, uCloudCover: shared.uCloudCover, uCloudBase: shared.uCloudBase, uCloudsOn: shared.uCloudsOn,
+      uWorldToECEF: shared.uWorldToECEF, uCloudRect: shared.uCloudRect, uCloudFade: shared.uCloudFade,
       uLampOn: shared.uLampOn, uLampMap: shared.uLampMap, uLampRect: shared.uLampRect,
     });
     shader.vertexShader = shader.vertexShader
@@ -430,6 +467,9 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
           vec3 wv = normalize(vWPos - cameraPosition), wr = reflect(wv, gWaveN);
           float fresnel = 0.05 + 0.95 * pow(1.0 - max(dot(-wv, gWaveN), 0.0), 4.0);
           vec3 seen = mix(vec3(0.8, 0.86, 0.92), vec3(0.3, 0.48, 0.74), pow(clamp(abs(wr.y), 0.0, 1.0), 0.5)) * (0.03 + 0.97 * (1.0 - uDark)) * 0.9;
+          // the clouds in it: white where the sun is on them, grey towards the night
+          float cloud = cloudAbove(vWPos, vec3(wr.x, abs(wr.y), wr.z));
+          seen = mix(seen, vec3(0.96, 0.97, 0.98) * (0.05 + 0.95 * (1.0 - uDark)), 0.9 * cloud);
           float thing = 0.0;
           if (uMirrorOn > 0.5) {
             // the city in the mirror picture (mirror.js), shifted by the ripples and drawn out lengthwise
@@ -443,12 +483,12 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
             seen = mix(seen, mirrored.rgb * vec3(0.88, 0.93, 0.95), thing);
           }
           // (the city is wanted in the water from above as well: more of it than Fresnel would give)
-          outgoingLight = mix(outgoingLight, seen, max(fresnel, 0.42 * thing));
+          outgoingLight = mix(outgoingLight, seen, max(fresnel, max(0.42 * thing, 0.3 * cloud * (1.0 - thing))));
         }
         #include <opaque_fragment>
         gl_FragColor.a = 1.0 - gWater * (1.0 - uMirrorOn);`);
   };
-  m.customProgramCacheKey = () => 'ground-v10';
+  m.customProgramCacheKey = () => 'ground-v13';
   return m;
 }
 
