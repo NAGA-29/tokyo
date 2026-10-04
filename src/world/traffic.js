@@ -18,38 +18,92 @@ const CAR_RADIUS = 330, CARS = 260;
 const CYCLE = 64, GREEN = 27; // seconds: must match the lens shader in props.js
 
 // ---------------------------------------------------------------- models
-// Box with a colour and a glow code per vertex (0 body, 1 headlamp, 2 tail lamp). Body colour 1,1,1 is
-// tinted per car by the instance colour; glass and tyres are dark, so the tint barely shows on them.
-function part(w, h, d, x, y, z, rgb, glow = 0) {
-  const g = new THREE.BoxGeometry(w, h, d).translate(x, y, z).toNonIndexed(), n = g.attributes.position.count;
-  const c = new Float32Array(n * 3), e = new Float32Array(n);
-  for (let i = 0; i < n; i++) { c.set(rgb, i * 3); e[i] = glow; }
+// Parts carry a colour and a code per vertex (aGlow): 0 paint, 1 headlamp, 2 tail lamp, 3 glass, 4 rubber and
+// trim. Paint of colour 1,1,1 is tinted per car by the instance colour; glass and trim are dark, so the tint
+// barely shows on them.
+function finish(g, rgb, code) {
+  g = g.index ? g.toNonIndexed() : g;
+  const n = g.attributes.position.count, c = new Float32Array(n * 3), e = new Float32Array(n);
+  for (let i = 0; i < n; i++) { c.set(rgb, i * 3); e[i] = code; }
   g.setAttribute('color', new THREE.BufferAttribute(c, 3));
   g.setAttribute('aGlow', new THREE.BufferAttribute(e, 1));
   g.deleteAttribute('uv');
   return g;
 }
-const PAINT = [1, 1, 1], GLASS = [0.03, 0.04, 0.05], TYRE = [0.015, 0.015, 0.015], LAMP = [1, 1, 1];
-// A vehicle along +z: length L, width W, body up to `belt`, cabin from z0 to z1 up to `roof`.
-function vehicle({ L, W, belt, roof, z0, z1, box }) {
-  const parts = [part(W, belt - 0.28, L, 0, 0.28 + (belt - 0.28) / 2, 0, PAINT)];
-  const cl = (z1 - z0) * L, cz = ((z0 + z1) / 2 - 0.5) * L;
-  parts.push(part(W * 0.9, roof - belt, cl, 0, belt + (roof - belt) / 2, cz, GLASS));       // glasshouse
-  parts.push(part(W * 0.92, 0.07, cl * 0.94, 0, roof + 0.035, cz, PAINT));                   // roof panel
+const part = (w, h, d, x, y, z, rgb, code = 0) => finish(new THREE.BoxGeometry(w, h, d).translate(x, y, z), rgb, code);
+// A block that narrows and shortens towards its top: width w0 and length zA0..zB0 at y0, w1 and zA1..zB1 at y1.
+function taper(w0, w1, y0, y1, zA0, zB0, zA1, zB1, rgb, code = 0) {
+  const g = new THREE.BoxGeometry(1, 1, 1), p = g.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const top = p.getY(i) > 0, front = p.getZ(i) > 0;
+    p.setXYZ(i, p.getX(i) * (top ? w1 : w0), top ? y1 : y0, top ? (front ? zB1 : zA1) : (front ? zB0 : zA0));
+  }
+  const flat = g.toNonIndexed();
+  flat.computeVertexNormals();
+  return finish(flat, rgb, code);
+}
+const wheel = (r, x, z) => [
+  finish(new THREE.CylinderGeometry(r, r, 0.24, 14).rotateZ(Math.PI / 2).translate(x, r, z), TYRE, 4),
+  finish(new THREE.CylinderGeometry(r * 0.58, r * 0.58, 0.25, 10).rotateZ(Math.PI / 2).translate(x, r, z), [0.55, 0.56, 0.58], 4),
+];
+const PAINT = [1, 1, 1], GLASS = [0.03, 0.04, 0.05], TYRE = [0.015, 0.015, 0.015], TRIM = [0.05, 0.05, 0.055], LAMP = [1, 1, 1];
+// A vehicle along +z: length L, width W, body up to `belt`, cabin from z0 to z1 (fractions of L) up to `roof`,
+// its windscreen leaning back by `rake` metres.
+function vehicle({ L, W, belt, roof, z0, z1, box, rake = 0.5, tyre = 0.31 }) {
+  const zr = -L / 2, zf = L / 2, sill = 0.24, parts = [];
+  parts.push(taper(W * 0.97, W, sill, belt, zr + 0.06, zf - 0.06, zr, zf - 0.02, PAINT));                 // body
+  parts.push(part(W * 1.01, 0.16, L + 0.06, 0, sill + 0.04, 0, TRIM, 4));                                // bumpers and sills
+  const c0 = zr + z0 * L, c1 = zr + z1 * L, back = rake * 0.6, zm = (c0 + c1) / 2;
+  parts.push(taper(W * 0.9, W * 0.76, belt, roof, c0, c1, c0 + back, c1 - rake, GLASS, 3));               // glasshouse
+  parts.push(taper(W * 0.78, W * 0.72, roof - 0.02, roof + 0.05, c0 + back - 0.02, c1 - rake + 0.02, c0 + back + 0.1, c1 - rake - 0.1, PAINT)); // roof
+  if (c1 - c0 > 2.2) parts.push(taper(W * 0.905, W * 0.765, belt, roof, zm - 0.07, zm + 0.07, zm - 0.07, zm + 0.07, PAINT)); // the pillar between the doors
   if (box) parts.push(part(W, box.h, box.len * L, 0, belt + box.h / 2, (box.z - 0.5) * L, [0.92, 0.92, 0.9])); // cargo body (not tinted much)
+  parts.push(part(W * 0.5, 0.16, 0.05, 0, belt - 0.3, zf, TRIM, 4));                                      // grille
+  for (const z of [zf + 0.01, zr - 0.01]) parts.push(part(0.34, 0.13, 0.03, 0, sill + 0.22, z, [0.9, 0.9, 0.86], 4)); // number plates
   for (const sx of [-1, 1]) {
-    for (const wz of [0.3, -0.3]) parts.push(part(0.24, 0.62, 0.62, sx * (W / 2 - 0.1), 0.31, wz * L, TYRE));
-    parts.push(part(0.34, 0.14, 0.06, sx * (W / 2 - 0.3), belt - 0.22, L / 2, LAMP, 1));
-    parts.push(part(0.34, 0.14, 0.06, sx * (W / 2 - 0.3), belt - 0.2, -L / 2, LAMP, 2));
+    const far = L > 8 ? 0.34 : 0.31;
+    for (const wz of [far, -far]) parts.push(...wheel(tyre, sx * (W / 2 - 0.1), wz * L));
+    parts.push(part(0.38, 0.15, 0.07, sx * (W / 2 - 0.26), belt - 0.2, zf - 0.02, LAMP, 1));
+    parts.push(part(0.36, 0.13, 0.07, sx * (W / 2 - 0.24), belt - 0.18, zr + 0.02, LAMP, 2));
+    parts.push(part(0.1, 0.1, 0.16, sx * (W / 2 + 0.03), belt + 0.08, c1 - rake * 0.5, PAINT));           // mirrors
   }
   return mergeGeometries(parts);
 }
+// What the lamps throw on the road: a long pool ahead of the car and a short red one behind it, as one
+// instanced mesh per vehicle type that shares the cars' own matrices. Like the street lamps' pools
+// (props.js), it multiplies the road under it.
+function beamTexture() {
+  const W = 64, H = 128, data = new Uint8Array(W * H * 4);
+  for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+    const u = ((i + 0.5) / W) * 2 - 1, v = (j + 0.5) / H, spread = 0.2 + 0.75 * v;
+    const value = Math.exp(-((u / spread) ** 2) * 1.3) * THREE.MathUtils.smoothstep(v, 0, 0.07) * Math.exp(-v * 3.1) * (1 - THREE.MathUtils.smoothstep(v, 0.8, 1)) * (1 - THREE.MathUtils.smoothstep(Math.abs(u), 0.8, 1));
+    data.set([value * 255, value * 255, value * 255, 255], (j * W + i) * 4);
+  }
+  const t = new THREE.DataTexture(data, W, H);
+  t.magFilter = t.minFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  return t;
+}
+function beamGeometry(L) {
+  const g = new THREE.BufferGeometry(), y = 0.03, pos = [], uv = [], col = [];
+  const quad = (x, zNear, zFar, rgb) => {
+    pos.push(-x, y, zNear, x, y, zNear, x, y, zFar, -x, y, zNear, x, y, zFar, -x, y, zFar);
+    uv.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1);
+    for (let i = 0; i < 6; i++) col.push(...rgb);
+  };
+  quad(5.5, L / 2 - 0.6, L / 2 + 30, [1, 0.95, 0.84]);       // headlamps, dipped: 30 m of road
+  quad(-2.6, -L / 2 + 0.4, -L / 2 - 7, [0.34, 0.02, 0.012]);  // tail lamps
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  return g;
+}
 const TYPES = [
-  { name: 'kei', share: 0.3, L: 3.4, spec: { L: 3.4, W: 1.48, belt: 1.0, roof: 1.72, z0: 0.12, z1: 0.88 } },
-  { name: 'sedan', share: 0.3, L: 4.6, spec: { L: 4.6, W: 1.76, belt: 0.92, roof: 1.44, z0: 0.24, z1: 0.76 } },
-  { name: 'van', share: 0.2, L: 4.8, spec: { L: 4.8, W: 1.82, belt: 1.05, roof: 1.9, z0: 0.1, z1: 0.92 } },
-  { name: 'truck', share: 0.12, L: 6.2, spec: { L: 6.2, W: 2.1, belt: 1.0, roof: 2.2, z0: 0.74, z1: 0.97, box: { h: 2.0, len: 0.68, z: 0.36 } } },
-  { name: 'bus', share: 0.08, L: 10.4, spec: { L: 10.4, W: 2.5, belt: 1.25, roof: 3.0, z0: 0.02, z1: 0.98 } },
+  { name: 'kei', share: 0.3, L: 3.4, spec: { L: 3.4, W: 1.48, belt: 1.0, roof: 1.72, z0: 0.12, z1: 0.86, rake: 0.42, tyre: 0.28 } },
+  { name: 'sedan', share: 0.3, L: 4.6, spec: { L: 4.6, W: 1.76, belt: 0.92, roof: 1.44, z0: 0.2, z1: 0.72, rake: 0.75 } },
+  { name: 'van', share: 0.2, L: 4.8, spec: { L: 4.8, W: 1.82, belt: 1.05, roof: 1.9, z0: 0.06, z1: 0.86, rake: 0.5 } },
+  { name: 'truck', share: 0.12, L: 6.2, spec: { L: 6.2, W: 2.1, belt: 1.0, roof: 2.2, z0: 0.74, z1: 0.97, rake: 0.18, tyre: 0.4, box: { h: 2.0, len: 0.68, z: 0.36 } } },
+  { name: 'bus', share: 0.08, L: 10.4, spec: { L: 10.4, W: 2.5, belt: 1.25, roof: 3.0, z0: 0.02, z1: 0.98, rake: 0.14, tyre: 0.46 } },
 ];
 const CAR_COLORS = [0xd4d4d0, 0xd4d4d0, 0x111214, 0x111214, 0xa4a7ab, 0xa4a7ab, 0x6d7278, 0x1f3a6e, 0x8c1c1c, 0xc4b68f]; // (white kept off full brightness: it blooms)
 const BUS_COLORS = [0x2e8b57, 0xe8e4d8, 0xc0392b];
@@ -62,7 +116,7 @@ export function parkedVehicles() {
 }
 
 function carMaterial(lit = true) {
-  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.35, metalness: 0.35 });
+  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.28, metalness: 0.5 });
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uNight = shared.uNight;
     shader.vertexShader = shader.vertexShader
@@ -73,11 +127,16 @@ function carMaterial(lit = true) {
       // lamps keep their own colour instead of the body paint, and shine at night
       .replace('#include <color_fragment>', `#include <color_fragment>
         vec3 lamp = vGlow > 1.5 ? vec3(0.9, 0.03, 0.02) : vec3(1.0, 0.96, 0.85);
-        if (vGlow > 0.5) diffuseColor.rgb = lamp * 0.6;`)
+        if (vGlow > 0.5 && vGlow < 2.5) diffuseColor.rgb = lamp * 0.6;`)
+      // glass is a dark mirror, rubber and trim are matt, the paint has a hard shine
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = vGlow > 3.5 ? 0.85 : vGlow > 2.5 ? 0.06 : roughnessFactor;')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = vGlow > 3.5 ? 0.0 : vGlow > 2.5 ? 0.9 : metalnessFactor;')
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        if (vGlow > 0.5) totalEmissiveRadiance += lamp * (0.15 + uNight * ${lit ? '(vGlow > 1.5 ? 1.6 : 3.0)' : '0.0'});`);
+        if (vGlow > 0.5 && vGlow < 2.5) totalEmissiveRadiance += lamp * (0.15 + uNight * ${lit ? '(vGlow > 1.5 ? 2.6 : 7.0)' : '0.0'});`)
+      // (the windows are marked in alpha for the reflection pass, like those of the buildings)
+      .replace('#include <opaque_fragment>', '#include <opaque_fragment>\nif (vGlow > 2.5 && vGlow < 3.5) gl_FragColor.a = 0.1;');
   };
-  m.customProgramCacheKey = () => (lit ? 'car-v1' : 'car-parked-v1');
+  m.customProgramCacheKey = () => (lit ? 'car-v2' : 'car-parked-v2');
   return m;
 }
 
@@ -161,11 +220,18 @@ export class Traffic {
     this.seed = 12345;
 
     const material = carMaterial();
+    this.beam = new THREE.MeshBasicMaterial({
+      map: beamTexture(), vertexColors: true, color: 0x000000, transparent: true, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
+      blendSrc: THREE.DstColorFactor, blendDst: THREE.OneFactor, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8,
+    });
     this.fleets = TYPES.map((t) => {
       const mesh = new THREE.InstancedMesh(vehicle(t.spec), material, Math.ceil(CARS * t.share) + 2);
       mesh.castShadow = true; mesh.frustumCulled = false; mesh.count = 0;
-      this.group.add(mesh);
-      return { ...t, mesh };
+      const beams = new THREE.InstancedMesh(beamGeometry(t.L), this.beam, mesh.instanceMatrix.count);
+      beams.instanceMatrix = mesh.instanceMatrix; // the lamps go where the cars go
+      beams.frustumCulled = false; beams.count = 0;
+      this.group.add(mesh, beams);
+      return { ...t, mesh, beams };
     });
     this.cars = [];
     this.dummy = new THREE.Object3D();
@@ -322,8 +388,11 @@ export class Traffic {
       fleet.mesh.setMatrixAt(i, d.matrix);
       fleet.mesh.setColorAt(i, this.color.setHex(car.color));
     }
+    const night = shared.uNight.value;
+    this.beam.color.setScalar(9 * night); // how many times brighter the road is just ahead of a car
+    this.beam.visible = night > 0.02;
     this.fleets.forEach((f, i) => {
-      f.mesh.count = counts[i];
+      f.mesh.count = f.beams.count = counts[i];
       f.mesh.instanceMatrix.needsUpdate = true;
       if (f.mesh.instanceColor) f.mesh.instanceColor.needsUpdate = true;
     });

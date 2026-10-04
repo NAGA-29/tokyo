@@ -17,49 +17,89 @@ const SPEED = 15;        // m/s
 const GAP = 350;         // metres of pause before a train re-enters
 const MIN_PATH = 260;
 
-// Side view of one car: plain body and underframe swatches in the top 8 px, the side below.
+// The livery of one car, drawn into one picture (2048 x 512): plain body and underframe swatches in the top
+// 16 px, the side of the car below them, the end of the car (cab window, lamps) in the lower left corner.
+// The second picture is what shines: saloon windows, lamps and the destination sign.
+const TEX_W = 2048, TEX_H = 512, SIDE_Y0 = 16, SIDE_Y1 = 256;
 function carTextures(stock) {
-  const W = 1024, H = 128, side = document.createElement('canvas'), glow = document.createElement('canvas');
-  side.width = glow.width = W; side.height = glow.height = H;
+  const side = document.createElement('canvas'), glow = document.createElement('canvas');
+  side.width = glow.width = TEX_W; side.height = glow.height = TEX_H;
   const g = side.getContext('2d'), e = glow.getContext('2d');
-  g.fillStyle = stock.body; g.fillRect(0, 0, W, H);
-  g.fillStyle = '#26282b'; g.fillRect(W / 2, 0, W / 2, 8);           // underframe swatch
-  e.fillStyle = '#000'; e.fillRect(0, 0, W, H);
-  g.fillStyle = stock.stripe; g.fillRect(0, 14, W, 8); g.fillRect(0, 76, W, 10); // roof-line and waist stripes
-  const doors = 4, pitch = W / doors;
+  e.fillStyle = '#000'; e.fillRect(0, 0, TEX_W, TEX_H);
+  g.fillStyle = stock.body; g.fillRect(0, 0, TEX_W, TEX_H);
+  g.fillStyle = '#26282b'; g.fillRect(TEX_W / 2, 0, TEX_W / 2, SIDE_Y0);  // underframe swatch
+  const glass = (x, y, w, h, lit = true) => {
+    const k = g.createLinearGradient(0, y, 0, y + h);
+    k.addColorStop(0, '#2c3a47'); k.addColorStop(0.5, '#151b21'); k.addColorStop(1, '#0c1014');
+    g.fillStyle = '#5c6066'; g.fillRect(x - 3, y - 3, w + 6, h + 6);    // frame
+    g.fillStyle = k; g.fillRect(x, y, w, h);
+    if (lit) { e.fillStyle = '#fff0d0'; e.fillRect(x, y, w, h); }
+  };
+  // ---- the side
+  const Y = SIDE_Y0, H = SIDE_Y1 - SIDE_Y0;
+  const shade = g.createLinearGradient(0, Y, 0, Y + H);                  // a brushed body: lighter above, darker by the sill
+  shade.addColorStop(0, 'rgba(255,255,255,0.16)'); shade.addColorStop(0.55, 'rgba(255,255,255,0)'); shade.addColorStop(1, 'rgba(0,0,0,0.24)');
+  g.fillStyle = shade; g.fillRect(0, Y, TEX_W, H);
+  g.fillStyle = 'rgba(0,0,0,0.1)'; for (let x = 0; x < TEX_W; x += 64) g.fillRect(x, Y, 1, H); // panel seams
+  g.fillStyle = stock.stripe; g.fillRect(0, Y + 14, TEX_W, 12); g.fillRect(0, Y + 132, TEX_W, 18);
+  g.fillStyle = 'rgba(255,255,255,0.75)'; g.fillRect(0, Y + 150, TEX_W, 3);
+  g.fillStyle = '#3a3d41'; g.fillRect(0, Y + H - 22, TEX_W, 22);         // skirt
+  const doors = 4, pitch = TEX_W / doors;
   for (let d = 0; d < doors; d++) {
     const x = pitch * (d + 0.5);
-    for (const [wx, ww] of [[x - pitch * 0.42, pitch * 0.26], [x + pitch * 0.16, pitch * 0.26]]) { // windows between doors
-      g.fillStyle = '#1c2228'; g.fillRect(wx, 32, ww, 36);
-      e.fillStyle = '#fff2d2'; e.fillRect(wx, 32, ww, 36);
-    }
-    g.fillStyle = stock.stripe; g.fillRect(x - 26, 24, 52, 96);        // door leaves in the line colour
-    g.fillStyle = '#1c2228'; g.fillRect(x - 20, 32, 17, 40); g.fillRect(x + 3, 32, 17, 40);
-    e.fillStyle = '#fff2d2'; e.fillRect(x - 20, 32, 17, 40); e.fillRect(x + 3, 32, 17, 40);
-    g.fillStyle = '#555'; g.fillRect(x - 1, 24, 2, 96);
+    for (const [wx, ww] of [[x - pitch * 0.41, pitch * 0.25], [x + pitch * 0.16, pitch * 0.25]]) glass(wx, Y + 46, ww, 74); // windows between doors
+    g.fillStyle = stock.stripe; g.fillRect(x - 54, Y + 30, 108, H - 52);  // door leaves in the line colour
+    g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(x - 56, Y + 30, 2, H - 52); g.fillRect(x + 54, Y + 30, 2, H - 52);
+    glass(x - 42, Y + 48, 34, 82); glass(x + 8, Y + 48, 34, 82);
+    g.fillStyle = '#2a2c2f'; g.fillRect(x - 1, Y + 30, 3, H - 52);
+  }
+  // destination sign by the first door: amber on black, lit
+  g.fillStyle = '#0a0a0a'; g.fillRect(pitch * 0.5 - 150, Y + 30, 70, 12);
+  e.fillStyle = '#ffb030'; for (let k = 0; k < 6; k++) e.fillRect(pitch * 0.5 - 146 + k * 11, Y + 33, 8, 6);
+  // ---- the end: a wide cab window over the line colour, lamps low down
+  const EY = SIDE_Y1, ES = TEX_H - SIDE_Y1;
+  g.fillStyle = stock.body; g.fillRect(0, EY, ES, ES);
+  g.fillStyle = stock.stripe; g.fillRect(0, EY + ES * 0.52, ES, ES * 0.2);
+  g.fillStyle = '#3a3d41'; g.fillRect(0, EY + ES * 0.9, ES, ES * 0.1);
+  glass(ES * 0.1, EY + ES * 0.1, ES * 0.8, ES * 0.36, false);
+  g.fillStyle = '#0a0a0a'; g.fillRect(ES * 0.3, EY + ES * 0.03, ES * 0.4, ES * 0.055);
+  e.fillStyle = '#ffb030'; e.fillRect(ES * 0.33, EY + ES * 0.04, ES * 0.34, ES * 0.035);
+  for (const sx of [0.16, 0.84]) {
+    g.fillStyle = '#f6f2e4'; g.beginPath(); g.arc(ES * sx, EY + ES * 0.8, ES * 0.045, 0, Math.PI * 2); g.fill();
+    e.fillStyle = '#fff6e0'; e.beginPath(); e.arc(ES * sx, EY + ES * 0.8, ES * 0.045, 0, Math.PI * 2); e.fill();
+    g.fillStyle = '#c01818'; g.beginPath(); g.arc(ES * (sx < 0.5 ? sx + 0.1 : sx - 0.1), EY + ES * 0.8, ES * 0.03, 0, Math.PI * 2); g.fill();
+    e.fillStyle = '#ff2a1a'; e.beginPath(); e.arc(ES * (sx < 0.5 ? sx + 0.1 : sx - 0.1), EY + ES * 0.8, ES * 0.03, 0, Math.PI * 2); e.fill();
   }
   const tex = (c) => { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; };
   return { map: tex(side), emissiveMap: tex(glow) };
 }
 
-// Car body (floor 1 m above the rail) and underframe; only the long sides show the side texture.
+// Car body (floor 1 m above the rail), underframe, bogies and the boxes on the roof. The long sides show the
+// side of the livery, the two ends its end; everything else takes a plain swatch.
 function carGeometry(length) {
-  const plain = (geo, u) => { const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, u, 0.985); return geo; };
+  const SWATCH = 1 - SIDE_Y0 / 2 / TEX_H;
+  const plain = (geo, u) => { const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, u, SWATCH); return geo; };
   const body = new THREE.BoxGeometry(2.9, 2.75, length - 0.6).translate(0, 1.0 + 1.375, 0);
-  const uv = body.attributes.uv;
-  // BoxGeometry faces: +x, -x, +y, -y, +z, -z (4 vertices each). Sides keep the picture below the swatch row.
+  const uv = body.attributes.uv, v0 = 1 - SIDE_Y1 / TEX_H, v1 = 1 - SIDE_Y0 / TEX_H, end = (TEX_H - SIDE_Y1) / TEX_W;
+  // BoxGeometry faces: +x, -x, +y, -y, +z, -z (4 vertices each)
   for (let i = 0; i < uv.count; i++) {
-    if (i < 8) uv.setY(i, uv.getY(i) * (120 / 128));
-    else uv.setXY(i, 0.25, 0.985);
+    if (i < 8) uv.setY(i, v0 + uv.getY(i) * (v1 - v0));                           // the sides
+    else if (i >= 16) uv.setXY(i, uv.getX(i) * end, uv.getY(i) * v0);             // the ends
+    else uv.setXY(i, 0.25, SWATCH);                                                // roof and floor
   }
-  const under = plain(new THREE.BoxGeometry(2.5, 0.85, length - 2.5).translate(0, 0.575, 0), 0.75);
-  const g = new THREE.BufferGeometry();
+  const parts = [body, plain(new THREE.BoxGeometry(2.5, 0.85, length - 2.5).translate(0, 0.575, 0), 0.75)];
+  for (const z of [-0.36, 0.36]) parts.push(plain(new THREE.BoxGeometry(2.3, 0.5, 3.2).translate(0, 0.25, z * length), 0.75));   // bogies
+  for (const z of [-0.2, 0.2]) parts.push(plain(new THREE.BoxGeometry(1.9, 0.32, 3.6).translate(0, 3.75 + 0.16, z * length), 0.75)); // air conditioning
+  const g = new THREE.BufferGeometry(), index = [];
+  let count = 0;
   for (const name of ['position', 'normal', 'uv']) {
-    const a = body.attributes[name], b = under.attributes[name], arr = new Float32Array(a.array.length + b.array.length);
-    arr.set(a.array); arr.set(b.array, a.array.length);
-    g.setAttribute(name, new THREE.BufferAttribute(arr, a.itemSize));
+    const size = parts[0].attributes[name].itemSize, arr = new Float32Array(parts.reduce((s, p) => s + p.attributes[name].array.length, 0));
+    let o = 0;
+    for (const p of parts) { arr.set(p.attributes[name].array, o); o += p.attributes[name].array.length; }
+    g.setAttribute(name, new THREE.BufferAttribute(arr, size));
   }
-  g.setIndex([...body.index.array, ...Array.from(under.index.array, (i) => i + body.attributes.position.count)]);
+  for (const p of parts) { index.push(...Array.from(p.index.array, (i) => i + count)); count += p.attributes.position.count; }
+  g.setIndex(index);
   return g;
 }
 
@@ -111,7 +151,7 @@ export class Trains {
       stocks.get(stock).push(p);
     }
     for (const [stock, list] of stocks) {
-      const material = new THREE.MeshStandardMaterial({ ...carTextures(stock), roughness: 0.45, metalness: 0.35, emissive: 0xffffff, emissiveIntensity: 0 });
+      const material = new THREE.MeshStandardMaterial({ ...carTextures(stock), roughness: 0.32, metalness: 0.55, emissive: 0xffffff, emissiveIntensity: 0 });
       const mesh = new THREE.InstancedMesh(carGeometry(stock.length), material, list.length * stock.cars);
       mesh.castShadow = mesh.receiveShadow = true;
       mesh.frustumCulled = false; // cars move across the whole area
@@ -125,7 +165,7 @@ export class Trains {
   update(dt, night) {
     const { dummy, a, b } = this;
     for (const { stock, mesh, material, trains } of this.sets) {
-      material.emissiveIntensity = 0.15 + night * 1.1; // the saloon lights are always on
+      material.emissiveIntensity = 0.2 + night * 1.6; // the saloon lights are always on
       let n = 0;
       for (const t of trains) {
         const span = t.path.length + stock.cars * stock.length + GAP;

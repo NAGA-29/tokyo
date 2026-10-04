@@ -17,6 +17,8 @@ export const shared = {
   uWindowLife: { value: new THREE.Vector2(0.5, 4) },
   // how strongly the glass of tall buildings mirrors the lights of the city at night (0: off)
   uCityGlass: { value: 1 },
+  // how blue the lights of the city are at night (0: mostly warm, 1: a cool blue city)
+  uNightBlue: { value: 0.55 },
   // the sun in the window glass: direction to the sun (world), and its colour times how much of it there is
   uSunDir: { value: new THREE.Vector3(0, 1, 0) }, uSunGlint: { value: new THREE.Color(0, 0, 0) }, uGlintOn: { value: 1 },
   // wall photos: the distances (m) between which a facade goes from generated to photo, and how much photo at most
@@ -54,6 +56,7 @@ uniform float uNight;
 uniform float uTime;
 uniform vec2 uWindowLife;
 uniform float uCityGlass;
+uniform float uNightBlue;
 uniform vec3 uSunDir;
 uniform vec3 uSunGlint;
 uniform float uGlintOn;
@@ -190,10 +193,11 @@ const FACADE_MAIN = /* glsl */ `
     // and building by building.
     float tint = hash12(room + 61.0), office = step(2.5, cat);
     vec3 warm = mix(vec3(1.0, 0.6, 0.3), vec3(1.0, 0.82, 0.6), hash12(room + 67.0));
-    vec3 cool = mix(vec3(1.0, 0.95, 0.86), vec3(0.78, 0.9, 1.0), hash12(room + 71.0));
-    float coolShare = mix(0.25, mix(0.12, 0.95, step(0.35, b2)), office);
+    // (uNightBlue leans the city towards blue: bluer cool lamps, more of them, more rooms in screen light)
+    vec3 cool = mix(vec3(1.0, 0.95, 0.86), mix(vec3(0.78, 0.9, 1.0), vec3(0.42, 0.66, 1.0), uNightBlue), hash12(room + 71.0));
+    float coolShare = mix(0.25, mix(0.12, 0.95, step(0.35, b2)), office) + 0.45 * uNightBlue;
     vec3 lamp = mix(warm, cool, step(1.0 - coolShare, mix(tint, 0.5 * b3 + 0.5 * tint, office)));
-    lamp = mix(lamp, vec3(0.45, 0.65, 1.0), (1.0 - office) * step(0.93, tint));
+    lamp = mix(lamp, vec3(0.3, 0.55, 1.0), step(0.93 - 0.22 * uNightBlue, tint) * mix(1.0 - office, 1.0, uNightBlue));
     float glow = mix(0.3, 1.35, hash12(room + 1.3)) * mix(0.65, 1.25, b3);
 
     // glass: mostly a mirror of the sky; the room behind shows through as emitted light
@@ -230,7 +234,7 @@ const FACADE_MAIN = /* glsl */ `
         vec2 at = vec2(hash12(cell + 3.1), hash12(cell + 7.7));
         float d = length(fract(g) - at) * 26.0, kind = hash12(cell + 13.0);
         float spot = exp(-d * d / (3.0 + reach * 0.03)) * step(0.3, kind);
-        vec3 tintC = kind > 0.8 ? vec3(0.8, 0.9, 1.0) : kind > 0.72 ? vec3(1.0, 0.25, 0.2) : vec3(1.0, 0.72, 0.42);
+        vec3 tintC = kind > 0.8 - 0.3 * uNightBlue ? mix(vec3(0.8, 0.9, 1.0), vec3(0.4, 0.65, 1.0), uNightBlue) : kind > 0.42 && kind < 0.5 ? vec3(1.0, 0.25, 0.2) : vec3(1.0, 0.72, 0.42);
         city = tintC * spot * 5.0 / (1.0 + reach * reach / 4.0e5);
         city += vec3(1.0, 0.75, 0.5) * 0.035 * smoothstep(0.0, 900.0, reach);  // and their haze towards the horizon
       }
@@ -280,7 +284,7 @@ function facadeMaterial(tex) {
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, {
       uPhoto: m.userData.photo, uPhotoOn: m.userData.photoOn, uPhotoRange: shared.uPhotoRange, uPhotoMix: shared.uPhotoMix,
-      uNight: shared.uNight, uTime: shared.uTime, uWindowLife: shared.uWindowLife, uCityGlass: shared.uCityGlass, uSunDir: shared.uSunDir, uSunGlint: shared.uSunGlint, uGlintOn: shared.uGlintOn, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
+      uNight: shared.uNight, uTime: shared.uTime, uWindowLife: shared.uWindowLife, uCityGlass: shared.uCityGlass, uNightBlue: shared.uNightBlue, uSunDir: shared.uSunDir, uSunGlint: shared.uSunGlint, uGlintOn: shared.uGlintOn, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
       uWallScale: { value: tex.wall.scales }, uWallDetail: { value: tex.wall.details },
     });
     shader.vertexShader = shader.vertexShader
@@ -297,7 +301,7 @@ function facadeMaterial(tex) {
       .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.directSpecular += gGlint * smoothstep(0.0, 0.002, dot(reflectedLight.directDiffuse, vec3(0.333)));')
       .replace('#include <opaque_fragment>', '#include <opaque_fragment>\ngl_FragColor.a = 1.0 - 0.95 * gPane;');
   };
-  m.customProgramCacheKey = () => 'facade-v17';
+  m.customProgramCacheKey = () => 'facade-v18';
   return m;
 }
 
