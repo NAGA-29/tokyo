@@ -196,7 +196,7 @@ let guiState, clockText;
   const quality = gui.addFolder('Rendering');
   quality.add(state, 'whole').name('whole city');
   quality.add(state, 'radius', 300, 3000, 50).name('view radius (m), if not');
-  quality.add(atmosphere, 'reflect').name('window reflections');
+  quality.add(atmosphere, 'reflect').name('window and water reflections');
   quality.add(shared.uGlintOn, 'value', 0, 1, 1).name('sun in the windows');
   quality.add(state, 'shadows');
   quality.add(state, 'occlusion').name('ambient occlusion');

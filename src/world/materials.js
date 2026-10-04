@@ -329,11 +329,14 @@ uniform float uFixedLayer;
 uniform sampler2D uOrtho;
 uniform vec4 uOrthoRect;
 uniform float uOrthoOn;
+uniform float uTime;
 varying float vLayer;
 varying vec3 vWPos;
 varying vec3 vWNrm;
 vec3 gT, gB, gN, gNm;
 float gRough;
+float gMetal = 0.0;
+float gWater = 0.0; // 1 on water: written to alpha for the reflection pass, which mirrors the world in it
 ${NOISE}
 `;
 const GROUND_MAIN = /* glsl */ `
@@ -365,9 +368,17 @@ const GROUND_MAIN = /* glsl */ `
     }
   }
   if (water) {
-    diffuseColor.rgb = tint * (0.9 + 0.2 * blotch);
-    gNm = normalize(vec3((vnoise(st * 0.9) - 0.5) * 0.08, (vnoise(st * 0.9 + 31.7) - 0.5) * 0.08, 1.0));
-    gRough = 0.06;
+    // Water: deep and a little green, darker where the bed drops away; two sets of ripples drifting across each
+    // other, and a finer chop on top. Smooth and half a mirror, so the sky and the sun stand in it.
+    float depth = vnoise(st * 0.02 + 7.3);
+    diffuseColor.rgb = tint * mix(vec3(0.55, 0.75, 0.8), vec3(1.15, 1.2, 1.1), depth);
+    float t = uTime;
+    vec2 swell = vec2(vnoise(st * 0.33 + vec2(t * 0.21, t * 0.08)), vnoise(st * 0.33 + 17.0 + vec2(-t * 0.15, t * 0.19))) - 0.5;
+    vec2 chop = vec2(vnoise(st * 1.7 + vec2(-t * 0.6, t * 0.35)), vnoise(st * 1.7 + 41.0 + vec2(t * 0.5, t * 0.55))) - 0.5;
+    gNm = normalize(vec3(swell * 0.16 + chop * 0.07, 1.0));
+    gRough = 0.07;
+    gMetal = 0.45;
+    gWater = 1.0;
   }
 }
 `;
@@ -378,7 +389,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
     Object.assign(shader.uniforms, {
       uGroundAlb: { value: tex.ground.albedo }, uGroundNor: { value: tex.ground.normal },
       uGroundScale: { value: tex.ground.scales }, uFixedLayer: { value: fixedLayer },
-      uOrtho: shared.uOrtho, uOrthoRect: shared.uOrthoRect, uOrthoOn: shared.uOrthoOn,
+      uOrtho: shared.uOrtho, uOrthoRect: shared.uOrthoRect, uOrthoOn: shared.uOrthoOn, uTime: shared.uTime,
       uLampOn: shared.uLampOn, uLampMap: shared.uLampMap, uLampRect: shared.uLampRect,
     });
     shader.vertexShader = shader.vertexShader
@@ -388,9 +399,11 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       .replace('#include <common>', '#include <common>\n' + GROUND_PARS)
       .replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_MAIN)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = gRough;')
-      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + APPLY_NORMAL);
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = gMetal;')
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + APPLY_NORMAL)
+      .replace('#include <opaque_fragment>', '#include <opaque_fragment>\ngl_FragColor.a = 1.0 - gWater;'); // (alpha 0: water, see reflections.js)
   };
-  m.customProgramCacheKey = () => 'ground-v3';
+  m.customProgramCacheKey = () => 'ground-v4';
   return m;
 }
 
