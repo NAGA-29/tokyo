@@ -263,31 +263,6 @@ function wheelZoom(dt) {
   controls.target.sub(zoom.pivot).multiplyScalar(scale).add(zoom.pivot);
 }
 
-// Right-drag (or Alt + left-drag) turns the view about the point it looks at. Handled here, with plain mouse
-// events on the window, rather than left to MapControls: its pointer bookkeeping can miss a right button's
-// release, after which it ignores the button for good.
-controls.mouseButtons.RIGHT = null;
-const turn = { on: false, button: 2, x: 0, y: 0, spherical: new THREE.Spherical(), offset: new THREE.Vector3() };
-renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
-addEventListener('mousedown', (e) => {
-  if (e.target !== renderer.domElement || !(e.button === 2 || (e.button === 0 && e.altKey))) return;
-  Object.assign(turn, { on: true, button: e.button, x: e.clientX, y: e.clientY });
-  if (e.button === 0) e.stopPropagation(); // (Alt + left: not a pan)
-}, true);
-addEventListener('mousemove', (e) => {
-  if (!turn.on) return;
-  if (!(e.buttons & (turn.button === 2 ? 2 : 1))) { turn.on = false; return; } // released somewhere we did not see
-  const k = (2 * Math.PI) / innerHeight, s = turn.spherical;
-  s.setFromVector3(turn.offset.subVectors(camera.position, controls.target));
-  s.theta -= (e.clientX - turn.x) * k;
-  s.phi = THREE.MathUtils.clamp(s.phi - (e.clientY - turn.y) * k, 0.05, controls.maxPolarAngle);
-  camera.position.copy(controls.target).add(turn.offset.setFromSpherical(s));
-  camera.lookAt(controls.target);
-  turn.x = e.clientX; turn.y = e.clientY;
-}, true);
-addEventListener('mouseup', () => { turn.on = false; }, true);
-addEventListener('blur', () => { turn.on = false; });
-
 // Click a building to inspect it.
 let picked = null;
 const raycaster = new THREE.Raycaster();
@@ -356,7 +331,7 @@ function frame() {
     `tiles ${s.loaded}/${manifest.tiles.length}${streamer.pending ? ` (+${streamer.pending})` : ''} · ${s.buildings} buildings\n` +
     (picked ? `\n▸ ${USAGE[picked.usage] ?? 'usage ' + picked.usage}, ${picked.height.toFixed(1)} m` +
       `${picked.storeys ? `, ${picked.storeys} floors` : ''}, base ${picked.base.toFixed(1)} m\n` : '') +
-    `\ndrag pan · right-drag or Alt-drag rotate · wheel zoom\nWASD move (shift fast) · N day/night · click building`;
+    `\ndrag pan · right-drag rotate · wheel zoom\nWASD move (shift fast) · N day/night · click building`;
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
