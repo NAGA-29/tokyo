@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { EffectComposer, RenderPass, EffectPass, Effect, BloomEffect, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
 import { N8AOPostPass } from 'n8ao';
+import { WindowReflections } from './reflections.js';
 import { AerialPerspectiveEffect, PrecomputedTexturesGenerator, getSunDirectionECEF, getMoonDirectionECEF } from '@takram/three-atmosphere';
 import { CloudsEffect, CLOUD_SHAPE_TEXTURE_SIZE, CLOUD_SHAPE_DETAIL_TEXTURE_SIZE } from '@takram/three-clouds';
 import { DataTextureLoader, Ellipsoid, Geodetic, parseUint8Array, radians, STBNLoader } from '@takram/three-geospatial';
@@ -126,6 +127,10 @@ export class Atmosphere {
     // ---- the passes
     this.composer = new EffectComposer(renderer, { frameBufferType: THREE.HalfFloatType, multisampling: 0 });
     this.composer.addPass(new RenderPass(scene, camera));
+    // window glass reflects what is on screen (first of all: it reads the panes marked in the alpha channel)
+    this.reflections = new WindowReflections(camera);
+    this.reflectionPass = new EffectPass(camera, this.reflections);
+    this.composer.addPass(this.reflectionPass);
     // ambient occlusion: contact shading between buildings and the ground
     this.ao = new N8AOPostPass(scene, camera, innerWidth, innerHeight);
     Object.assign(this.ao.configuration, { aoRadius: 7, distanceFalloff: 1, intensity: 2.6, halfRes: true, gammaCorrection: false });
@@ -147,6 +152,8 @@ export class Atmosphere {
 
   get cloudsOn() { return this.cloudPass.enabled; }
   set cloudsOn(v) { this.cloudPass.enabled = v; this.skyPass.enabled = !v; }
+  get reflect() { return this.reflectionPass.enabled; }
+  set reflect(v) { this.reflectionPass.enabled = v; }
   get coverage() { return this.clouds.coverage; }
   set coverage(v) { this.clouds.coverage = v; }
   // Altitude of the base of the two low cloud layers (the second starts 250 m above the first, as by default).

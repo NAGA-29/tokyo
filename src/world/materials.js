@@ -54,6 +54,7 @@ varying vec4 vBldg;
 varying vec3 vWPos;
 varying vec3 vWNrm;
 float gRough, gMetal;
+float gPane = 0.0; // how much of a mirror this fragment is: window glass (written to alpha for the reflection pass)
 vec3 gEmissive, gT, gB, gN, gNm;
 ${NOISE}
 `;
@@ -166,6 +167,7 @@ const FACADE_MAIN = /* glsl */ `
     gNm = mix(gNm, normalize(vec3((hash12(room + 5.1) - 0.5) * 0.03, (hash12(room + 9.4) - 0.5) * 0.03, 1.0)), inWin);
     float daylight = (1.0 - uNight) * (shop ? 0.3 : cat > 4.5 ? 0.06 : 0.12);
     gEmissive = pane * interior * (daylight + uNight * on * glow * 1.25 * lamp);
+    gPane = pane * (1.0 - 0.7 * far) * (1.0 - 0.85 * uNight * on); // (a lit room shows itself, not a reflection)
     // the lintel shades the top of the opening
     diffuseColor.rgb *= 1.0 - 0.35 * inWin * (1.0 - smoothstep(0.0, 0.18, wmax.y - pm.y)) * (1.0 - far);
 
@@ -221,9 +223,10 @@ function facadeMaterial(tex) {
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = gRough;')
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = gMetal;')
       .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + APPLY_NORMAL)
-      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += gEmissive;');
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += gEmissive;')
+      .replace('#include <opaque_fragment>', '#include <opaque_fragment>\ngl_FragColor.a = 1.0 - 0.95 * gPane;');
   };
-  m.customProgramCacheKey = () => 'facade-v7';
+  m.customProgramCacheKey = () => 'facade-v9';
   return m;
 }
 

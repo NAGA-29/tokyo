@@ -1,0 +1,90 @@
+// Window glass that reflects the city: screen-space reflections, for the window panes only.
+// The facade shader marks its panes in the alpha channel of the colour buffer (1 everywhere else). For each
+// marked pixel the mirrored view ray is marched through the depth buffer; where it meets something that
+// is on screen, the pane shows it. A ray that leaves the screen or finds nothing keeps what the pane had:
+// the reflection of the sky from the environment map.
+import * as THREE from 'three';
+import { Effect, EffectAttribute } from 'postprocessing';
+
+const STEPS = 28;
+
+const fragment = /* glsl */ `
+uniform mat4 uProjection;
+uniform mat4 uInverseProjection;
+uniform float uStrength;
+
+vec3 viewPosition(const vec2 uv, const float depth) {
+  vec4 p = uInverseProjection * vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+  return p.xyz / p.w;
+}
+
+void mainImage(const in vec4 inputColor, const in vec2 uv, const in float depth, out vec4 outputColor) {
+  outputColor = vec4(inputColor.rgb, 1.0);
+  float pane = 1.0 - inputColor.a;
+  if (pane < 0.02 || depth >= 1.0) return;
+
+  vec3 P = viewPosition(uv, depth);
+  // the pane's normal from the depth buffer: walls are flat, so neighbouring pixels give it
+  vec3 N = normalize(cross(dFdx(P), dFdy(P)));
+  vec3 V = normalize(P);
+  if (dot(N, V) > 0.0) N = -N;
+  vec3 R = reflect(V, N);
+  if (R.z > -0.02 && dot(R, V) < 0.0) return; // heading back at the camera: what it would show is not on screen
+
+  // steps grow with distance: the next building is tens of metres away, the skyline a kilometre
+  float jitter = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+  float t = 1.5 + jitter, growth = 1.24;
+  vec2 hit = vec2(-1.0);
+  float last = 0.0;
+  for (int i = 0; i < ${STEPS}; i++) {
+    vec3 Q = P + R * t;
+    if (Q.z > -1.0) break;                               // behind the camera
+    vec4 c = uProjection * vec4(Q, 1.0);
+    vec2 q = c.xy / c.w * 0.5 + 0.5;
+    if (q.x < 0.0 || q.x > 1.0 || q.y < 0.0 || q.y > 1.0) break;
+    float d = readDepth(q);
+    if (d < 1.0) {
+      float sceneZ = viewPosition(q, d).z, behind = sceneZ - Q.z; // > 0: the ray is behind what is drawn there
+      if (behind > 0.0 && behind < max(3.0, (t - last) * 1.5)) {
+        // halve the last step a few times to land on the surface
+        float lo = last, hi = t;
+        for (int k = 0; k < 5; k++) {
+          float mid = 0.5 * (lo + hi);
+          vec3 M = P + R * mid;
+          vec4 mc = uProjection * vec4(M, 1.0);
+          vec2 mq = mc.xy / mc.w * 0.5 + 0.5;
+          if (viewPosition(mq, readDepth(mq)).z - M.z > 0.0) hi = mid; else lo = mid;
+          q = mq;
+        }
+        hit = q;
+        break;
+      }
+    }
+    last = t;
+    t = t * growth + 0.5;
+  }
+  if (hit.x < 0.0) return;
+
+  // glass reflects more at a glancing angle; reflections fade out towards the edge of the screen
+  float fresnel = 0.3 + 0.7 * pow(1.0 - max(dot(-V, N), 0.0), 3.0);
+  vec2 edge = smoothstep(vec2(0.0), vec2(0.08), hit) * (1.0 - smoothstep(vec2(0.92), vec2(1.0), hit));
+  float k = pane * fresnel * edge.x * edge.y * uStrength;
+  outputColor.rgb = mix(inputColor.rgb, texture2D(inputBuffer, hit).rgb, clamp(k, 0.0, 1.0));
+}
+`;
+
+export class WindowReflections extends Effect {
+  constructor(camera) {
+    super('WindowReflections', fragment, {
+      attributes: EffectAttribute.DEPTH,
+      uniforms: new Map([
+        ['uProjection', new THREE.Uniform(camera.projectionMatrix)],
+        ['uInverseProjection', new THREE.Uniform(camera.projectionMatrixInverse)],
+        ['uStrength', new THREE.Uniform(1)],
+      ]),
+    });
+  }
+
+  get strength() { return this.uniforms.get('uStrength').value; }
+  set strength(v) { this.uniforms.get('uStrength').value = v; }
+}

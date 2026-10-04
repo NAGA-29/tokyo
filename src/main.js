@@ -84,6 +84,7 @@ const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
 const atmosphere = new Atmosphere(renderer, scene, camera, manifest.origin, manifest.bounds);
 env.sky.visible = false; // the atmosphere draws the sky (the environment map keeps its own)
 const ao = atmosphere.ao;
+if (params.get('reflect') === '0') atmosphere.reflect = false;
 if (Number(params.get('clouds')) > 0) { atmosphere.coverage = Number(params.get('clouds')); atmosphere.cloudsOn = true; }
 let orthoLoaded = false; // fills in when the tiles arrive
 if (params.get('ortho') !== '0') loadOrtho(`ortho/${AREA}`, proj, manifest.bounds, renderer).then((ok) => { orthoLoaded = ok; });
@@ -149,6 +150,7 @@ let guiState;
   walls.add(shared.uPhotoRange.value, 'y', 10, 2000, 10).name('full at (m)');
   const quality = gui.addFolder('Rendering');
   quality.add(state, 'radius', 500, 4000, 100).name('view radius (m)');
+  quality.add(atmosphere, 'reflect').name('window reflections');
   quality.add(state, 'shadows');
   quality.add(state, 'occlusion').name('ambient occlusion');
   quality.add(state, 'bloom');
