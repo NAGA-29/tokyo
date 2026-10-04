@@ -104,7 +104,7 @@ camera.position.copy(controls.target).add(new THREE.Vector3().setFromSphericalCo
 controls.update();
 
 // ---------------------------------------------------------------- control panel
-let guiState;
+let guiState, clockText;
 {
   // the compiled areas (tools/pipeline/compile.mjs keeps the list); another city is another page load
   const areas = await fetch('tiles/areas.json').then((r) => (r.ok ? r.json() : null)).catch(() => null) ?? [{ id: AREA, name: manifest.name }];
@@ -131,8 +131,12 @@ let guiState;
   });
   const time = gui.addFolder('Time (Tokyo)');
   time.add(clockTime, 'live').name('live clock').listen();
-  time.add(clockTime, 'h', 0, 23, 1).name('hour').listen();
-  time.add(clockTime, 'm', 0, 59, 1).name('minute').listen();
+  // one slider over the day, with the clock time written beside it in place of the number box
+  const slider = time.add(clockTime, 'hour', 0, 24, 1 / 60).name('time').listen().onChange(() => { clockTime.live = false; });
+  slider.$input.style.display = 'none';
+  clockText = document.createElement('span');
+  clockText.style.cssText = 'min-width: 3.4em; padding-left: 8px; text-align: right; font-variant-numeric: tabular-nums;';
+  slider.$widget.appendChild(clockText);
   gui.add(state, 'traffic');
   gui.add(state, 'trains');
   gui.add(state, 'photo').name('aerial photo').listen();
@@ -249,6 +253,7 @@ function frame() {
   railways.userData.trains.update(dt, env.night);
   if (traffic.group.parent) traffic.update(dt, controls.target);
   env.setSky(...Object.values(atmosphere.setDate(clockTime.date())));
+  clockText.textContent = clockTime.label();
   env.update(dt);
   env.follow(controls.target, camera);
   atmosphere.bloom.intensity = guiState.bloom ? env.bloom * 3 : 0;
