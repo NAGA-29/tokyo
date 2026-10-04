@@ -155,6 +155,7 @@ let guiState, clockText;
   clockText.style.cssText = 'min-width: 3.4em; padding-left: 8px; text-align: right; font-variant-numeric: tabular-nums;';
   slider.$widget.appendChild(clockText);
   gui.add(state, 'traffic');
+  gui.add(traffic, 'headlights', 0, 20, 0.5).name('car headlights');
   gui.add(state, 'trains');
   gui.add(state, 'photo').name('aerial photo').listen();
   gui.add(birds.geometry, 'instanceCount', 0, MAX_BIRDS, 10).name('birds');

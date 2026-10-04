@@ -132,11 +132,11 @@ function carMaterial(lit = true) {
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = vGlow > 3.5 ? 0.85 : vGlow > 2.5 ? 0.06 : roughnessFactor;')
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = vGlow > 3.5 ? 0.0 : vGlow > 2.5 ? 0.9 : metalnessFactor;')
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        if (vGlow > 0.5 && vGlow < 2.5) totalEmissiveRadiance += lamp * (0.15 + uNight * ${lit ? '(vGlow > 1.5 ? 2.6 : 7.0)' : '0.0'});`)
+        if (vGlow > 0.5 && vGlow < 2.5) totalEmissiveRadiance += lamp * (0.15 + uNight * ${lit ? '(vGlow > 1.5 ? 2.0 : 3.6)' : '0.0'});`)
       // (the windows are marked in alpha for the reflection pass, like those of the buildings)
       .replace('#include <opaque_fragment>', '#include <opaque_fragment>\nif (vGlow > 2.5 && vGlow < 3.5) gl_FragColor.a = 0.1;');
   };
-  m.customProgramCacheKey = () => (lit ? 'car-v2' : 'car-parked-v2');
+  m.customProgramCacheKey = () => (lit ? 'car-v3' : 'car-parked-v3');
   return m;
 }
 
@@ -234,6 +234,7 @@ export class Traffic {
       return { ...t, mesh, beams };
     });
     this.cars = [];
+    this.headlights = 5; // how many times brighter the road is just ahead of a car at night
     this.dummy = new THREE.Object3D();
     this.dummy.rotation.order = 'YXZ'; // heading first, then pitch about the car's own axle
     this.color = new THREE.Color();
@@ -392,7 +393,7 @@ export class Traffic {
       fleet.mesh.setColorAt(i, this.color.setHex(car.color));
     }
     const night = shared.uNight.value;
-    this.beam.color.setScalar(16 * night); // how many times brighter the road is just ahead of a car
+    this.beam.color.setScalar(this.headlights * night); // how many times brighter the road is just ahead of a car
     this.beam.visible = night > 0.02;
     this.fleets.forEach((f, i) => {
       f.mesh.count = f.beams.count = counts[i];
