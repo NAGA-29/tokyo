@@ -82,7 +82,7 @@ const clockTime = {
 const materials = createMaterials(await loadTextures(renderer));
 const props = new Props();
 const signs = new Signs();
-const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 3000 });
+const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 1e5 });
 loader.set(0.08, 'terrain');
 const manifest = await streamer.init();
 loader.set(0.14, 'railways and roads');
@@ -139,7 +139,10 @@ let guiState, clockText;
     get shadows() { return env.sun.castShadow; }, set shadows(v) { env.sun.castShadow = v; },
     get occlusion() { return ao.configuration.intensity > 0; }, set occlusion(v) { ao.configuration.intensity = v ? AO : 0; },
     bloom: true,
-    get radius() { return streamer.radius; }, set radius(v) { streamer.radius = v; },
+    // the whole city at once, or only what lies within the view radius of the point looked at (fewer tiles: more frames)
+    wholeCity: !params.get('radius'), near: Number(params.get('radius')) || 900,
+    get whole() { return this.wholeCity; }, set whole(v) { this.wholeCity = v; streamer.radius = v ? 1e5 : this.near; },
+    get radius() { return this.near; }, set radius(v) { this.near = v; if (!this.wholeCity) streamer.radius = v; },
   };
   guiState = state;
   // the names of the cities, for the loading screen of the next visit (index.html reads them)
@@ -185,7 +188,8 @@ let guiState, clockText;
   walls.add(shared.uPhotoRange.value, 'x', 0, 1000, 10).name('from (m)');
   walls.add(shared.uPhotoRange.value, 'y', 10, 2000, 10).name('full at (m)');
   const quality = gui.addFolder('Rendering');
-  quality.add(state, 'radius', 500, 4000, 100).name('view radius (m)');
+  quality.add(state, 'whole').name('whole city');
+  quality.add(state, 'radius', 300, 3000, 50).name('view radius (m), if not');
   quality.add(atmosphere, 'reflect').name('window reflections');
   quality.add(shared.uGlintOn, 'value', 0, 1, 1).name('sun in the windows');
   quality.add(state, 'shadows');
