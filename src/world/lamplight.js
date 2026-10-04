@@ -8,13 +8,32 @@ import { shared } from './materials.js';
 
 export const LAMP_LAYER = 2; // the layer the lamp quads live on: the picture's camera does not see it
 const SIZE = 2048;
+const Y0 = 200, YSPAN = 1000; // heights are stored as (y + Y0) / YSPAN
 
 // Material for a lamp quad: `map` is the footprint; the colour (times the vertex colour, if any) is the light.
 export function lampMaterial(map, params = {}) {
-  return new THREE.MeshBasicMaterial({
+  const m = new THREE.MeshBasicMaterial({
     map, side: THREE.DoubleSide, depthTest: false, depthWrite: false, transparent: true,
     blending: THREE.CustomBlending, blendEquation: THREE.MaxEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, ...params,
   });
+  // The height the light lies at goes into the alpha channel, so that a lamp under a flyover does not light
+  // the deck above it, nor a car on the deck the street below.
+  m.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vLampY;')
+      .replace('#include <project_vertex>', `#include <project_vertex>
+        vec4 lampWorld = vec4(transformed, 1.0);
+        #ifdef USE_INSTANCING
+        lampWorld = instanceMatrix * lampWorld;
+        #endif
+        vLampY = (modelMatrix * lampWorld).y;`);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vLampY;')
+      .replace('#include <opaque_fragment>', `#include <opaque_fragment>
+        gl_FragColor.a = dot(gl_FragColor.rgb, vec3(1.0)) > 0.004 ? (vLampY + ${Y0}.0) / ${YSPAN}.0 : 0.0;`);
+  };
+  m.customProgramCacheKey = () => 'lamp-quad-v1';
+  return m;
 }
 
 // Call once, before any material is compiled: teaches three's lit materials to read the light map.
@@ -31,7 +50,9 @@ if (uLampOn > 0.5) {
   vec2 lampUv = vec2(lampAt.x - uLampRect.x, uLampRect.y - lampAt.z) / (2.0 * uLampRect.z) + 0.5;
   vec2 lampEdge = smoothstep(vec2(0.0), vec2(0.04), lampUv) * (1.0 - smoothstep(vec2(0.96), vec2(1.0), lampUv));
   float lampUp = smoothstep(0.25, 0.7, (lampToWorld * geometryNormal).y);
-  reflectedLight.directDiffuse += texture2D(uLampMap, lampUv).rgb * lampEdge.x * lampEdge.y * lampUp * material.diffuseColor;
+  vec4 lampTexel = texture2D(uLampMap, lampUv);
+  float lampLevel = 1.0 - smoothstep(2.5, 5.0, abs(lampAt.y - (lampTexel.a * ${YSPAN}.0 - ${Y0}.0)));   // only light lying at this height
+  reflectedLight.directDiffuse += lampTexel.rgb * lampEdge.x * lampEdge.y * lampUp * lampLevel * material.diffuseColor;
 }
 `;
   // Plain materials get the uniforms here. A material with a hook of its own sets them itself: lampUniforms
@@ -73,7 +94,7 @@ export class LampLight {
     const clear = r.getClearColor(new THREE.Color()), alpha = r.getClearAlpha();
     r.shadowMap.autoUpdate = false; scene.background = null; // (only the lamp quads are of interest)
     r.setRenderTarget(this.target);
-    r.setClearColor(this.black, 1);
+    r.setClearColor(this.black, 0);
     r.clear();
     r.render(scene, cam);
     r.setRenderTarget(previous);

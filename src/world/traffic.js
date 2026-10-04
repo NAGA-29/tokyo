@@ -80,9 +80,9 @@ export function beamTexture() {
     // A fan opening from the lamps (the middle of the near edge) to the full width of the quad at its far
     // end: straight sides that fade softly, a rounded far edge, brightest near the car.
     const u = ((i + 0.5) / W) * 2 - 1, v = (j + 0.5) / H;
-    const side = 1 - step(Math.abs(u) / Math.max(v, 0.03), 0.62, 0.98);  // inside the two straight edges
-    const reach = 1 - step(Math.hypot(u * 0.55, v), 0.72, 0.99);          // the arc at the far end
-    const value = side * reach * step(v, 0, 0.06) * (0.25 + 0.75 * Math.exp(-v * 3.2));
+    const side = 1 - step(Math.abs(u) / Math.max(v, 0.03), 0.3, 0.98);   // inside the two straight edges, which fade out widely
+    const reach = 1 - step(Math.hypot(u * 0.55, v), 0.55, 0.99);          // the arc at the far end
+    const value = side * reach * step(v, 0, 0.06) * (0.1 + 0.9 * Math.exp(-v * 3.4));
     data.set([value * 255, value * 255, value * 255, 255], (j * W + i) * 4);
   }
   const t = new THREE.DataTexture(data, W, H);
@@ -97,7 +97,7 @@ function beamGeometry(L) {
     uv.push(0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1);
     for (let i = 0; i < 6; i++) col.push(...rgb);
   };
-  quad(10, L / 2 - 0.3, L / 2 + 24, [1, 0.95, 0.84]);        // headlamps, dipped: a fan 24 m long, 45 degrees wide
+  quad(7.5, L / 2 - 0.3, L / 2 + 24, [1, 0.95, 0.84]);       // headlamps, dipped: a fan 24 m long, 35 degrees wide
   quad(-3.2, -L / 2 + 0.3, -L / 2 - 6, [0.34, 0.02, 0.012]);  // tail lamps
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
