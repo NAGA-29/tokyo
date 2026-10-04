@@ -19,7 +19,8 @@ import { makeProjection, TILE, tileOf, tileKey } from '../../src/shared/geo.js';
 import { encodeTile, AREA, BFLAG, PROP, VERSION } from '../../src/shared/tileformat.js';
 import { readBuildings, readRoads } from './citygml.mjs';
 import { readOsm, buildRoadGraph, buildRailways } from './osm.mjs';
-import { buildHeightGrid, sampleGrid } from './terrain.mjs';
+import { buildHeightGrid, sampleGrid, buildBackdropGrid } from './terrain.mjs';
+import { BACKDROP } from './config.mjs';
 import { PolyIndex, readLand, clipRing, placeProps } from './landscape.mjs';
 import { buildMarkings } from './markings.mjs';
 import { splitOutlineRoads } from './roadsplit.mjs';
@@ -539,6 +540,17 @@ roadsOut.signals = graph.nodes.map((n, i) => (signalIds.has(n.id) ? i : -1)).fil
 fs.writeFileSync(path.join(area.outDir, 'roads.json'), JSON.stringify(roadsOut));
 fs.writeFileSync(path.join(area.outDir, 'rails.json'), JSON.stringify(rails));
 fs.writeFileSync(path.join(area.outDir, 'structures.json'), JSON.stringify(extras.structures));
+// the land around the area, for the horizon (config: backdrop)
+let backdrop = null;
+if (area.backdropBbox) {
+  const b = area.backdropBbox, [bx0, bz1] = proj.project(b.west, b.south), [bx1, bz0] = proj.project(b.east, b.north);
+  const g = buildBackdropGrid(path.join(area.rawDir, 'dem'), proj, { minX: bx0, maxX: bx1, minZ: bz0, maxZ: bz1 }, BACKDROP.step, BACKDROP.zoom);
+  fs.writeFileSync(path.join(area.outDir, 'backdrop.bin'), Buffer.from(g.data.buffer));
+  let top = 0;
+  for (const v of g.data) top = Math.max(top, v);
+  backdrop = { file: 'backdrop.bin', x0: r2(g.x0), z0: r2(g.z0), step: g.step, w: g.w, h: g.h };
+  log(`backdrop ${g.w} x ${g.h} @ ${g.step} m, up to ${top.toFixed(0)} m`);
+}
 const manifest = {
   format: VERSION, area: area.id, name: area.name, compiled: new Date().toISOString(),
   origin: { lon: area.origin[0], lat: area.origin[1] },
@@ -547,6 +559,8 @@ const manifest = {
   meshes: area.meshes,
   terrain: { file: 'terrain.bin', x0: r2(grid.x0), z0: r2(grid.z0), step: grid.step, w: grid.w, h: grid.h, min: r2(gMin), max: r2(gMax) },
   roads: 'roads.json', rails: 'rails.json', structures: 'structures.json',
+  ...(backdrop ? { backdrop } : {}),
+  ...(area.view ? { view: area.view } : {}),
   // street-level bridge decks: road polygons marked with a deck, and street objects, follow these instead of the terrain (src/shared/decks.js)
   decks,
   tiles: tileList,

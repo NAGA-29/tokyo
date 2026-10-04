@@ -18,6 +18,7 @@ import { loadOrtho } from './world/ortho.js';
 import { Environment } from './world/environment.js';
 import { Atmosphere } from './world/atmosphere.js';
 import { createBirds, MAX_BIRDS } from './world/birds.js';
+import { loadBackdrop } from './world/backdrop.js';
 import { LampLight, installLampLight } from './world/lamplight.js';
 
 installLampLight(); // (before any material is compiled)
@@ -94,6 +95,11 @@ const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
   plain.receiveShadow = true;
   plain.name = 'plain';
   scene.add(plain);
+  // an area with the land around it (mountains on the horizon): the plain becomes the sea, at sea level
+  if (manifest.backdrop) {
+    plain.position.y = -0.5; plain.material.color.set(0x2c4a5e); plain.material.roughness = 0.35;
+    loadBackdrop(`tiles/${AREA}`, `ortho/${AREA}/backdrop`, manifest, proj, renderer).then((mesh) => scene.add(mesh));
+  }
 }
 const birds = createBirds();
 if (params.get('birds') != null) birds.geometry.instanceCount = Math.min(MAX_BIRDS, Number(params.get('birds')) || 0);
@@ -116,8 +122,8 @@ if (params.get('cars') != null) traffic.count = Math.min(MAX_CARS, Number(params
 if (params.get('traffic') !== '0') scene.add(traffic.group);
 document.getElementById('credits').textContent = manifest.attribution.map((a) => a.split(' (')[0]).join(' · ');
 
-// initial view: over the Scramble Crossing, looking north-west towards the station
-const [cx, cz, dist, az, el] = (params.get('cam') || '0,0,420,215,32').split(',').map(Number);
+// initial view: the area's own, or over its origin looking north-west (Shibuya: across the Scramble Crossing to the station)
+const [cx, cz, dist, az, el] = (params.get('cam') || manifest.view || '0,0,420,215,32').split(',').map(Number);
 controls.target.set(cx, streamer.ground(cx, cz), cz);
 camera.position.copy(controls.target).add(new THREE.Vector3().setFromSphericalCoords(
   dist, THREE.MathUtils.degToRad(90 - el), THREE.MathUtils.degToRad(az)));

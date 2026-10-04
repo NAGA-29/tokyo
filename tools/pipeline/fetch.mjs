@@ -6,7 +6,7 @@
 // Usage: node tools/pipeline/fetch.mjs [--area=shibuya] [--force]
 import fs from 'node:fs';
 import path from 'node:path';
-import { resolveArea, ROOT } from './config.mjs';
+import { resolveArea, ROOT, BACKDROP } from './config.mjs';
 import { demTileRange, DEM_SOURCES } from './terrain.mjs';
 
 const area = resolveArea();
@@ -27,7 +27,7 @@ const exists = (f) => !FORCE && fs.existsSync(f) && fs.statSync(f).size > 0;
 async function download(url, file, { retries = 3, ...init } = {}) {
   for (let attempt = 1; ; attempt++) {
     try {
-      const res = await fetch(url, { headers: { 'User-Agent': UA }, ...init });
+      const res = await fetch(url, { headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(240000), ...init }); // (a server that never answers is given up on)
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const buf = Buffer.from(await res.arrayBuffer());
       fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -204,10 +204,28 @@ async function fetchOrtho() {
   fs.writeFileSync(path.join(dir, 'index.json'), JSON.stringify({ z, x0, x1, y0, y1, attribution: 'Aerial photo: Geospatial Information Authority of Japan (GSI) seamlessphoto' }));
 }
 
+// The land around the area: coarse elevation, and a coarse aerial photo for the client to lay over it.
+async function fetchBackdrop() {
+  if (!area.backdropBbox) return;
+  const sets = [
+    [BACKDROP.zoom, (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/dem_png/${z}/${x}/${y}.png`, (z, x, y) => path.join(area.rawDir, 'dem', 'backdrop', `${z}_${x}_${y}.png`)],
+    [BACKDROP.photoZoom, (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/${z}/${x}/${y}.jpg`, (z, x, y) => path.join(ROOT, 'public/ortho', area.id, 'backdrop', `${z}_${x}_${y}.jpg`)],
+  ];
+  for (const [zoom, url, file] of sets) {
+    const { z, x0, x1, y0, y1 } = demTileRange(area.backdropBbox, zoom), jobs = [];
+    for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) jobs.push({ url: url(z, x, y), file: file(z, x, y) });
+    const todo = jobs.filter((j) => !exists(j.file));
+    log(`backdrop zoom ${zoom}: ${jobs.length} tiles, ${todo.length} to download`);
+    await pool(todo, 4, async (j) => { try { await download(j.url, j.file); } catch (e) { log(`  ${e.message} (left as a gap)`); } });
+    if (zoom === BACKDROP.photoZoom) fs.writeFileSync(path.join(ROOT, 'public/ortho', area.id, 'backdrop', 'index.json'), JSON.stringify({ z, x0, x1, y0, y1 }));
+  }
+}
+
 log(`area ${area.id}: meshes ${area.meshes.join(' ')}`);
 log(`bbox lat ${area.bbox.south.toFixed(5)}..${area.bbox.north.toFixed(5)} lon ${area.bbox.west.toFixed(5)}..${area.bbox.east.toFixed(5)}`);
 await fetchOsm();
 await fetchDem();
 await fetchOrtho();
+await fetchBackdrop();
 await fetchPlateau();
 log('done');

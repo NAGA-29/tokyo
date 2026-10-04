@@ -53,6 +53,17 @@ function demSource(dir, src) {
   };
 }
 
+// The land around an area: a coarse height grid from the backdrop DEM tiles (the sea, which has no data, is 0).
+export function buildBackdropGrid(dir, proj, { minX, maxX, minZ, maxZ }, step, zoom) {
+  const sample = demSource(dir, { id: 'backdrop', zoom });
+  const w = Math.floor((maxX - minX) / step) + 1, h = Math.floor((maxZ - minZ) / step) + 1, data = new Float32Array(w * h);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const v = sample(...proj.unproject(minX + i * step, minZ + j * step));
+    data[j * w + i] = Number.isNaN(v) ? 0 : v;
+  }
+  return { x0: minX, z0: minZ, step, w, h, data };
+}
+
 // Builds a height grid covering [minX, maxX] x [minZ, maxZ] at `step` metres.
 // Gaps in the 5 m DEM fall back to the 10 m DEM, then to a diffusion fill from neighbours.
 export function buildHeightGrid(dir, proj, { minX, maxX, minZ, maxZ }, step) {
