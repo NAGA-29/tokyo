@@ -21,6 +21,22 @@ export const AREAS = {
     origin: [139.70045, 35.65948], // Shibuya Scramble Crossing [lon, lat]
     radius: 1,                     // 3 x 3 meshes, about 3.4 x 2.8 km
   },
+  shinjuku: {
+    name: 'Shinjuku',
+    origin: [139.7005, 35.6896],   // Shinjuku Station: the skyscraper district to the west, Kabukicho to the north
+    radius: 1,
+  },
+  chiyoda: {
+    name: 'Chiyoda (Akihabara)',
+    origin: [139.7679, 35.7020],   // Kanda Myojin: north of the Tokyo area, without overlapping it
+    radius: 1,
+    view: '460,400,420,215,32',    // opens over Akihabara Station
+  },
+  chuo: {
+    name: 'Chuo (Tsukiji, Tsukishima)',
+    origin: [139.7800, 35.6560],   // Kachidoki: the waterfront south of the Tokyo area (which has Ginza and Nihonbashi)
+    radius: 1,
+  },
   fujinomiya: {
     name: 'Fujinomiya (Mt Fuji)',
     origin: [138.6100, 35.2275], // Fujisan Hongu Sengen Taisha, the head shrine of Mt Fuji

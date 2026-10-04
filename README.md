@@ -19,6 +19,9 @@ raw records into compact binary tiles, and the client streams and meshes them.
 | Tokyo | Tokyo Station, Marunouchi, the Imperial Palace moats |
 | Shiba | Tokyo Tower (built member by member as a steel lattice), Zojo-ji, Shiba Park |
 | Shibuya | The Scramble Crossing, the station, the expressway |
+| Shinjuku | The station, the skyscraper district, Kabukicho, Shinjuku Gyoen |
+| Chiyoda | Akihabara, Kanda, Ochanomizu (north of the Tokyo area) |
+| Chuo | Tsukiji, Kachidoki, Tsukishima and Harumi: the waterfront and its canals |
 | Fujinomiya | A town at the foot of Mt Fuji, with the mountain as a 60 km terrain backdrop |
 
 Each area is about 3.4 x 2.8 km. Adding another city that PLATEAU covers is one entry in
@@ -61,7 +64,7 @@ Drag to pan, right-drag to rotate, wheel to zoom, WASD to move (shift: fast), N 
 building to inspect it. The Settings panel (top right) switches city and controls time, traffic, clouds,
 lighting and rendering quality; settings are remembered in the browser.
 
-URL parameters: `?area=tokyo|shiba|shibuya|fujinomiya`, `?time=18.5` (Tokyo hour), `?night=1`,
+URL parameters: `?area=tokyo|shiba|shibuya|shinjuku|chiyoda|chuo|fujinomiya`, `?time=18.5` (Tokyo hour), `?night=1`,
 `?cam=x,z,distance,azimuth,elevation`, `?radius=900`, `?traffic=0`, `?cars=600`, `?birds=150`, `?clouds=0.25`,
 `?ortho=0`. A page opened with parameters does not overwrite the saved settings.
 
@@ -160,7 +163,7 @@ World frame: metres, x east, y up (Tokyo Peil height), z south; the origin is th
 npm run deploy     # builds and force-pushes dist/ as one commit to the gh-pages branch of origin
 ```
 
-This publishes whatever cities are compiled on the machine (about 400 MB for the four above).
+This publishes whatever cities are compiled on the machine (about 650 MB for the seven above).
 
 ## Attribution
 

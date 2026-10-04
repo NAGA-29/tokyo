@@ -159,7 +159,8 @@ async function fetchOverpass(name, body) {
   // queries end with their own "out" statement, or get the default: the elements with all their nodes
   const filled = body.replaceAll('{bb}', `${south},${west},${north},${east}`);
   const query = `[out:json][timeout:180];\n${filled}${/\bout\b/.test(filled) ? '' : '\n(._;>;);\nout body;'}`;
-  for (const url of OVERPASS) {
+  // every server in turn, and round again after a pause: they answer 429 or 504 when busy
+  for (const url of [...OVERPASS, ...OVERPASS, ...OVERPASS]) {
     try {
       log(`osm ${name}: querying ${new URL(url).host}`);
       const buf = await download(url, file, {
@@ -171,6 +172,7 @@ async function fetchOverpass(name, body) {
       return log(`osm ${name}: ${n} elements, ${(buf.length / 1e6).toFixed(1)} MB`);
     } catch (e) {
       log(`osm ${name}: ${e.message}`);
+      await new Promise((r) => setTimeout(r, 20000));
     }
   }
   throw new Error(`osm ${name}: every Overpass endpoint failed`);
@@ -226,9 +228,10 @@ async function fetchBackdrop() {
 
 log(`area ${area.id}: meshes ${area.meshes.join(' ')}`);
 log(`bbox lat ${area.bbox.south.toFixed(5)}..${area.bbox.north.toFixed(5)} lon ${area.bbox.west.toFixed(5)}..${area.bbox.east.toFixed(5)}`);
-await fetchOsm();
+// (OpenStreetMap last: its servers are the ones that keep one waiting, and the rest is the bulk of the download)
 await fetchDem();
 await fetchOrtho();
 await fetchBackdrop();
 await fetchPlateau();
+await fetchOsm();
 log('done');
