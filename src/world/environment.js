@@ -96,19 +96,10 @@ export class Environment {
       c.updateProjectionMatrix();
       this.sun.shadow.normalBias = 0.25 + extent / 900;
     }
-    const texel = (2 * extent) / this.sun.shadow.mapSize.x;
+    const texel = (2 * extent) / SHADOW_SIZE;
     const fx = Math.round(focus.x / texel) * texel, fz = Math.round(focus.z / texel) * texel;
     this.sun.target.position.set(fx, focus.y, fz);
     this.sun.position.copy(this.sun.target.position).addScaledVector(this.sunDir, 2000);
-  }
-
-  // The shadow map's side in texels: smaller is cheaper and softer.
-  get shadowSize() { return this.sun.shadow.mapSize.x; }
-  set shadowSize(n) {
-    if (n === this.sun.shadow.mapSize.x) return;
-    this.sun.shadow.mapSize.set(n, n);
-    this.sun.shadow.map?.dispose();
-    this.sun.shadow.map = null; // (made again at the new size)
   }
 
   update(dt) {
