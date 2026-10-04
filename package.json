@@ -2,7 +2,7 @@
   "name": "procedural-tokyo",
   "version": "0.1.0",
   "private": true,
-  "description": "A driving game in a Tokyo compiled from public data (PLATEAU, OpenStreetMap, GSI) with procedural detail",
+  "description": "A real-time 3D Tokyo in the browser, compiled from public data (PLATEAU, OpenStreetMap, GSI) with procedural detail",
   "type": "module",
   "scripts": {
     "dev": "vite",
