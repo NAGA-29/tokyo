@@ -24,6 +24,12 @@ raw records into compact binary tiles, and the client streams and meshes them.
 Each area is about 3.4 x 2.8 km. Adding another city that PLATEAU covers is one entry in
 `tools/pipeline/config.mjs` (see [Pipeline](#pipeline)).
 
+PLATEAU covers about 300 Japanese cities so far and adds more each year. The official lists:
+[open data by city](https://www.mlit.go.jp/plateau/open-data/) (Project PLATEAU, MLIT), the
+[dataset catalogue](https://www.geospatial.jp/ckan/dataset/plateau) (G-Spatial Information Center) and the
+[PLATEAU VIEW](https://plateauview.mlit.go.jp/) map. Detail varies: city centres tend to have roof shapes and
+photo textures, smaller towns plain blocks.
+
 ## Features
 
 - **Buildings**: real footprints and heights. Central districts use PLATEAU's detailed roof shapes and its aerial
