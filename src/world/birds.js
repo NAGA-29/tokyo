@@ -105,7 +105,7 @@ export function createBirds() {
   const mesh = new THREE.Mesh(birdGeometry(), material);
   mesh.frustumCulled = false; // (they are placed in the shader)
   mesh.name = 'birds';
-  mesh.geometry.instanceCount = 1000;
+  mesh.geometry.instanceCount = 100;
 
   // ---- the flocks: which tree, and flying / coming down / in the tree / leaving it
   const flocks = Array.from({ length: FLOCKS }, () => ({ state: 'new', timer: 0, perch: 0, rate: 0, anchor: new THREE.Vector3(), target: null }));
