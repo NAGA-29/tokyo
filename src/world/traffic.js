@@ -14,7 +14,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { shared } from './materials.js';
 
 const LANE = 3.0;
-const CAR_RADIUS = 330, CARS = 260;
+const CAR_RADIUS = 330, CARS = 260; // the default number of cars, and the distance from the focus they keep within
+export const MAX_CARS = 1500;
 const CYCLE = 64, GREEN = 27; // seconds: must match the lens shader in props.js
 
 // ---------------------------------------------------------------- models
@@ -72,7 +73,7 @@ function vehicle({ L, W, belt, roof, z0, z1, box, rake = 0.5, tyre = 0.31 }) {
 // What the lamps throw on the road: a long pool ahead of the car and a short red one behind it, as one
 // instanced mesh per vehicle type that shares the cars' own matrices. Like the street lamps' pools
 // (props.js), it multiplies the road under it.
-function beamTexture() {
+export function beamTexture() {
   const W = 64, H = 128, data = new Uint8Array(W * H * 4);
   for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
     const u = ((i + 0.5) / W) * 2 - 1, v = (j + 0.5) / H, spread = 0.2 + 0.75 * v;
@@ -224,16 +225,26 @@ export class Traffic {
       map: beamTexture(), vertexColors: true, color: 0x000000, transparent: true, side: THREE.DoubleSide, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
       blendSrc: THREE.DstColorFactor, blendDst: THREE.OneFactor, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -10, polygonOffsetUnits: -40,
     });
+    // The pool multiplies the road, so on an unlit road (a flyover, a bridge) there is little to multiply:
+    // a second, faint layer adds light outright, as lamps do on dark asphalt.
+    this.beamAdd = new THREE.MeshBasicMaterial({
+      map: this.beam.map, vertexColors: true, color: 0x000000, transparent: true, side: THREE.DoubleSide, blending: THREE.AdditiveBlending,
+      depthWrite: false, polygonOffset: true, polygonOffsetFactor: -10, polygonOffsetUnits: -40,
+    });
     this.fleets = TYPES.map((t) => {
-      const mesh = new THREE.InstancedMesh(vehicle(t.spec), material, Math.ceil(CARS * t.share) + 2);
+      const mesh = new THREE.InstancedMesh(vehicle(t.spec), material, Math.ceil(MAX_CARS * t.share * 1.25) + 8);
       mesh.castShadow = true; mesh.frustumCulled = false; mesh.count = 0;
       const beams = new THREE.InstancedMesh(beamGeometry(t.L), this.beam, mesh.instanceMatrix.count);
       beams.instanceMatrix = mesh.instanceMatrix; // the lamps go where the cars go
       beams.frustumCulled = false; beams.count = 0;
-      this.group.add(mesh, beams);
-      return { ...t, mesh, beams };
+      const fill = new THREE.InstancedMesh(beams.geometry, this.beamAdd, mesh.instanceMatrix.count);
+      fill.instanceMatrix = mesh.instanceMatrix;
+      fill.frustumCulled = false; fill.count = 0;
+      this.group.add(mesh, beams, fill);
+      return { ...t, mesh, beams, fill };
     });
     this.cars = [];
+    this.count = CARS;   // how many cars there are (the panel changes it)
     this.headlights = 5; // how many times brighter the road is just ahead of a car at night
     this.dummy = new THREE.Object3D();
     this.dummy.rotation.order = 'YXZ'; // heading first, then pitch about the car's own axle
@@ -257,7 +268,7 @@ export class Traffic {
 
   spawnCar(car, focus) {
     for (let attempt = 0; attempt < 6; attempt++) {
-      const lane = this.pick(focus, CAR_RADIUS, (l) => !l.hidden && l.length > 20);
+      const lane = this.pick(focus, this.radius ?? CAR_RADIUS, (l) => !l.hidden && l.length > 20);
       if (!lane) return false;
       // a clear stretch, away from the ends of the road
       const s = 8 + this.rnd() * (lane.length - 16);
@@ -313,7 +324,10 @@ export class Traffic {
     const d = this.dummy;
 
     // ---- cars
-    while (this.cars.length < CARS) {
+    // more cars are spread over a wider circle, so the streets do not simply jam
+    this.radius = CAR_RADIUS * Math.min(2.4, Math.max(1, Math.sqrt(this.count / CARS)));
+    while (this.cars.length > this.count) { const gone = this.cars.pop(); if (gone.lane) gone.lane.cars.splice(gone.lane.cars.indexOf(gone), 1); }
+    while (this.cars.length < this.count) {
       const r = this.rnd(); let acc = 0, type = 0;
       for (let i = 0; i < TYPES.length; i++) { acc += TYPES[i].share; if (r < acc) { type = i; break; } }
       const palette = TYPES[type].name === 'bus' ? BUS_COLORS : CAR_COLORS;
@@ -379,11 +393,13 @@ export class Traffic {
       }
       // left behind by the camera: start again nearby
       along(car.lane, car.s, tmp, tmp2);
-      if (Math.hypot(tmp.x - focus.x, tmp.z - focus.z) > CAR_RADIUS + 90) { if (!this.spawnCar(car, focus)) continue; along(car.lane, car.s, tmp, tmp2); }
+      if (Math.hypot(tmp.x - focus.x, tmp.z - focus.z) > (this.radius ?? CAR_RADIUS) + 90) { if (!this.spawnCar(car, focus)) continue; along(car.lane, car.s, tmp, tmp2); }
       if (car.lane.hidden) continue;
 
       const off = car.lane.offset(car.k), px = tmp.x - tmp2.z * off, pz = tmp.z + tmp2.x * off;
-      const fleet = this.fleets[car.type], i = counts[car.type]++;
+      const fleet = this.fleets[car.type];
+      if (counts[car.type] >= fleet.mesh.instanceMatrix.count) continue; // (more of this type than there are instances for)
+      const i = counts[car.type]++;
       d.position.set(px, car.lane.raised ? tmp.y + 0.04 : this.surface(px, pz) + 0.07, pz);
       // nose up or down with the road (and with it the light the lamps throw on it): the slope over the car's length
       const slope = car.lane.raised ? tmp2.y : (this.surface(px + tmp2.x * 5, pz + tmp2.z * 5) - this.surface(px - tmp2.x * 5, pz - tmp2.z * 5)) / 10;
@@ -394,9 +410,10 @@ export class Traffic {
     }
     const night = shared.uNight.value;
     this.beam.color.setScalar(this.headlights * night); // how many times brighter the road is just ahead of a car
-    this.beam.visible = night > 0.02;
+    this.beamAdd.color.setScalar(0.014 * this.headlights * night);
+    this.beam.visible = this.beamAdd.visible = night > 0.02;
     this.fleets.forEach((f, i) => {
-      f.mesh.count = f.beams.count = counts[i];
+      f.mesh.count = f.beams.count = f.fill.count = counts[i];
       f.mesh.instanceMatrix.needsUpdate = true;
       if (f.mesh.instanceColor) f.mesh.instanceColor.needsUpdate = true;
     });

@@ -1,4 +1,4 @@
-// Birds over the city: flocks of white pigeons and, fewer, of black crows, that wander above the area, each bird circling within its flock and beating
+// Birds over the city: flocks of white pigeons that wander above the area, each bird circling within its flock and beating
 // its wings. One instanced mesh; every position comes out of the vertex shader from the time and a few random
 // numbers per bird, so a thousand birds cost the CPU nothing.
 import * as THREE from 'three';
@@ -39,7 +39,7 @@ export function createBirds(bounds, ground = 20) {
       uReach: { value: new THREE.Vector2((bounds.maxX - bounds.minX) * 0.42, (bounds.maxZ - bounds.minZ) * 0.42) },
     },
     vertexShader: /* glsl */ `
-      #define PIGEONS 0.7 // share of the flocks that are pigeons
+      #define PIGEONS 1.0 // share of the flocks that are white pigeons (the rest would be black crows)
       attribute float aWing;
       attribute vec4 aSeed;
       uniform float uTime;
@@ -53,11 +53,11 @@ export function createBirds(bounds, ground = 20) {
         float f = aSeed.x;
         // the flock: a slow, never-repeating loop over the area, 60 to 260 m up
         vec3 c = uCentre + vec3(
-          uReach.x * sin(t * (0.010 + 0.012 * hash(f + 1.0)) + 6.28 * hash(f + 2.0)),
-          60.0 + 200.0 * hash(f + 3.0) + 22.0 * sin(t * 0.04 + 6.28 * hash(f + 4.0)),
-          uReach.y * sin(t * (0.010 + 0.012 * hash(f + 5.0)) + 6.28 * hash(f + 6.0)));
+          uReach.x * sin(t * (0.004 + 0.005 * hash(f + 1.0)) + 6.28 * hash(f + 2.0)),
+          60.0 + 200.0 * hash(f + 3.0) + 22.0 * sin(t * 0.02 + 6.28 * hash(f + 4.0)),
+          uReach.y * sin(t * (0.004 + 0.005 * hash(f + 5.0)) + 6.28 * hash(f + 6.0)));
         // the bird: round the flock on its own circle, rising and falling a little
-        float radius = 8.0 + 55.0 * aSeed.y, turn = (0.5 + aSeed.z) * 9.0 / radius * (hash(f + 7.0) < 0.5 ? -1.0 : 1.0);
+        float radius = 8.0 + 55.0 * aSeed.y, turn = (0.5 + aSeed.z) * 4.5 / radius * (hash(f + 7.0) < 0.5 ? -1.0 : 1.0);
         float a = t * turn + 6.28 * aSeed.w;
         return c + vec3(cos(a) * radius, 9.0 * sin(t * 0.21 + 6.28 * aSeed.z) + 14.0 * (aSeed.w - 0.5), sin(a) * radius * 0.8);
       }
@@ -68,7 +68,7 @@ export function createBirds(bounds, ground = 20) {
         float beat = smoothstep(-0.2, 0.3, sin(uTime * 0.35 + 6.28 * aSeed.y));
         // a flock is of one kind: pigeons (the larger share: white, smaller, quick wings) or crows (black, slow wings)
         float crow = step(PIGEONS, hash(aSeed.x + 9.0));
-        float lift = mix(0.18, sin(uTime * mix(11.0, 5.5, crow) * (0.85 + 0.3 * aSeed.z) + 6.28 * aSeed.w), beat) * 0.55;
+        float lift = mix(0.18, sin(uTime * mix(8.0, 4.5, crow) * (0.85 + 0.3 * aSeed.z) + 6.28 * aSeed.w), beat) * 0.55;
         vec3 local = position * mix(0.7, 1.0, crow);
         vCrow = crow;
         local.y += abs(local.x) * lift * aWing;

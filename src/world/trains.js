@@ -2,6 +2,7 @@
 // running direction); one train per path loops through the area, leaving at one edge and re-entering
 // at the other.
 import * as THREE from 'three';
+import { beamTexture } from './traffic.js';
 
 // Line name (substring) -> rolling stock. Colours follow the real line colours.
 const STOCK = [
@@ -144,6 +145,10 @@ export class Trains {
     this.group.name = 'trains';
     this.sets = [];
     const paths = chain(lines);
+    this.beam = new THREE.MeshBasicMaterial({
+      map: beamTexture(), color: 0x000000, transparent: true, side: THREE.DoubleSide, blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
+      blendSrc: THREE.DstColorFactor, blendDst: THREE.OneFactor, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -10, polygonOffsetUnits: -40,
+    });
     const stocks = new Map(); // stock -> paths
     for (const p of paths) {
       const stock = STOCK.find((s) => p.name.includes(s.match)) ?? DEFAULT_STOCK;
@@ -156,7 +161,14 @@ export class Trains {
       mesh.castShadow = mesh.receiveShadow = true;
       mesh.frustumCulled = false; // cars move across the whole area
       this.group.add(mesh);
-      this.sets.push({ stock, mesh, material, trains: list.map((path, i) => ({ path, s: (i * 613) % (path.length + GAP) })) });
+      // the light of the leading car's headlamps on the track ahead (one pool per train; see the cars' in traffic.js)
+      const pool = new THREE.BufferGeometry(), z0 = stock.length / 2 - 0.5, z1 = stock.length / 2 + 55;
+      pool.setAttribute('position', new THREE.Float32BufferAttribute([-4.5, 0.12, z0, 4.5, 0.12, z0, 4.5, 0.12, z1, -4.5, 0.12, z0, 4.5, 0.12, z1, -4.5, 0.12, z1], 3));
+      pool.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1], 2));
+      const beams = new THREE.InstancedMesh(pool, this.beam, list.length);
+      beams.frustumCulled = false;
+      this.group.add(beams);
+      this.sets.push({ stock, mesh, beams, material, trains: list.map((path, i) => ({ path, s: (i * 613) % (path.length + GAP) })) });
     }
     this.dummy = new THREE.Object3D();
     this.a = new THREE.Vector3(); this.b = new THREE.Vector3();
@@ -164,15 +176,17 @@ export class Trains {
 
   update(dt, night) {
     const { dummy, a, b } = this;
-    for (const { stock, mesh, material, trains } of this.sets) {
-      material.emissiveIntensity = 0.2 + night * 1.6; // the saloon lights are always on
+    this.beam.color.setRGB(7 * night, 6.6 * night, 5.6 * night);
+    this.beam.visible = night > 0.02;
+    for (const { stock, mesh, beams, material, trains } of this.sets) {
+      material.emissiveIntensity = 0.2 + night * 2.2; // the saloon lights and the lamps are always on
       let n = 0;
-      for (const t of trains) {
+      trains.forEach((t, ti) => {
         const span = t.path.length + stock.cars * stock.length + GAP;
         t.s = (t.s + SPEED * dt) % span; // distance of the train's nose from the start of the path
         for (let c = 0; c < stock.cars; c++, n++) {
           const centre = t.s - (c + 0.5) * stock.length, half = stock.length * 0.36;
-          if (centre - half < 0 || centre + half > t.path.length) { dummy.scale.setScalar(0); dummy.updateMatrix(); mesh.setMatrixAt(n, dummy.matrix); continue; }
+          if (centre - half < 0 || centre + half > t.path.length) { dummy.scale.setScalar(0); dummy.updateMatrix(); mesh.setMatrixAt(n, dummy.matrix); if (c === 0) beams.setMatrixAt(ti, dummy.matrix); continue; }
           pointAt(t.path, centre + half, a); pointAt(t.path, centre - half, b); // the two bogies
           dummy.position.copy(a).add(b).multiplyScalar(0.5);
           dummy.position.y += 0.16; // on top of the rails
@@ -180,9 +194,11 @@ export class Trains {
           dummy.lookAt(a.x, a.y + 0.16, a.z);
           dummy.updateMatrix();
           mesh.setMatrixAt(n, dummy.matrix);
+          if (c === 0) beams.setMatrixAt(ti, dummy.matrix);
         }
-      }
+      });
       mesh.instanceMatrix.needsUpdate = true;
+      beams.instanceMatrix.needsUpdate = true;
     }
   }
 }

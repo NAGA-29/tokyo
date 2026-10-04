@@ -1,6 +1,6 @@
 // Procedural Tokyo client: streams the compiled city and renders it. Free camera for now; the car comes next.
 //
-// URL parameters: ?area=shibuya  ?time=18.5 (Tokyo hour; default: now)  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0  ?ortho=0  ?clouds=0.25 (on, with that cover)  ?birds=150
+// URL parameters: ?area=shibuya  ?time=18.5 (Tokyo hour; default: now)  ?night=1  ?cam=x,z,distance,azimuthDeg,elevationDeg  ?radius=3000  ?traffic=0  ?ortho=0  ?clouds=0.25 (on, with that cover)  ?birds=150  ?cars=600
 import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import GUI from 'lil-gui';
@@ -12,7 +12,7 @@ import { Props } from './world/props.js';
 import { Signs } from './world/signs.js';
 import { buildRailways } from './world/rails.js';
 import { buildFlyovers } from './world/flyovers.js';
-import { Traffic } from './world/traffic.js';
+import { Traffic, MAX_CARS } from './world/traffic.js';
 import { buildStructures } from './world/structures.js';
 import { loadOrtho } from './world/ortho.js';
 import { Environment } from './world/environment.js';
@@ -109,6 +109,7 @@ scene.add(railways);
 scene.add(await buildFlyovers(`tiles/${AREA}/${manifest.roads}`, (x, z) => streamer.ground(x, z)));
 if (manifest.structures) scene.add(await buildStructures(`tiles/${AREA}/${manifest.structures}`, (x, z) => streamer.ground(x, z)));
 const traffic = new Traffic(await (await fetch(`tiles/${AREA}/${manifest.roads}`)).json(), streamer.surface);
+if (params.get('cars') != null) traffic.count = Math.min(MAX_CARS, Number(params.get('cars')) || 0);
 if (params.get('traffic') !== '0') scene.add(traffic.group);
 document.getElementById('credits').textContent = manifest.attribution.map((a) => a.split(' (')[0]).join(' · ');
 
@@ -155,6 +156,7 @@ let guiState, clockText;
   clockText.style.cssText = 'min-width: 3.4em; padding-left: 8px; text-align: right; font-variant-numeric: tabular-nums;';
   slider.$widget.appendChild(clockText);
   gui.add(state, 'traffic');
+  gui.add(traffic, 'count', 0, MAX_CARS, 10).name('cars');
   gui.add(traffic, 'headlights', 0, 20, 0.5).name('car headlights');
   gui.add(state, 'trains');
   gui.add(state, 'photo').name('aerial photo').listen();
