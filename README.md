@@ -5,7 +5,7 @@ Fly over the city, change the time of day, and watch the traffic, the trains and
 
 https://github.com/user-attachments/assets/242e40ca-6ea8-4b89-bfec-f166fe3d23a6
 
-**Live: https://jeantimex.github.io/tokyo/**
+**Live: https://jeantimex.github.io/tokyo/** (not recommended for mobile browsers :))
 
 The buildings, roads and terrain are real: they come from Japan's open 3D city model (Project PLATEAU),
 OpenStreetMap and the national elevation survey. Everything the data does not carry is generated:
