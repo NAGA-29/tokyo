@@ -437,7 +437,7 @@ export class Props {
   }
 
   streetLights = 1; // strength of the light the street lamps throw on the ground at night (1: as designed)
-  parkLights = 1;   // the same for the lamps along park paths
+  parkLights = 0.3; // the same for the lamps along park paths: dimmer than the streets
 
   update(dt) {
     this.time += dt;
