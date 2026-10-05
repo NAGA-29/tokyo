@@ -3,7 +3,7 @@
 A real-time 3D model of Tokyo in the browser, compiled from public data with procedural detail on top.
 Fly over the city, change the time of day, and watch the traffic, the trains and the birds.
 
-https://github.com/user-attachments/assets/242e40ca-6ea8-4b89-bfec-f166fe3d23a6
+https://github.com/user-attachments/assets/be33eac4-337a-407e-a3c8-cd96b2c8c092
 
 **Live: https://jeantimex.github.io/tokyo/** (not recommended for mobile browsers :))
 
