@@ -3,6 +3,8 @@
 A real-time 3D model of Tokyo in the browser, compiled from public data with procedural detail on top.
 Fly over the city, change the time of day, and watch the traffic, the trains and the birds.
 
+https://github.com/user-attachments/assets/242e40ca-6ea8-4b89-bfec-f166fe3d23a6
+
 **Live: https://jeantimex.github.io/tokyo/**
 
 The buildings, roads and terrain are real: they come from Japan's open 3D city model (Project PLATEAU),
