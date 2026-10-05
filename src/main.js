@@ -206,6 +206,7 @@ let guiState, clockText;
   gui.add(env, 'brightness', 0.5, 2, 0.05);
   gui.add(env, 'skyLight').name('light from the real sky');
   gui.add(shared.uGlintOn, 'value', 0, 5, 0.1).name('sun in the windows (strength)');
+  gui.add(shared.uGlass, 'value', 0, 3, 0.05).name('window glass');
   gui.add(atmosphere, 'fog', 0, 1, 0.01);
   gui.add(env, 'golden', 0, 1.5, 0.05).name('golden hour').onChange(() => env.apply());
   gui.add(state, 'abstract').name('abstract model');

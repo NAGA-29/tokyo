@@ -21,6 +21,8 @@ export const shared = {
   uCityGlass: { value: 1 },
   // how bright the lit rooms are at night (1: as designed)
   uRoomLight: { value: 1 },
+  // how much the windows look like glass (0: as plain mirrors, the way they were): see the facade shader
+  uGlass: { value: 1 },
   // how blue the lights of the city are at night (0: mostly warm, 1: a cool blue city)
   uNightBlue: { value: 0.55 },
   // lamp light on the ground (src/world/lamplight.js): on at night, the light map, where it lies
@@ -97,6 +99,7 @@ uniform float uTime;
 uniform vec2 uWindowLife;
 uniform float uCityGlass;
 uniform float uRoomLight;
+uniform float uGlass;
 uniform float uNightBlue;
 uniform vec3 uSunDir;
 uniform vec3 uSunGlint;
@@ -252,7 +255,10 @@ const FACADE_MAIN = /* glsl */ `
     gRough = mix(gRough, 0.45, inWin * frame);
     gRough = mix(gRough, 0.05, pane);
     gMetal = mix(gMetal, 0.92, pane);
-    gNm = mix(gNm, normalize(vec3((hash12(room + 5.1) - 0.5) * 0.03, (hash12(room + 9.4) - 0.5) * 0.03, 1.0)), inWin);
+    // (glass: every pane sits a little out of true, so each mirrors a patch of sky of its own — the patchwork of
+    // a real curtain wall — the more so the more glass is asked for)
+    float tilt = 0.03 + 0.05 * uGlass;
+    gNm = mix(gNm, normalize(vec3((hash12(room + 5.1) - 0.5) * tilt, (hash12(room + 9.4) - 0.5) * tilt, 1.0)), inWin);
     float daylight = (1.0 - uNight) * (shop ? 0.3 : cat > 4.5 ? 0.06 : 0.12);
     gEmissive = pane * interior * (daylight + uNight * on * glow * 1.25 * lamp * uRoomLight);
     // The sun in the glass. Each pane sits a little out of true and float glass is never quite flat, so the
@@ -264,6 +270,12 @@ const FACADE_MAIN = /* glsl */ `
       vec3 paneN = normalize(gT * (gNm.x + wobble.x) + gB * (gNm.y + wobble.y) + gN * gNm.z);
       float s = max(dot(reflect(normalize(vWPos - cameraPosition), paneN), uSunDir), 0.0);
       gGlint = pane * uGlintOn * uSunGlint * (pow(s, 1400.0) * 14.0 + pow(s, 90.0) * 0.35 + pow(s, 7.0) * 0.1) * step(0.0, dot(gN, uSunDir));
+      // glass: a soft wash of the sun on panes that face it, pane by pane a little different, and the sheen of
+      // the sky on glass seen at a glancing angle (by day)
+      vec3 toEye = normalize(cameraPosition - vWPos);
+      float graze = pow(1.0 - max(dot(toEye, gN), 0.0), 3.0);
+      gGlint += pane * uGlass * uSunGlint * 0.035 * max(dot(paneN, uSunDir), 0.0) * (0.6 + 0.8 * hash12(room + 15.7));
+      gEmissive += pane * uGlass * (1.0 - uNight) * vec3(0.45, 0.6, 0.82) * (0.015 + 0.22 * graze) * (0.7 + 0.6 * hash12(room + 19.3));
     }
     // Some towers (more of them as uNightBlue rises) are lit in one colour throughout: their lit rooms shine
     // blue or golden yellow — a few cyan or violet — instead of white. (Window light only: thin lines of light
@@ -367,7 +379,7 @@ function facadeMaterial(tex) {
     Object.assign(shader.uniforms, {
       uLampOn: { value: 0 }, uLampMap: shared.uLampMap, // (no lamp light on buildings; the sampler still needs its texture)
       uPhoto: m.userData.photo, uPhotoOn: m.userData.photoOn, uPhotoRange: shared.uPhotoRange, uPhotoMix: shared.uPhotoMix,
-      uNight: shared.uNight, uTime: shared.uTime, uWindowLife: shared.uWindowLife, uCityGlass: shared.uCityGlass, uRoomLight: shared.uRoomLight, uNightBlue: shared.uNightBlue, uSunDir: shared.uSunDir, uSunGlint: shared.uSunGlint, uGlintOn: shared.uGlintOn, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
+      uNight: shared.uNight, uTime: shared.uTime, uWindowLife: shared.uWindowLife, uCityGlass: shared.uCityGlass, uRoomLight: shared.uRoomLight, uGlass: shared.uGlass, uNightBlue: shared.uNightBlue, uSunDir: shared.uSunDir, uSunGlint: shared.uSunGlint, uGlintOn: shared.uGlintOn, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
       uWallScale: { value: tex.wall.scales }, uWallDetail: { value: tex.wall.details },
     });
     shader.vertexShader = shader.vertexShader
@@ -392,7 +404,7 @@ function facadeMaterial(tex) {
       shader.fragmentShader = part(part(shader.fragmentShader, PHOTO_PARS, PHOTO_PARS + ABSTRACT_PARS), PHOTO_MAIN, abstractMain(variant.landmarks));
     }
   };
-  m.customProgramCacheKey = () => 'facade-v23' + variantKey();
+  m.customProgramCacheKey = () => 'facade-v25' + variantKey();
   return m;
 }
 
