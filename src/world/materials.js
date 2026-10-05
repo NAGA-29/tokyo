@@ -18,7 +18,7 @@ export const shared = {
   // run as fast as the pace says: see windowPace; at pace 1 a room may change every 1.5 to 5.5 minutes)
   uWindowLife: { value: new THREE.Vector2(0.5, 0) },
   // how strongly the glass of tall buildings mirrors the lights of the city at night (0: off)
-  uCityGlass: { value: 1 },
+  uCityGlass: { value: 0 }, // (off: the glass is flat and mirrors what is really there; the drawn lights are dots)
   // how bright the lit rooms are at night (1: as designed)
   uRoomLight: { value: 1 },
   // how much the windows look like glass (0: as plain mirrors, the way they were): see the facade shader
@@ -255,9 +255,8 @@ const FACADE_MAIN = /* glsl */ `
     gRough = mix(gRough, 0.45, inWin * frame);
     gRough = mix(gRough, 0.05, pane);
     gMetal = mix(gMetal, 0.92, pane);
-    // (glass: every pane sits a little out of true, so each mirrors a patch of sky of its own — the patchwork of
-    // a real curtain wall — the more so the more glass is asked for)
-    float tilt = 0.03 + 0.05 * uGlass;
+    // (the panes are flat but for a trace: the glass mirrors the world as it is)
+    float tilt = 0.008;
     gNm = mix(gNm, normalize(vec3((hash12(room + 5.1) - 0.5) * tilt, (hash12(room + 9.4) - 0.5) * tilt, 1.0)), inWin);
     float daylight = (1.0 - uNight) * (shop ? 0.3 : cat > 4.5 ? 0.06 : 0.12);
     gEmissive = pane * interior * (daylight + uNight * on * glow * 1.25 * lamp * uRoomLight);
@@ -404,7 +403,7 @@ function facadeMaterial(tex) {
       shader.fragmentShader = part(part(shader.fragmentShader, PHOTO_PARS, PHOTO_PARS + ABSTRACT_PARS), PHOTO_MAIN, abstractMain(variant.landmarks));
     }
   };
-  m.customProgramCacheKey = () => 'facade-v25' + variantKey();
+  m.customProgramCacheKey = () => 'facade-v26' + variantKey();
   return m;
 }
 

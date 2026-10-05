@@ -227,7 +227,7 @@ let guiState, clockText;
   rooms.add(shared.uRoomLight, 'value', 0, 4, 0.05).name('light strength');
   rooms.add(shared.uWindowLife.value, 'x', 0, 1, 0.05).name('rooms that change');
   rooms.add(state, 'windowPace', 0, 60, 0.5).name('pace');
-  rooms.add(shared.uCityGlass, 'value', 0, 3, 0.05).name('city in tower glass');
+  rooms.add(shared.uCityGlass, 'value', 0, 3, 0.05).name('drawn city lights in tower glass');
   rooms.add(shared.uNightBlue, 'value', 0, 1, 0.05).name('blue lights');
   const walls = gui.addFolder('Wall photos');
   walls.add(shared.uPhotoMix, 'value', 0, 1, 0.05).name('amount');
