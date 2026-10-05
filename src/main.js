@@ -122,6 +122,7 @@ const setAbstract = (on) => { setVariant({ abstract: on }); streamer.setAbstract
 env.lightFromSky(atmosphere.environmentSky(), () => atmosphere.ready);
 if (params.get('skylight') === '1') env.skyLight = true;
 if (Number(params.get('fog')) > 0) atmosphere.fog = Number(params.get('fog'));
+shared.uGlintOn.value = params.get('glint') != null ? Number(params.get('glint')) : 2; // (1: as it was designed; brighter by default)
 env.golden = params.get('golden') != null ? Number(params.get('golden')) : 1;
 env.brightness = Number(params.get('brightness')) || 1.15; // (a little brighter than the exposure was chosen for; 1: as it was)
 if (params.get('abstract') === '1') setAbstract(true);
@@ -203,6 +204,7 @@ let guiState, clockText;
   gui.add(state, 'trains');
   gui.add(env, 'brightness', 0.5, 2, 0.05);
   gui.add(env, 'skyLight').name('light from the real sky');
+  gui.add(shared.uGlintOn, 'value', 0, 5, 0.1).name('sun in the windows (strength)');
   gui.add(atmosphere, 'fog', 0, 1, 0.01);
   gui.add(env, 'golden', 0, 1.5, 0.05).name('golden hour').onChange(() => env.apply());
   gui.add(state, 'abstract').name('abstract model');
@@ -232,7 +234,6 @@ let guiState, clockText;
   quality.add(state, 'whole').name('whole city');
   quality.add(state, 'radius', 300, 3000, 50).name('view radius (m), if not');
   quality.add(atmosphere, 'reflect').name('window and water reflections');
-  quality.add(shared.uGlintOn, 'value', 0, 1, 1).name('sun in the windows');
   quality.add(state, 'shadows');
   quality.add(state, 'occlusion').name('ambient occlusion');
   quality.add(state, 'bloom');
