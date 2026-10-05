@@ -18,6 +18,8 @@ export const shared = {
   uWindowLife: { value: new THREE.Vector2(0.5, 4) },
   // how strongly the glass of tall buildings mirrors the lights of the city at night (0: off)
   uCityGlass: { value: 1 },
+  // how bright the lit rooms are at night (1: as designed)
+  uRoomLight: { value: 1 },
   // how blue the lights of the city are at night (0: mostly warm, 1: a cool blue city)
   uNightBlue: { value: 0.55 },
   // lamp light on the ground (src/world/lamplight.js): on at night, the light map, where it lies
@@ -93,6 +95,7 @@ uniform float uNight;
 uniform float uTime;
 uniform vec2 uWindowLife;
 uniform float uCityGlass;
+uniform float uRoomLight;
 uniform float uNightBlue;
 uniform vec3 uSunDir;
 uniform vec3 uSunGlint;
@@ -247,7 +250,7 @@ const FACADE_MAIN = /* glsl */ `
     gMetal = mix(gMetal, 0.92, pane);
     gNm = mix(gNm, normalize(vec3((hash12(room + 5.1) - 0.5) * 0.03, (hash12(room + 9.4) - 0.5) * 0.03, 1.0)), inWin);
     float daylight = (1.0 - uNight) * (shop ? 0.3 : cat > 4.5 ? 0.06 : 0.12);
-    gEmissive = pane * interior * (daylight + uNight * on * glow * 1.25 * lamp);
+    gEmissive = pane * interior * (daylight + uNight * on * glow * 1.25 * lamp * uRoomLight);
     // The sun in the glass. Each pane sits a little out of true and float glass is never quite flat, so the
     // mirrored sun is a hot core with a glare around it that wanders from pane to pane as the view moves. The
     // third, wide term is not physics: the true mirror image is only seen from below the sun's own height, and
@@ -360,7 +363,7 @@ function facadeMaterial(tex) {
     Object.assign(shader.uniforms, {
       uLampOn: { value: 0 }, uLampMap: shared.uLampMap, // (no lamp light on buildings; the sampler still needs its texture)
       uPhoto: m.userData.photo, uPhotoOn: m.userData.photoOn, uPhotoRange: shared.uPhotoRange, uPhotoMix: shared.uPhotoMix,
-      uNight: shared.uNight, uTime: shared.uTime, uWindowLife: shared.uWindowLife, uCityGlass: shared.uCityGlass, uNightBlue: shared.uNightBlue, uSunDir: shared.uSunDir, uSunGlint: shared.uSunGlint, uGlintOn: shared.uGlintOn, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
+      uNight: shared.uNight, uTime: shared.uTime, uWindowLife: shared.uWindowLife, uCityGlass: shared.uCityGlass, uRoomLight: shared.uRoomLight, uNightBlue: shared.uNightBlue, uSunDir: shared.uSunDir, uSunGlint: shared.uSunGlint, uGlintOn: shared.uGlintOn, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
       uWallScale: { value: tex.wall.scales }, uWallDetail: { value: tex.wall.details },
     });
     shader.vertexShader = shader.vertexShader
@@ -385,7 +388,7 @@ function facadeMaterial(tex) {
       shader.fragmentShader = part(part(shader.fragmentShader, PHOTO_PARS, PHOTO_PARS + ABSTRACT_PARS), PHOTO_MAIN, abstractMain(variant.landmarks));
     }
   };
-  m.customProgramCacheKey = () => 'facade-v21' + variantKey();
+  m.customProgramCacheKey = () => 'facade-v22' + variantKey();
   return m;
 }
 
