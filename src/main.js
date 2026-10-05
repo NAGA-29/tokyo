@@ -16,7 +16,7 @@ import { Traffic, MAX_CARS } from './world/traffic.js';
 import { buildStructures } from './world/structures.js';
 import { loadOrtho } from './world/ortho.js';
 import { Environment } from './world/environment.js';
-import { Atmosphere, SHADE } from './world/atmosphere.js';
+import { Atmosphere } from './world/atmosphere.js';
 import { createBirds, MAX_BIRDS } from './world/birds.js';
 import { loadBackdrop } from './world/backdrop.js';
 import { WaterMirror } from './world/mirror.js';
@@ -113,8 +113,8 @@ env.sky.visible = false; // the atmosphere draws the sky (the environment map ke
 const ao = atmosphere.ao;
 if (params.get('reflect') === '0') atmosphere.reflect = false;
 // the abstract model (see materials.js): the city as a plain model of itself, with the light as it is
-// (a pale model under a heavy cloud shadow is a muddy grey: there the shadow is a light one)
-const setAbstract = (on) => { setVariant({ abstract: on }); streamer.setAbstract(on); atmosphere.shade = on ? 0.86 : SHADE; };
+// (the clouds throw the same shadow on it as on the city: see the slider in the Clouds folder)
+const setAbstract = (on) => { setVariant({ abstract: on }); streamer.setAbstract(on); };
 env.lightFromSky(atmosphere.environmentSky(), () => atmosphere.ready);
 if (params.get('skylight') === '1') env.skyLight = true;
 env.golden = params.get('golden') != null ? Number(params.get('golden')) : 1;
