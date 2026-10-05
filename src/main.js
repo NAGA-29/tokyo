@@ -192,6 +192,7 @@ let guiState, clockText;
   gui.add(props, 'parkLights', 0, 3, 0.05).name('park lights');
   gui.add(state, 'trains');
   gui.add(env, 'brightness', 0.5, 2, 0.05);
+  gui.add(env, 'skyLight').name('light from the real sky');
   gui.add(state, 'abstract').name('abstract model');
   gui.add(state, 'landmarks').name('landmarks in detail (abstract)');
   gui.add(state, 'windows');
@@ -221,7 +222,6 @@ let guiState, clockText;
   quality.add(shared.uGlintOn, 'value', 0, 1, 1).name('sun in the windows');
   quality.add(state, 'shadows');
   quality.add(state, 'occlusion').name('ambient occlusion');
-  quality.add(env, 'skyLight').name('light from the real sky');
   quality.add(state, 'bloom');
 
   // The panel's settings are kept (in this browser) and are the same for every city: what is switched off in
