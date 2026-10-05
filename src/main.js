@@ -301,7 +301,8 @@ const clock = new THREE.Clock();
 let frames = 0, fpsTime = 0, fps = 0;
 
 let loading = true;
-function frame() {
+// one frame: everything that moves, then the picture
+function tick() {
   const dt = Math.min(clock.getDelta(), 0.1);
   renderer.info.reset();
   keyboardPan(dt);
@@ -348,8 +349,9 @@ function frame() {
     (picked ? `\n▸ ${USAGE[picked.usage] ?? 'usage ' + picked.usage}, ${picked.height.toFixed(1)} m` +
       `${picked.storeys ? `, ${picked.storeys} floors` : ''}, base ${picked.base.toFixed(1)} m\n` : '') +
     `\ndrag pan · right-drag rotate · wheel zoom\nWASD move (shift fast) · N day/night · click building`;
-  requestAnimationFrame(frame);
 }
+function frame() { tick(); requestAnimationFrame(frame); }
 requestAnimationFrame(frame);
 
-window.__app = { scene, camera, controls, streamer, env, renderer, materials, ao, atmosphere, traffic, shared };
+// (for the console and for tools: tick() draws a frame by hand, clockTime sets the hour)
+window.__app = { scene, camera, controls, streamer, env, renderer, materials, ao, atmosphere, traffic, shared, tick, clockTime };
