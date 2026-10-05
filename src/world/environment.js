@@ -12,6 +12,10 @@ const NIGHT = {
 };
 
 const SUNSET = new THREE.Color(0xff9a52);
+// The golden hour (see `golden`): the sun's colour at the horizon, the light of the sky on what the sun does not
+// reach (peach from above, a cool violet from below: warm light, cool shade), and the colours they have by day.
+const GOLD = { sun: new THREE.Color(0xff6a24), sky: new THREE.Color(0xffb890), ground: new THREE.Color(0x5a4c7c) };
+const HEMI = { sky: new THREE.Color(0xfff4e6), ground: new THREE.Color(0x8a8172) };
 const MOON_STAND_IN = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 40), THREE.MathUtils.degToRad(205));
 
 export class Environment {
@@ -23,6 +27,7 @@ export class Environment {
     this.daylight = 1; this.moonlight = 0; this.warmth = 0; this.elevation = 40;
     this.time = 0;
     this.brightness = 1; // of the whole picture (the exposure is multiplied by it)
+    this.golden = 0;     // how much the low sun colours the city (0: as it was; 1: a golden hour)
     this.sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 40), THREE.MathUtils.degToRad(205));
 
     this.sky = createSky();
@@ -140,9 +145,14 @@ export class Environment {
   apply() {
     const t = this.dark, lerp = (a, b) => a + (b - a) * t;
     this.sky.material.uniforms.uNight.value = t;
-    this.hemi.intensity = lerp(DAY.hemi, NIGHT.hemi);
-    this.sun.intensity = DAY.sun * this.daylight + NIGHT.sun * this.moonlight;
-    this.sun.color.copy(DAY.sunColor).lerp(SUNSET, this.warmth).lerp(NIGHT.sunColor, this.moonlight);
+    this.hemi.intensity = lerp(DAY.hemi, NIGHT.hemi) * (1 - 0.3 * this.golden * this.warmth * this.warmth * this.daylight);
+    // the golden hour: with the sun low, its light is a deeper orange and stronger against the fill, and the fill
+    // takes the colours of the evening sky (nothing of this by day, when warmth is 0, or once the sun is gone)
+    const gold = this.golden * this.warmth * this.warmth * this.daylight;
+    this.sun.intensity = DAY.sun * this.daylight * (1 + 0.35 * gold) + NIGHT.sun * this.moonlight;
+    this.sun.color.copy(DAY.sunColor).lerp(SUNSET, this.warmth).lerp(GOLD.sun, 0.75 * gold).lerp(NIGHT.sunColor, this.moonlight);
+    this.hemi.color.copy(HEMI.sky).lerp(GOLD.sky, gold);
+    this.hemi.groundColor.copy(HEMI.ground).lerp(GOLD.ground, gold);
     this.scene.environmentIntensity = lerp(DAY.env, NIGHT.env) * this.envScale; // (the map itself darkens with the sky)
     this.renderer.toneMappingExposure = lerp(DAY.exposure, NIGHT.exposure) * this.brightness;
     this.bloom = lerp(DAY.bloom, NIGHT.bloom);

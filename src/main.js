@@ -117,6 +117,7 @@ if (params.get('reflect') === '0') atmosphere.reflect = false;
 const setAbstract = (on) => { setVariant({ abstract: on }); streamer.setAbstract(on); atmosphere.shade = on ? 0.86 : SHADE; };
 env.lightFromSky(atmosphere.environmentSky(), () => atmosphere.ready);
 if (params.get('skylight') === '1') env.skyLight = true;
+env.golden = params.get('golden') != null ? Number(params.get('golden')) : 1;
 env.brightness = Number(params.get('brightness')) || 1.15; // (a little brighter than the exposure was chosen for; 1: as it was)
 if (params.get('abstract') === '1') setAbstract(true);
 if (params.get('landmarks') === '1') setVariant({ landmarks: true });
@@ -197,6 +198,7 @@ let guiState, clockText;
   gui.add(state, 'trains');
   gui.add(env, 'brightness', 0.5, 2, 0.05);
   gui.add(env, 'skyLight').name('light from the real sky');
+  gui.add(env, 'golden', 0, 1.5, 0.05).name('golden hour').onChange(() => env.apply());
   gui.add(state, 'abstract').name('abstract model');
   gui.add(state, 'landmarks').name('landmarks in detail (abstract)');
   gui.add(state, 'windows');
