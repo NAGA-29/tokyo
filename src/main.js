@@ -158,6 +158,10 @@ let guiState, clockText;
     bloom: true,
     get abstract() { return variant.abstract; }, set abstract(v) { if (v !== variant.abstract) setAbstract(v); },
     get landmarks() { return variant.landmarks; }, set landmarks(v) { if (v !== variant.landmarks) setVariant({ landmarks: v }); },
+    // how dark the clouds' shadow lies on the city (0: none; the number is written into a shader, so it is set
+    // when the slider is let go)
+    shadowWanted: null,
+    get cloudShadow() { return this.shadowWanted ?? Math.round((1 - atmosphere.shade) * 100) / 100; }, set cloudShadow(v) { this.shadowWanted = v; },
     get windows() { return variant.windows; }, set windows(v) { if (v !== variant.windows) setVariant({ windows: v }); },
     // the whole city at once, or only what lies within the view radius of the point looked at (fewer tiles: more frames)
     wholeCity: false, near: Number(params.get('radius')) || 900,
@@ -202,6 +206,7 @@ let guiState, clockText;
   const sky = gui.addFolder('Clouds');
   sky.add(atmosphere, 'cloudsOn').name('clouds');
   sky.add(atmosphere, 'coverage', 0, 1, 0.05);
+  sky.add(state, 'cloudShadow', 0, 0.85, 0.01).name('shadow on the city').listen().onFinishChange((v) => { atmosphere.shade = 1 - v; state.shadowWanted = null; });
   sky.add(atmosphere, 'base', 200, 2000, 50).name('base altitude (m)');
   sky.add(atmosphere, 'overCity').name('over the city only');
   sky.add(atmosphere, 'quality', ['low', 'medium', 'high', 'ultra']);
