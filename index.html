@@ -58,6 +58,16 @@
       jeantimex
     </a>
     <div id="credits"></div>
+    <script>
+      // The atmosphere works out its tables (the sky's colours, the light on the clouds) in the browser's idle
+      // time, of which a busy page — the whole city loaded, clouds on — has none: the sky would stay dull and the
+      // clouds dark for as long as it is busy. Idle work is given a deadline, so that it is done all the same.
+      // (Here, before the modules: the library takes hold of the function when it is loaded.)
+      if (window.requestIdleCallback) {
+        const idle = window.requestIdleCallback.bind(window);
+        window.requestIdleCallback = (callback, options) => idle(callback, { timeout: 30, ...options });
+      }
+    </script>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>
