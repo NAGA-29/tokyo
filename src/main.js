@@ -169,6 +169,7 @@ let guiState, clockText;
     // when the slider is let go)
     // (the number is written into a shader: it is set a moment after the slider has come to rest)
     get cloudShadow() { return cloudShadow; }, set cloudShadow(v) { cloudShadow = v; clearTimeout(shadeTimer); shadeTimer = setTimeout(applyShade, 250); },
+    windowPace: 6, // how fast the lit rooms come and go (1: a room may change every 1.5 to 5.5 minutes)
     get windows() { return variant.windows; }, set windows(v) { if (v !== variant.windows) setVariant({ windows: v }); },
     // the whole city at once, or only what lies within the view radius of the point looked at (fewer tiles: more frames)
     wholeCity: false, near: Number(params.get('radius')) || 900,
@@ -224,7 +225,7 @@ let guiState, clockText;
   const rooms = gui.addFolder('Night windows');
   rooms.add(shared.uRoomLight, 'value', 0, 4, 0.05).name('light strength');
   rooms.add(shared.uWindowLife.value, 'x', 0, 1, 0.05).name('rooms that change');
-  rooms.add(shared.uWindowLife.value, 'y', 0.2, 30, 0.1).name('pace');
+  rooms.add(state, 'windowPace', 0, 60, 0.5).name('pace');
   rooms.add(shared.uCityGlass, 'value', 0, 3, 0.05).name('city in tower glass');
   rooms.add(shared.uNightBlue, 'value', 0, 1, 0.05).name('blue lights');
   const walls = gui.addFolder('Wall photos');
@@ -356,6 +357,8 @@ function tick() {
     loader.set(0.2 + 0.8 * got, `city tiles ${streamer.stats.loaded} / ${manifest.tiles.length}`);
     if (got >= 1) { loading = false; loader.hide(); }
   }
+  // the clock the lit windows go by: it runs at their pace (and is kept small: the shader counts in floats)
+  shared.uWindowLife.value.y = (shared.uWindowLife.value.y + dt * (guiState?.windowPace ?? 6)) % 1e5;
   props.update(dt);
   if (birds.geometry.instanceCount) birds.userData.update(dt, controls.target, camera, streamer);
   signs.update();

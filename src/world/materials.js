@@ -14,8 +14,9 @@ export const shared = {
   uTime: { value: 0 },  // seconds, for wind and signals
   // aerial photo over the area: texture, and its rectangle in world x/z as (minX, minZ, sizeX, sizeZ)
   uOrtho: { value: null }, uOrthoRect: { value: new THREE.Vector4(0, 0, 1, 1) }, uOrthoOn: { value: 0 },
-  // lit windows at night: the share of rooms whose light comes and goes, and how fast (1: every 1.5 to 5.5 minutes)
-  uWindowLife: { value: new THREE.Vector2(0.5, 4) },
+  // lit windows at night: the share of rooms whose light comes and goes, and the clock they go by (seconds that
+  // run as fast as the pace says: see windowPace; at pace 1 a room may change every 1.5 to 5.5 minutes)
+  uWindowLife: { value: new THREE.Vector2(0.5, 0) },
   // how strongly the glass of tall buildings mirrors the lights of the city at night (0: off)
   uCityGlass: { value: 1 },
   // how bright the lit rooms are at night (1: as designed)
@@ -221,12 +222,15 @@ const FACADE_MAIN = /* glsl */ `
     if (!shop) onRate = mix(onRate, 0.02 + 0.8 * step(0.9, hash12(vec2(row * 5.0 + mod(sid, 41.0), mod(sid, 59.0)))), tall);
     onRate = clamp(onRate, 0.0, 0.95);
     // Some rooms stay as they are all night. The others (uWindowLife.x of them) are lived in: every so often,
-    // each room on its own clock (90 to 330 s, divided by the pace uWindowLife.y), someone may come in or
-    // leave, and the light goes on or off over a second.
+    // each room on its own clock (90 to 330 s of the windows' clock uWindowLife.y), someone may come in or
+    // leave, and the light goes on or off over a moment. Which rooms, and when, is by chance: each room draws
+    // anew for every stretch of its own clock.
     float fickle = step(1.0 - uWindowLife.x, hash12(room + 31.0));
-    float period = (90.0 + 240.0 * hash12(room + 37.0)) / max(uWindowLife.y, 0.01);
-    float clock = uTime / period + hash12(room + 41.0), slot = floor(clock);
-    float lit = mix(step(1.0 - onRate, hash12(room + 43.0 + (slot - 1.0) * 7.0)), step(1.0 - onRate, hash12(room + 43.0 + slot * 7.0)), smoothstep(0.0, 1.2 / period, fract(clock)));
+    float period = 90.0 + 240.0 * hash12(room + 37.0);
+    float clock = uWindowLife.y / period + hash12(room + 41.0) * 64.0, slot = floor(clock);
+    // (the draw for a stretch: small numbers only, so that the chance stays good however long the clock has run)
+    vec2 was = vec2(mod(slot - 1.0, 61.0) * 7.13, mod(slot - 1.0, 47.0) * 3.71), now = vec2(mod(slot, 61.0) * 7.13, mod(slot, 47.0) * 3.71);
+    float lit = mix(step(1.0 - onRate, hash12(room + 43.0 + was)), step(1.0 - onRate, hash12(room + 43.0 + now)), smoothstep(0.0, 4.0 / period, fract(clock)));
     float on = mix(step(1.0 - onRate, hash12(room + 23.0)), lit, fickle);
     // The colour of the light: homes mostly warm bulbs, some cool, the odd blue of a television; an office
     // building one kind of tube throughout, cool white more often than warm. Brightness varies room by room
@@ -388,7 +392,7 @@ function facadeMaterial(tex) {
       shader.fragmentShader = part(part(shader.fragmentShader, PHOTO_PARS, PHOTO_PARS + ABSTRACT_PARS), PHOTO_MAIN, abstractMain(variant.landmarks));
     }
   };
-  m.customProgramCacheKey = () => 'facade-v22' + variantKey();
+  m.customProgramCacheKey = () => 'facade-v23' + variantKey();
   return m;
 }
 
