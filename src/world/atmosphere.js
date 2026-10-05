@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { EffectComposer, RenderPass, EffectPass, Effect, BloomEffect, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
 import { N8AOPostPass } from 'n8ao';
 import { WindowReflections } from './reflections.js';
+import { FogEffect } from './fog.js';
 import { AerialPerspectiveEffect, PrecomputedTexturesGenerator, SkyMaterial, getSunDirectionECEF, getMoonDirectionECEF } from '@takram/three-atmosphere';
 import { CloudsEffect, CLOUD_SHAPE_TEXTURE_SIZE, CLOUD_SHAPE_DETAIL_TEXTURE_SIZE } from '@takram/three-clouds';
 import { DataTextureLoader, Ellipsoid, Geodetic, parseUint8Array, radians, STBNLoader } from '@takram/three-geospatial';
@@ -18,6 +19,7 @@ const ASSETS = 'assets/takram'; // cloud shape and weather textures and blue noi
 const UNITS = 0.1;              // scene radiance -> the radiance the atmosphere works in (a sunlit white wall in both)
 const FADE = 500;                // metres beyond the area over which the clouds thin out to nothing
 const CLOUD_GLOW = 0.6, CLOUD_NIGHT = new THREE.Vector3(0.55, 0.6, 0.8); // the clouds' own light at the horizon, and its colour by night
+const FOG_WARM = new THREE.Color(0.85, 0.6, 0.45), FOG_NIGHT = new THREE.Color(0.035, 0.04, 0.055); // fog under the low sun, and at night
 export const SHADE = 0.42;             // what is left of a surface's light under a thick cloud: the sky still lights it
 
 class Scale extends Effect {
@@ -163,6 +165,12 @@ export class Atmosphere {
     this.skyPass = new EffectPass(camera, plain);
     this.composer.addPass(this.skyPass);
     this.composer.addPass(new EffectPass(camera, new Scale(1 / UNITS)));
+    // fog over the city (fog.js): no pass at all until there is some
+    this.fogEffect = new FogEffect(camera);
+    this.fogPass = new EffectPass(camera, this.fogEffect);
+    this.fogPass.enabled = false;
+    this.fogAmount = 0;
+    this.composer.addPass(this.fogPass);
     this.bloom = new BloomEffect({ intensity: 0.5, luminanceThreshold: 0.9, luminanceSmoothing: 0.2, mipmapBlur: true });
     this.composer.addPass(new EffectPass(camera, this.bloom, new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC })));
     this.connect();
@@ -190,6 +198,18 @@ export class Atmosphere {
     const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
     mesh.frustumCulled = false;
     return { mesh, scale: 0.72 / UNITS }; // (a little under the sky's own strength: the picture was balanced for a dimmer one)
+  }
+
+  // How foggy the city is: 0 none .. 1 thick (a few hundred metres to be seen).
+  get fog() { return this.fogAmount; }
+  set fog(v) { this.fogAmount = v; this.fogPass.enabled = v > 0; this.fogEffect.uniforms.get('uDensity').value = 0.0001 + 0.0059 * v * v; this.fogEffect.uniforms.get('uHeight').value = 120 + 260 * v; }
+  // The fog's colour is the light it stands in: dark (0 day .. 1 night), warm (0 .. 1: the low sun); ground: the
+  // height the fog lies on.
+  lightFog(dark, warm, ground) {
+    if (!this.fogPass.enabled) return;
+    const u = this.fogEffect.uniforms;
+    u.get('uColor').value.setRGB(0.72, 0.75, 0.79).lerp(FOG_WARM, 0.55 * warm * (1 - dark)).lerp(FOG_NIGHT, dark);
+    u.get('uGround').value = ground;
   }
 
   get cloudsOn() { return this.cloudPass.enabled; }

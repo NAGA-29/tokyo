@@ -114,9 +114,14 @@ const ao = atmosphere.ao;
 if (params.get('reflect') === '0') atmosphere.reflect = false;
 // the abstract model (see materials.js): the city as a plain model of itself, with the light as it is
 // (the clouds throw the same shadow on it as on the city: see the slider in the Clouds folder)
-const setAbstract = (on) => { setVariant({ abstract: on }); streamer.setAbstract(on); };
+// How dark the clouds' shadow lies on the city (0: none). The pale model shows a shadow less than the city
+// does (bright surfaces stay bright), so on it the shadow is made deeper.
+let cloudShadow = 0.58, shadeTimer = 0;
+const applyShade = () => { atmosphere.shade = Math.round((1 - cloudShadow) * (variant.abstract ? 0.6 : 1) * 100) / 100; };
+const setAbstract = (on) => { setVariant({ abstract: on }); streamer.setAbstract(on); applyShade(); };
 env.lightFromSky(atmosphere.environmentSky(), () => atmosphere.ready);
 if (params.get('skylight') === '1') env.skyLight = true;
+if (Number(params.get('fog')) > 0) atmosphere.fog = Number(params.get('fog'));
 env.golden = params.get('golden') != null ? Number(params.get('golden')) : 1;
 env.brightness = Number(params.get('brightness')) || 1.15; // (a little brighter than the exposure was chosen for; 1: as it was)
 if (params.get('abstract') === '1') setAbstract(true);
@@ -161,8 +166,8 @@ let guiState, clockText;
     get landmarks() { return variant.landmarks; }, set landmarks(v) { if (v !== variant.landmarks) setVariant({ landmarks: v }); },
     // how dark the clouds' shadow lies on the city (0: none; the number is written into a shader, so it is set
     // when the slider is let go)
-    shadowWanted: null,
-    get cloudShadow() { return this.shadowWanted ?? Math.round((1 - atmosphere.shade) * 100) / 100; }, set cloudShadow(v) { this.shadowWanted = v; },
+    // (the number is written into a shader: it is set a moment after the slider has come to rest)
+    get cloudShadow() { return cloudShadow; }, set cloudShadow(v) { cloudShadow = v; clearTimeout(shadeTimer); shadeTimer = setTimeout(applyShade, 250); },
     get windows() { return variant.windows; }, set windows(v) { if (v !== variant.windows) setVariant({ windows: v }); },
     // the whole city at once, or only what lies within the view radius of the point looked at (fewer tiles: more frames)
     wholeCity: false, near: Number(params.get('radius')) || 900,
@@ -198,6 +203,7 @@ let guiState, clockText;
   gui.add(state, 'trains');
   gui.add(env, 'brightness', 0.5, 2, 0.05);
   gui.add(env, 'skyLight').name('light from the real sky');
+  gui.add(atmosphere, 'fog', 0, 1, 0.01);
   gui.add(env, 'golden', 0, 1.5, 0.05).name('golden hour').onChange(() => env.apply());
   gui.add(state, 'abstract').name('abstract model');
   gui.add(state, 'landmarks').name('landmarks in detail (abstract)');
@@ -208,7 +214,7 @@ let guiState, clockText;
   const sky = gui.addFolder('Clouds');
   sky.add(atmosphere, 'cloudsOn').name('clouds');
   sky.add(atmosphere, 'coverage', 0, 1, 0.05);
-  sky.add(state, 'cloudShadow', 0, 0.85, 0.01).name('shadow on the city').listen().onFinishChange((v) => { atmosphere.shade = 1 - v; state.shadowWanted = null; });
+  sky.add(state, 'cloudShadow', 0, 0.85, 0.01).name('shadow on the city');
   sky.add(atmosphere, 'base', 200, 2000, 50).name('base altitude (m)');
   sky.add(atmosphere, 'overCity').name('over the city only');
   sky.add(atmosphere, 'quality', ['low', 'medium', 'high', 'ultra']);
@@ -361,6 +367,7 @@ function tick() {
   atmosphere.bloom.intensity = guiState.bloom ? env.bloom * 3 : 0;
   waterMirror.enabled = atmosphere.reflect && !variant.abstract; // (the abstract model's water mirrors nothing)
   waterMirror.update(scene, camera, streamer.tiles, controls.target, [traffic.group.parent ? null : traffic.group]);
+  atmosphere.lightFog(env.dark, env.warmth * env.daylight, controls.target.y);
   atmosphere.render(dt);
 
   frames++; fpsTime += dt;
