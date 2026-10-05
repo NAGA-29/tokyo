@@ -35,6 +35,8 @@ export class Environment {
     this.envSky = createSky({ sunDisc: 0, ground: SKY.ground });
     this.envSky.material.uniforms.uSunDir.value.copy(this.sunDir);
     this.envScene.add(this.envSky);
+    // (the other way to light the scene from its sky: see lightFromSky)
+    this.skyLit = false; this.physical = null; this.envScale = 1; this.bakedSun = new THREE.Vector3();
     this.bakeEnvironment();
 
     this.hemi = new THREE.HemisphereLight(0xfff4e6, 0x8a8172);
@@ -57,10 +59,34 @@ export class Environment {
   bakeEnvironment() {
     this.baked = this.dark;
     this.envSky.material.uniforms.uNight.value = this.baked;
+    const physical = this.skyLit && this.physical && this.physical.ready();
+    if (this.physical) {
+      this.envSky.visible = !physical; this.physical.group.visible = physical;
+      // (a physical night sky is black: the glow of the city's lights on the haze is put under it)
+      this.physical.glow.color.copy(SKY.nightHorizon).multiplyScalar(this.baked / this.physical.scale);
+      this.bakedSun.copy(this.sunWas ?? this.bakedSun);
+    }
+    this.envScale = physical ? this.physical.scale : 1;
     const old = this.scene.environment;
     this.scene.environment = this.pmrem.fromScene(this.envScene, 0, 0.1, 10).texture;
     old?.dispose();
   }
+
+  // Lights the scene from the sky the atmosphere works out instead of the painted one: the shaded sides and the
+  // glass then take the colours of the hour — the blue of noon, the orange of the low sun — from the same sky
+  // that is seen. sky: { mesh, scale } (Atmosphere.environmentSky()); ready(): whether the atmosphere can draw yet.
+  lightFromSky(sky, ready) {
+    const glow = new THREE.MeshBasicMaterial({ side: THREE.BackSide, depthWrite: false, fog: false });
+    const group = new THREE.Group();
+    Object.assign(sky.mesh.material, { blending: THREE.AdditiveBlending, transparent: true, depthTest: false, depthWrite: false });
+    sky.mesh.renderOrder = 1;
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(1, 24, 12), glow), sky.mesh);
+    group.visible = false;
+    this.envScene.add(group);
+    this.physical = { group, glow, scale: sky.scale, ready };
+  }
+  get skyLight() { return this.skyLit; }
+  set skyLight(v) { if (v !== this.skyLit) { this.skyLit = v; this.bakeEnvironment(); this.apply(); } }
 
   // sun, moon: unit vectors towards them (world space). The light is the sun by day — dimmer and warmer as it
   // sinks — and the moon by night (or a stand-in for it while the moon is down); the change of direction
@@ -81,7 +107,10 @@ export class Environment {
     shared.uSunDir.value.copy(sun);
     shared.uSunGlint.value.copy(DAY.sunColor).lerp(SUNSET, this.warmth).multiplyScalar(this.daylight * 3);
     this.apply();
+    this.sunWas = sun;
     if (Math.abs(this.dark - this.baked) > 0.04 || (this.dark !== this.baked && (this.dark === 0 || this.dark === 1))) this.bakeEnvironment();
+    // lit from the physical sky, the map follows the sun (and waits for the atmosphere's tables to be ready)
+    else if (this.skyLit && this.physical && this.physical.ready() && (this.envScale === 1 || sun.angleTo(this.bakedSun) > 0.006)) this.bakeEnvironment();
   }
 
   // The sky follows the camera; the shadow frustum follows the focus, snapped to texels so shadows do not shimmer.
@@ -114,7 +143,7 @@ export class Environment {
     this.hemi.intensity = lerp(DAY.hemi, NIGHT.hemi);
     this.sun.intensity = DAY.sun * this.daylight + NIGHT.sun * this.moonlight;
     this.sun.color.copy(DAY.sunColor).lerp(SUNSET, this.warmth).lerp(NIGHT.sunColor, this.moonlight);
-    this.scene.environmentIntensity = lerp(DAY.env, NIGHT.env); // (the map itself darkens with the sky)
+    this.scene.environmentIntensity = lerp(DAY.env, NIGHT.env) * this.envScale; // (the map itself darkens with the sky)
     this.renderer.toneMappingExposure = lerp(DAY.exposure, NIGHT.exposure) * this.brightness;
     this.bloom = lerp(DAY.bloom, NIGHT.bloom);
     shared.uNight.value = this.night;

@@ -115,6 +115,8 @@ if (params.get('reflect') === '0') atmosphere.reflect = false;
 // the abstract model (see materials.js): the city as a plain model of itself, with the light as it is
 // (a pale model under a heavy cloud shadow is a muddy grey: there the shadow is a light one)
 const setAbstract = (on) => { setVariant({ abstract: on }); streamer.setAbstract(on); atmosphere.shade = on ? 0.86 : SHADE; };
+env.lightFromSky(atmosphere.environmentSky(), () => atmosphere.ready);
+if (params.get('skylight') === '1') env.skyLight = true;
 env.brightness = Number(params.get('brightness')) || 1.15; // (a little brighter than the exposure was chosen for; 1: as it was)
 if (params.get('abstract') === '1') setAbstract(true);
 if (params.get('landmarks') === '1') setVariant({ landmarks: true });
@@ -219,6 +221,7 @@ let guiState, clockText;
   quality.add(shared.uGlintOn, 'value', 0, 1, 1).name('sun in the windows');
   quality.add(state, 'shadows');
   quality.add(state, 'occlusion').name('ambient occlusion');
+  quality.add(env, 'skyLight').name('light from the real sky');
   quality.add(state, 'bloom');
 
   // The panel's settings are kept (in this browser) and are the same for every city: what is switched off in

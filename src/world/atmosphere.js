@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { EffectComposer, RenderPass, EffectPass, Effect, BloomEffect, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
 import { N8AOPostPass } from 'n8ao';
 import { WindowReflections } from './reflections.js';
-import { AerialPerspectiveEffect, PrecomputedTexturesGenerator, getSunDirectionECEF, getMoonDirectionECEF } from '@takram/three-atmosphere';
+import { AerialPerspectiveEffect, PrecomputedTexturesGenerator, SkyMaterial, getSunDirectionECEF, getMoonDirectionECEF } from '@takram/three-atmosphere';
 import { CloudsEffect, CLOUD_SHAPE_TEXTURE_SIZE, CLOUD_SHAPE_DETAIL_TEXTURE_SIZE } from '@takram/three-clouds';
 import { DataTextureLoader, Ellipsoid, Geodetic, parseUint8Array, radians, STBNLoader } from '@takram/three-geospatial';
 import { shared } from './materials.js';
@@ -102,6 +102,7 @@ export class Atmosphere {
     const generator = new PrecomputedTexturesGenerator(renderer);
     this.ready = false; // (the sky is dark until the tables are done)
     generator.update().then(() => { this.ready = true; }).catch((e) => console.error(e));
+    this.textures = generator.textures;
     Object.assign(aerial, generator.textures);
     Object.assign(clouds, generator.textures);
 
@@ -164,6 +165,19 @@ export class Atmosphere {
     this.shadeNow = v;
     for (const fx of [this.aerial, this.plain]) fx.setFragmentShader(fx.getFragmentShader().replace(/mix\([0-9.]+, 1\.0, sunTransmittance\)/, `mix(${v.toFixed(2)}, 1.0, sunTransmittance)`));
   }
+  // The sky as the atmosphere works it out, for an environment map (environment.js): the whole dome at the hour
+  // it is, without the sun's disc (the sun is the scene's own light) and with sunlit ground below the horizon.
+  // Returns { mesh: a quad that fills whatever camera looks at it, scale: its radiance into the scene's units }.
+  environmentSky() {
+    const material = this.skyMaterial = new SkyMaterial({ sun: false, moon: false, ground: true, groundAlbedo: new THREE.Color(0.22, 0.21, 0.19) });
+    Object.assign(material, this.textures);
+    material.worldToECEFMatrix.copy(this.worldToECEF);
+    material.sunDirection.copy(this.sun);
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), material);
+    mesh.frustumCulled = false;
+    return { mesh, scale: 0.72 / UNITS }; // (a little under the sky's own strength: the picture was balanced for a dimmer one)
+  }
+
   get cloudsOn() { return this.cloudPass.enabled; }
   set cloudsOn(v) { this.cloudPass.enabled = v; this.skyPass.enabled = !v; }
   get reflect() { return this.reflectionPass.enabled; }
@@ -186,6 +200,7 @@ export class Atmosphere {
     getMoonDirectionECEF(date, this.moon);
     for (const fx of [this.aerial, this.plain]) { fx.sunDirection.copy(this.sun); fx.moonDirection.copy(this.moon); }
     this.clouds.sunDirection.copy(this.sun);
+    this.skyMaterial?.sunDirection.copy(this.sun);
     // world -> ECEF is a rotation: its transpose brings a direction back
     const toWorld = this.toWorld ??= this.rotation.clone().transpose();
     return { sun: this.sun.clone().applyMatrix3(toWorld), moon: this.moon.clone().applyMatrix3(toWorld) };
