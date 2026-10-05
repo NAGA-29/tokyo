@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import GUI from 'lil-gui';
 import { makeProjection } from './shared/geo.js';
-import { createMaterials, shared } from './world/materials.js';
+import { createMaterials, shared, variant, setVariant } from './world/materials.js';
 import { loadTextures } from './world/textures.js';
 import { Streamer } from './world/streamer.js';
 import { Props } from './world/props.js';
@@ -16,7 +16,7 @@ import { Traffic, MAX_CARS } from './world/traffic.js';
 import { buildStructures } from './world/structures.js';
 import { loadOrtho } from './world/ortho.js';
 import { Environment } from './world/environment.js';
-import { Atmosphere } from './world/atmosphere.js';
+import { Atmosphere, SHADE } from './world/atmosphere.js';
 import { createBirds, MAX_BIRDS } from './world/birds.js';
 import { loadBackdrop } from './world/backdrop.js';
 import { WaterMirror } from './world/mirror.js';
@@ -112,6 +112,13 @@ const atmosphere = new Atmosphere(renderer, scene, camera, manifest.origin, mani
 env.sky.visible = false; // the atmosphere draws the sky (the environment map keeps its own)
 const ao = atmosphere.ao;
 if (params.get('reflect') === '0') atmosphere.reflect = false;
+// the abstract model (see materials.js): the city as a plain model of itself, with the light as it is
+// (a pale model under a heavy cloud shadow is a muddy grey: there the shadow is a light one)
+const setAbstract = (on) => { setVariant({ abstract: on }); streamer.setAbstract(on); atmosphere.shade = on ? 0.86 : SHADE; };
+env.brightness = Number(params.get('brightness')) || 1.15; // (a little brighter than the exposure was chosen for; 1: as it was)
+if (params.get('abstract') === '1') setAbstract(true);
+if (params.get('landmarks') === '1') setVariant({ landmarks: true });
+if (params.get('windows') === '0') setVariant({ windows: false });
 if (Number(params.get('clouds')) > 0) { atmosphere.coverage = Number(params.get('clouds')); atmosphere.cloudsOn = true; }
 let orthoLoaded = false, orthoWanted = true; // (the photo fills in when the tiles arrive; the panel may have switched it off by then)
 if (params.get('ortho') !== '0') loadOrtho(`ortho/${AREA}`, proj, manifest.bounds, renderer).then((ok) => { orthoLoaded = ok; shared.uOrthoOn.value = ok && orthoWanted ? 1 : 0; });
@@ -147,6 +154,9 @@ let guiState, clockText;
     get shadows() { return env.sun.castShadow; }, set shadows(v) { env.sun.castShadow = v; },
     get occlusion() { return ao.configuration.intensity > 0; }, set occlusion(v) { ao.configuration.intensity = v ? AO : 0; },
     bloom: true,
+    get abstract() { return variant.abstract; }, set abstract(v) { if (v !== variant.abstract) setAbstract(v); },
+    get landmarks() { return variant.landmarks; }, set landmarks(v) { if (v !== variant.landmarks) setVariant({ landmarks: v }); },
+    get windows() { return variant.windows; }, set windows(v) { if (v !== variant.windows) setVariant({ windows: v }); },
     // the whole city at once, or only what lies within the view radius of the point looked at (fewer tiles: more frames)
     wholeCity: false, near: Number(params.get('radius')) || 900,
     get whole() { return this.wholeCity; }, set whole(v) { this.wholeCity = v; streamer.radius = v ? 1e5 : this.near; },
@@ -179,6 +189,10 @@ let guiState, clockText;
   gui.add(props, 'streetLights', 0, 3, 0.05).name('street lights');
   gui.add(props, 'parkLights', 0, 3, 0.05).name('park lights');
   gui.add(state, 'trains');
+  gui.add(env, 'brightness', 0.5, 2, 0.05);
+  gui.add(state, 'abstract').name('abstract model');
+  gui.add(state, 'landmarks').name('landmarks in detail (abstract)');
+  gui.add(state, 'windows');
   gui.add(state, 'photo').name('aerial photo').listen();
   gui.add(birds.geometry, 'instanceCount', 0, MAX_BIRDS, 10).name('birds');
   gui.add(state, 'info').name('info panel');
@@ -335,7 +349,7 @@ function tick() {
   env.follow(controls.target, camera);
   lampLight.update(scene, controls.target, camera.position, env.night);
   atmosphere.bloom.intensity = guiState.bloom ? env.bloom * 3 : 0;
-  waterMirror.enabled = atmosphere.reflect;
+  waterMirror.enabled = atmosphere.reflect && !variant.abstract; // (the abstract model's water mirrors nothing)
   waterMirror.update(scene, camera, streamer.tiles, controls.target, [traffic.group.parent ? null : traffic.group]);
   atmosphere.render(dt);
 

@@ -17,7 +17,7 @@ import { shared } from './materials.js';
 const ASSETS = 'assets/takram'; // cloud shape and weather textures and blue noise, as shipped with the packages
 const UNITS = 0.1;              // scene radiance -> the radiance the atmosphere works in (a sunlit white wall in both)
 const FADE = 500;                // metres beyond the area over which the clouds thin out to nothing
-const SHADE = 0.42;             // what is left of a surface's light under a thick cloud: the sky still lights it
+export const SHADE = 0.42;             // what is left of a surface's light under a thick cloud: the sky still lights it
 
 class Scale extends Effect {
   constructor(k) {
@@ -155,6 +155,15 @@ export class Atmosphere {
     this.cloudsOn = false; // volumetric clouds are heavy: off until asked for
   }
 
+  // What is left of a surface's light under a thick cloud (SHADE as designed; nearer 1: a lighter shadow). The
+  // number is written into the shader: setting another compiles it again, and until one is set the shader is
+  // the one made above.
+  get shade() { return this.shadeNow ?? SHADE; }
+  set shade(v) {
+    if (v === this.shade) return;
+    this.shadeNow = v;
+    for (const fx of [this.aerial, this.plain]) fx.setFragmentShader(fx.getFragmentShader().replace(/mix\([0-9.]+, 1\.0, sunTransmittance\)/, `mix(${v.toFixed(2)}, 1.0, sunTransmittance)`));
+  }
   get cloudsOn() { return this.cloudPass.enabled; }
   set cloudsOn(v) { this.cloudPass.enabled = v; this.skyPass.enabled = !v; }
   get reflect() { return this.reflectionPass.enabled; }

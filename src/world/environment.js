@@ -22,6 +22,7 @@ export class Environment {
     this.dark = 0;   // how dark it is: this follows the sun all the way down through twilight
     this.daylight = 1; this.moonlight = 0; this.warmth = 0; this.elevation = 40;
     this.time = 0;
+    this.brightness = 1; // of the whole picture (the exposure is multiplied by it)
     this.sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 40), THREE.MathUtils.degToRad(205));
 
     this.sky = createSky();
@@ -114,7 +115,7 @@ export class Environment {
     this.sun.intensity = DAY.sun * this.daylight + NIGHT.sun * this.moonlight;
     this.sun.color.copy(DAY.sunColor).lerp(SUNSET, this.warmth).lerp(NIGHT.sunColor, this.moonlight);
     this.scene.environmentIntensity = lerp(DAY.env, NIGHT.env); // (the map itself darkens with the sky)
-    this.renderer.toneMappingExposure = lerp(DAY.exposure, NIGHT.exposure);
+    this.renderer.toneMappingExposure = lerp(DAY.exposure, NIGHT.exposure) * this.brightness;
     this.bloom = lerp(DAY.bloom, NIGHT.bloom);
     shared.uNight.value = this.night;
     shared.uDark.value = t;

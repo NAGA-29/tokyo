@@ -265,14 +265,29 @@ function minAreaRect(r) {
   return hu >= hv ? { cx, cz, ax: dx, az: dz, a: hu, b: hv, area: best.area } : { cx, cz, ax: -dz, az: dx, a: hv, b: hu, area: best.area };
 }
 
-export function buildingMesh(buildings, tx, tz) {
+// marks: [x, z] of points inside the landmarks (landmarks.js): their buildings are flagged (aMark) for the
+// abstract model.
+export function buildingMesh(buildings, tx, tz, marks = []) {
+  // a mark is its building's if it lies inside it; one that lies in none (a courtyard, a point a little off) goes
+  // to the nearest building within 30 m
+  const marked = new Set();
+  for (const [x, z] of marks) {
+    let hit = buildings.findIndex((b) => b.polygons.some((rings) => insideRings(x, z, rings)));
+    if (hit < 0) {
+      let best = 30;
+      buildings.forEach((b, i) => { const r = b.polygons[0][0]; for (let k = 0; k < r.length; k += 2) { const d = Math.hypot(r[k] - x, r[k + 1] - z); if (d < best) { best = d; hit = i; } } });
+    }
+    if (hit >= 0) marked.add(hit);
+  }
+  const mrk = new Buf(1 << 14);
   const pos = new Buf(1 << 16), nor = new Buf(1 << 16), col = new Buf(1 << 16), fac = new Buf(1 << 16), bld = new Buf(1 << 16), pho = new Buf(1 << 15);
   let pu = -1, pv = -1; // photo coordinates of the vertices being added (-1: none)
   const ends = new Buf(1 << 12);
-  const photo = { pos: new Buf(1 << 12), nor: new Buf(1 << 12), uv: new Buf(1 << 12) }; // roofs with an aerial photo
+  const photo = { pos: new Buf(1 << 12), nor: new Buf(1 << 12), uv: new Buf(1 << 12), mark: new Buf(1 << 10) }; // roofs with an aerial photo
 
   buildings.forEach((b, i) => {
     let k = 0;
+    const mark = marked.has(i) ? 1 : 0; // a landmark
     const rnd = () => hash3(i * 31 + k++, tx * 13 + 5, tz * 17 + 3);
     const seed = Math.floor(hash3(tx, tz, i) * 4096) / 4096; // quantised: the shader hashes it per room
     // OSM's building:material / building:colour, where mapped, replace the generated finish
@@ -303,7 +318,7 @@ export function buildingMesh(buildings, tx, tz) {
     // One vertex. (u, v) feed the window grid; kind / bay / layer select the shading (see materials.js).
     const vtx = (x, y, z, n, c, u, v, kind, bay, layer) => {
       pos.push(x, y, z); nor.push(n[0], n[1], n[2]); col.push(c[0], c[1], c[2]);
-      fac.push(u, v, floorH, seed); bld.push(wallH, cat + 8 * layer, kind, bay); pho.push(pu, pv);
+      fac.push(u, v, floorH, seed); bld.push(wallH, cat + 8 * layer, kind, bay); pho.push(pu, pv); mrk.push(mark);
     };
     // Triangle and quad with the winding chosen to face `ref`.
     const tri = (p, q, r, ref, c, kind, layer) => {
@@ -381,7 +396,7 @@ export function buildingMesh(buildings, tx, tz) {
           const cx = (q[1] - p[1]) * (r[2] - p[2]) - (q[2] - p[2]) * (r[1] - p[1]), cy = (q[2] - p[2]) * (r[0] - p[0]) - (q[0] - p[0]) * (r[2] - p[2]),
             cz = (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
           if (cx * nx + cy * ny + cz * nz < 0) [q, r] = [r, q];
-          if (uv && isRoof) { for (const v of [p, q, r]) { photo.pos.push(v[0], v[1], v[2]); photo.nor.push(nx, ny, nz); photo.uv.push(v[4], v[5]); } continue; }
+          if (uv && isRoof) { for (const v of [p, q, r]) { photo.pos.push(v[0], v[1], v[2]); photo.nor.push(nx, ny, nz); photo.uv.push(v[4], v[5]); photo.mark.push(mark); } continue; }
           for (const v of [p, q, r]) {
             if (uv) { pu = v[4]; pv = v[5]; }
             vtx(v[0], v[1], v[2], N, color, bays ? ((v[3] - s0) / len) * bays : 0, v[1] - b.base, kind, bay, layer);
@@ -511,14 +526,14 @@ export function buildingMesh(buildings, tx, tz) {
     ends.push(pos.length / 3);
   });
   return {
-    position: pos.done(), normal: nor.done(), color: col.done(), aFacade: fac.done(), aBldg: bld.done(), aPhoto: pho.done(),
+    position: pos.done(), normal: nor.done(), color: col.done(), aFacade: fac.done(), aBldg: bld.done(), aPhoto: pho.done(), aMark: mrk.done(),
     // first vertex index after each building (for picking: vertex -> building)
     ends: ends.done(), triangles: pos.length / 9,
-    photo: { position: photo.pos.done(), normal: photo.nor.done(), uv: photo.uv.done() },
+    photo: { position: photo.pos.done(), normal: photo.nor.done(), uv: photo.uv.done(), aMark: photo.mark.done() },
   };
 }
 
-export function buildTile(tile, grid, tileSize, surface = (x, z) => sampleGrid(grid, x, z)) {
+export function buildTile(tile, grid, tileSize, surface = (x, z) => sampleGrid(grid, x, z), marks = []) {
   // (the default surface ignores decks: fine for tests, the worker passes makeSurface())
   const drape = createDraper(grid, surface, tileSize);
   return {
@@ -526,7 +541,7 @@ export function buildTile(tile, grid, tileSize, surface = (x, z) => sampleGrid(g
     roads: roadMesh(tile.areas.filter((a) => !isPaint(a)), grid, surface, tile.walls, drape),
     paint: roadMesh(tile.areas.filter(isPaint), grid, surface, [], drape),
     decals: decalMesh(tile.props, drape),
-    buildings: buildingMesh(tile.buildings, tile.tx, tile.tz),
+    buildings: buildingMesh(tile.buildings, tile.tx, tile.tz, marks),
     info: tile.buildings.map((b) => [b.usage, b.storeys, b.height, b.base]),
     props: Float32Array.from(tile.props.flatMap((p) => [p.kind, p.variant, p.rot, p.x, p.z, p.scale])),
     wires: tile.wires,

@@ -1,11 +1,12 @@
 // Keeps the tiles within `radius` of a focus point loaded, nearest first, and drops the ones
 // that fall beyond radius + hysteresis. Meshing happens in a small pool of workers.
 import * as THREE from 'three';
-import { tileKey } from '../shared/geo.js';
+import { tileKey, makeProjection } from '../shared/geo.js';
+import { LANDMARKS } from './landmarks.js';
 import { sampleGrid } from '../shared/terrain.js';
 import { makeSurface, makeCover } from '../shared/decks.js';
 import { SIGN_LOD_DISTANCE } from './signs.js';
-import { shared } from './materials.js';
+import { shared, variant, varies, ABSTRACT } from './materials.js';
 
 const WORKERS = Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) >> 1));
 const MAX_IN_FLIGHT = WORKERS * 2;
@@ -35,6 +36,9 @@ export class Streamer {
     this.stats = { loaded: 0, buildings: 0, triangles: 0 };
   }
 
+  // The signs of the tiles that are there, for the abstract model (which has none) or back.
+  setAbstract(on) { for (const t of this.tiles.values()) if (t.signs) t.signs.group.visible = !on; }
+
   async init() {
     this.manifest = await (await fetch(`${this.base}/manifest.json`)).json();
     const t = this.manifest.terrain;
@@ -44,9 +48,12 @@ export class Streamer {
     this.surface = makeSurface(this.grid, decks);
     this.cover = makeCover(this.grid, decks);
     this.available = new Map(this.manifest.tiles.map((tl) => [tileKey(tl.x, tl.z), tl]));
+    // the landmarks of the area, as points of the world (the workers flag the buildings they stand in)
+    const proj = makeProjection(this.manifest.origin.lon, this.manifest.origin.lat);
+    const marks = (LANDMARKS[this.manifest.area] ?? []).map(([, lon, lat]) => proj.project(lon, lat));
     this.workers = Array.from({ length: WORKERS }, () => {
       const w = new Worker(new URL('./tileWorker.js', import.meta.url), { type: 'module' });
-      w.postMessage({ type: 'init', decks, grid: { ...this.grid, data: data.slice().buffer } });
+      w.postMessage({ type: 'init', decks, marks, grid: { ...this.grid, data: data.slice().buffer } });
       w.onmessage = (e) => this.onResult(e.data);
       return w;
     });
@@ -71,7 +78,8 @@ export class Streamer {
       if (t.trees) {
         // a tile full of trees (a wood) keeps its detailed ones closer: thousands of them are too much to draw
         const limit = this.props.constructor.lodDistance * (t.trees.count > 120 ? 0.5 : 1);
-        const near = t.trees.near.visible ? d < limit * 1.25 : d < limit;
+        // (the abstract model keeps the simple trees at any distance)
+        const near = !variant.abstract && (t.trees.near.visible ? d < limit * 1.25 : d < limit);
         t.trees.near.visible = near; t.trees.far.visible = !near;
       }
       for (const a of t.atlases) {
@@ -162,12 +170,13 @@ export class Streamer {
     let signs = null;
     if (signList.length) {
       signs = this.signs.build(signList);
+      if (variant.abstract) signs.group.visible = false; // (a plain model carries no signs: see setAbstract)
       group.add(signs.group);
     }
     if (buildings.position.length) {
       const walls = this.available.get(msg.key).walls;
       const m = new THREE.Mesh(
-        geometry(buildings, [['position', 3], ['normal', 3], ['color', 3], ['aFacade', 4], ['aBldg', 4], ['aPhoto', 2]]),
+        geometry(buildings, [['position', 3], ['normal', 3], ['color', 3], ['aFacade', 4], ['aBldg', 4], ['aPhoto', 2], ['aMark', 1]]),
         walls ? this.materials.facadeFor() : this.materials.facade,
       );
       if (walls) { // the tile's wall photos, blended in by the facade shader with distance
@@ -186,9 +195,18 @@ export class Streamer {
     }
     if (buildings.photo.position.length) { // LOD2 roofs under their aerial photo (the tile's atlas)
       // plain grey until the photo has arrived
-      const m = new THREE.Mesh(geometry(buildings.photo, [['position', 3], ['normal', 3], ['uv', 2]]), new THREE.MeshStandardMaterial({ color: 0x777776, roughness: 0.9, metalness: 0 }));
+      const m = new THREE.Mesh(geometry(buildings.photo, [['position', 3], ['normal', 3], ['uv', 2], ['aMark', 1]]), new THREE.MeshStandardMaterial({ color: 0x777776, roughness: 0.9, metalness: 0 }));
       m.castShadow = m.receiveShadow = true;
-      m.material.onBeforeCompile = (shader) => { shader.uniforms.uLampOn = { value: 0 }; shader.uniforms.uLampMap = shared.uLampMap; }; // (no lamp light up here: see lamplight.js)
+      m.material.onBeforeCompile = (shader) => {
+        shader.uniforms.uLampOn = { value: 0 }; shader.uniforms.uLampMap = shared.uLampMap; // (no lamp light up here: see lamplight.js)
+        if (variant.abstract) { // the abstract model: plain roofs, but for the landmarks where they keep their look
+          shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nattribute float aMark;\nvarying float vMark;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvMark = aMark;');
+          shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vMark;')
+            .replace('#include <map_fragment>', `#include <map_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(${ABSTRACT.home.map((c) => (c * 1.14).toFixed(3)).join(', ')}), ${variant.landmarks ? '1.0 - step(0.5, vMark)' : '1.0'});`);
+        }
+      };
+      m.material.customProgramCacheKey = () => 'roof-photo' + (variant.abstract ? (variant.landmarks ? '-al' : '-a') : '');
+      varies(m.material);
       m.userData.own = [m.material]; // freed with the tile
       atlases.push(this.atlas(msg.key, t, this.available.get(msg.key).atlas, ROOFS_FULL, (map) => {
         const first = !m.material.map;

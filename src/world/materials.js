@@ -34,6 +34,34 @@ export const shared = {
   uPhotoRange: { value: new THREE.Vector2(140, 420) }, uPhotoMix: { value: 1 },
 };
 
+// ---------------------------------------------------------------- variants
+// The abstract model (the city as a plain model of itself, with the light as it is), whether the landmarks keep
+// their look on it, and whether the buildings have windows. These are not values the shaders read but variants
+// the shaders are compiled in: with all three as they are here, every shader is exactly what it is without
+// this section, to the letter.
+export const variant = { abstract: false, landmarks: false, windows: true };
+const varying = new Set(); // the materials whose shaders depend on `variant`
+export const variantKey = () => (variant.abstract ? 'a' : '') + (variant.abstract && variant.landmarks ? 'l' : '') + (variant.windows ? '' : 'w');
+// Registers a material whose onBeforeCompile reads `variant`.
+export function varies(material) {
+  varying.add(material);
+  material.addEventListener('dispose', () => varying.delete(material));
+  return material;
+}
+export function setVariant(changes) {
+  Object.assign(variant, changes);
+  for (const m of varying) m.needsUpdate = true; // (compiled again, or taken from the programs already made)
+}
+
+// The colours of the abstract model (linear), after the plain 3D view of a street map. By day: cream for the
+// buildings people go to (shops, offices), a cool pale grey for the others, the land between them, the water.
+// By night the model is slate blue (purple where the shops are), brighter than the dark it stands in.
+export const ABSTRACT = {
+  shop: [0.47, 0.42, 0.33], home: [0.4, 0.405, 0.47], land: [0.36, 0.36, 0.38], paving: [0.4, 0.4, 0.43], water: [0.2, 0.36, 0.6],
+  night: { shop: [0.06, 0.042, 0.125], home: [0.028, 0.055, 0.125], land: [0.01, 0.018, 0.045] },
+};
+const v3 = (c) => `vec3(${c.join(', ')})`;
+
 
 const NOISE = /* glsl */ `
 float hash12(vec2 p) {
@@ -296,8 +324,37 @@ const PHOTO_MAIN = /* glsl */ `
 }
 `;
 
+// The abstract model: a building is a plain block in one of two colours (shops, offices and mixed blocks in the
+// one, homes and public buildings in the other), its windows a faint pattern, its roof a little lighter, with no
+// gloss and nothing mirrored in it. By night it glows a little in its own colour — its roofs more than its walls
+// and the walls each by the way they face, so that the blocks keep their shape in the dark — and its windows
+// still light up. No photographs on the walls. A landmark (aMark; the lattice tower is one as well) keeps its
+// look where they are asked to.
+const ABSTRACT_PARS = /* glsl */ `
+uniform float uDark;
+varying float vMark;
+`;
+const abstractMain = (landmarks) => /* glsl */ `
+{
+  float lattice = step(3.5, vBldg.z);
+  float plain = ${landmarks ? '1.0 - max(step(0.5, vMark), lattice)' : '1.0'};
+  float lum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
+  float sort = mod(vBldg.y, 8.0), shop = step(1.5, sort) * (1.0 - step(3.5, sort) * step(sort, 4.5));
+  float roof = step(0.5, abs(gN.y));
+  vec3 pale = mix(${v3(ABSTRACT.home)}, ${v3(ABSTRACT.shop)}, shop) * mix(1.0, 1.14, roof) * mix(0.93, 1.0, smoothstep(0.03, 0.22, lum));
+  diffuseColor.rgb = mix(diffuseColor.rgb, pale, plain);
+  gRough = mix(gRough, 0.92, plain);
+  gMetal *= 1.0 - plain;
+  gNm = normalize(mix(gNm, vec3(0.0, 0.0, 1.0), plain));
+  gPane *= 1.0 - plain;
+  gGlint *= 1.0 - plain;
+  vec3 dusk = mix(${v3(ABSTRACT.night.home)}, ${v3(ABSTRACT.night.shop)}, shop) * mix(0.62 + 0.3 * dot(gN, normalize(vec3(0.5, 0.0, 0.85))), 1.3, roof);
+  gEmissive = mix(gEmissive, gEmissive * 0.55 * (1.0 - lattice) + dusk * uDark, plain); // (no floodlights on a plain tower)
+}
+`;
+
 function facadeMaterial(tex) {
-  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.0 });
+  const m = varies(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.0 }));
   m.userData.photo = { value: NO_PHOTO }; m.userData.photoOn = { value: 0 };
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, {
@@ -319,8 +376,16 @@ function facadeMaterial(tex) {
       // (the direct diffuse light is zero in shadow: it tells whether the sun reaches this pane)
       .replace('#include <lights_fragment_end>', '#include <lights_fragment_end>\nreflectedLight.directSpecular += gGlint * smoothstep(0.0, 0.002, dot(reflectedLight.directDiffuse, vec3(0.333)));')
       .replace('#include <opaque_fragment>', '#include <opaque_fragment>\ngl_FragColor.a = 1.0 - 0.95 * gPane;');
+    // ---- variants (see `variant`): nothing below is done as things are by default
+    const part = (text, a, b) => { if (!text.includes(a)) console.warn('facade: the shader has changed; a variant is not applied'); return text.replace(a, b); };
+    if (!variant.windows) shader.fragmentShader = part(shader.fragmentShader, 'cellW = vBldg.w;', 'cellW = 0.0;'); // (no bay width: no windows)
+    if (variant.abstract) {
+      shader.uniforms.uDark = shared.uDark;
+      shader.vertexShader = part(part(shader.vertexShader, 'attribute vec2 aPhoto;', 'attribute vec2 aPhoto;\nattribute float aMark;\nvarying float vMark;'), 'vPhoto = aPhoto;', 'vPhoto = aPhoto;\nvMark = aMark;');
+      shader.fragmentShader = part(part(shader.fragmentShader, PHOTO_PARS, PHOTO_PARS + ABSTRACT_PARS), PHOTO_MAIN, abstractMain(variant.landmarks));
+    }
   };
-  m.customProgramCacheKey = () => 'facade-v21';
+  m.customProgramCacheKey = () => 'facade-v21' + variantKey();
   return m;
 }
 
@@ -435,8 +500,31 @@ const GROUND_MAIN = /* glsl */ `
 }
 `;
 
+// The abstract model: flat friendly colours. Open land is one pale tone and pavements a lighter one; what has a
+// colour of its own (grass, courts, clay) keeps it as a pastel; by night they glow a little, in blue. The roads
+// (asphalt and its markings: layer 0) stay as they are. Water is a plain matt blue: no waves, nothing mirrored.
+const ABSTRACT_GROUND = /* glsl */ `
+  if (!water && (uFixedLayer >= 0.0 || layer > 0.5)) {
+    float top = max(tint.r, max(tint.g, tint.b)), low = min(tint.r, min(tint.g, tint.b));
+    float lum = dot(tint, vec3(0.3, 0.59, 0.11)), sat = (top - low) / max(top, 1e-3);
+    vec3 flatC = mix(${v3(ABSTRACT.paving)} * mix(1.0, 0.85, smoothstep(0.15, 0.5, lum)), mix(vec3(1.0), tint / max(top, 1e-3), 0.62) * 0.42, smoothstep(0.12, 0.4, sat));
+    if (uFixedLayer >= 0.0) flatC = ${v3(ABSTRACT.land)};
+    diffuseColor.rgb = flatC;
+    gNm = vec3(0.0, 0.0, 1.0);
+    gRough = 0.95;
+    gGlow = ${v3(ABSTRACT.night.land)} * (flatC / 0.36) * uDark;
+  }
+`;
+const ABSTRACT_WATER = /* glsl */ `
+    diffuseColor.rgb = ${v3(ABSTRACT.water)};
+    gWaveN = vec3(0.0, 1.0, 0.0);
+    gNm = vec3(0.0, 0.0, 1.0);
+    gRough = 0.95;
+    gWater = 0.0;
+`;
+
 function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
-  const m = new THREE.MeshStandardMaterial({ roughness: 0.92, ...params });
+  const m = varies(new THREE.MeshStandardMaterial({ roughness: 0.92, ...params }));
   m.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, {
       uGroundAlb: { value: tex.ground.albedo }, uGroundNor: { value: tex.ground.normal },
@@ -487,8 +575,17 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
         }
         #include <opaque_fragment>
         gl_FragColor.a = 1.0 - gWater * (1.0 - uMirrorOn);`);
+    // ---- variant (see `variant`): nothing below is done as things are by default
+    if (variant.abstract) {
+      const part = (text, a, b) => { if (!text.includes(a)) console.warn('ground: the shader has changed; the abstract model is not applied'); return text.replace(a, b); };
+      shader.fragmentShader = part(part(part(part(shader.fragmentShader,
+        'float gWater = 0.0;', 'float gWater = 0.0;\nvec3 gGlow = vec3(0.0); // the abstract model by night'),
+        '  if (water) {', ABSTRACT_GROUND + '  if (water) {'),
+        '    gWater = 1.0;\n', '    gWater = 1.0;\n' + ABSTRACT_WATER),
+        '#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += gGlow;');
+    }
   };
-  m.customProgramCacheKey = () => 'ground-v13';
+  m.customProgramCacheKey = () => 'ground-v13' + (variant.abstract ? 'a' : '');
   return m;
 }
 
