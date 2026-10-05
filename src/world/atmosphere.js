@@ -17,6 +17,7 @@ import { shared } from './materials.js';
 const ASSETS = 'assets/takram'; // cloud shape and weather textures and blue noise, as shipped with the packages
 const UNITS = 0.1;              // scene radiance -> the radiance the atmosphere works in (a sunlit white wall in both)
 const FADE = 500;                // metres beyond the area over which the clouds thin out to nothing
+const CLOUD_GLOW = 0.6, CLOUD_NIGHT = new THREE.Vector3(0.55, 0.6, 0.8); // the clouds' own light at the horizon, and its colour by night
 export const SHADE = 0.42;             // what is left of a surface's light under a thick cloud: the sky still lights it
 
 class Scale extends Effect {
@@ -89,6 +90,19 @@ export class Atmosphere {
       material.uniforms.cityRect = this.cityRect;
       material.uniforms.cityFade = this.cityFade;
       material.needsUpdate = true;
+    }
+    // Clouds that are never black. The library lights them with the sun and with the sky's light, and has
+    // neither once the sun is at the horizon: a little light is added there — the afterglow at dusk and dawn,
+    // the glow of the city at night (see setDate) — which is nothing by day.
+    this.cloudAmbient = new THREE.Uniform(new THREE.Vector3());
+    {
+      const material = clouds.cloudsPass.currentMaterial, light = 'radiance += skyIrradiance * RECIPROCAL_PI4 * skyGradient * skyLightScale;';
+      if (material.fragmentShader.includes(light)) {
+        material.fragmentShader = material.fragmentShader.replace(light, 'radiance += (skyIrradiance * skyLightScale + cloudAmbient) * RECIPROCAL_PI4 * skyGradient;')
+          .replace('uniform float skyLightScale;', 'uniform float skyLightScale;\nuniform vec3 cloudAmbient;');
+        material.uniforms.cloudAmbient = this.cloudAmbient;
+        material.needsUpdate = true;
+      } else console.warn('atmosphere: the cloud shader has changed; clouds get no light of their own at dusk');
     }
     const pass = (property) => {
       if (property === 'atmosphereOverlay') aerial.overlay = clouds.atmosphereOverlay;
@@ -203,7 +217,12 @@ export class Atmosphere {
     this.skyMaterial?.sunDirection.copy(this.sun);
     // world -> ECEF is a rotation: its transpose brings a direction back
     const toWorld = this.toWorld ??= this.rotation.clone().transpose();
-    return { sun: this.sun.clone().applyMatrix3(toWorld), moon: this.moon.clone().applyMatrix3(toWorld) };
+    const sun = this.sun.clone().applyMatrix3(toWorld);
+    // the clouds' own light (see cloudAmbient): from nothing with the sun 14 degrees up to all of it at the
+    // horizon, warm while the sun is near it and a dim blue-grey in the night
+    const height = THREE.MathUtils.radToDeg(Math.asin(sun.y)), low = 1 - THREE.MathUtils.smoothstep(height, 2, 14), night = 1 - THREE.MathUtils.smoothstep(height, -12, -3);
+    this.cloudAmbient.value.set(1, 0.8, 0.72).lerp(CLOUD_NIGHT, night).multiplyScalar(low * THREE.MathUtils.lerp(CLOUD_GLOW, CLOUD_GLOW * 0.3, night));
+    return { sun, moon: this.moon.clone().applyMatrix3(toWorld) };
   }
 
   setSize(w, h) { this.composer.setSize(w, h); }
