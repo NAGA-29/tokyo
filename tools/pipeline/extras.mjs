@@ -68,6 +68,7 @@ const WATER_WIDTH = { river: 9, canal: 6, stream: 2.5, ditch: 1 };
 export function buildExtras({ ways, points }, { idx, ground, inBounds, rails, roadAt }) {
   const out = { areas: [], marks: [], props: [], barriers: [], walkLines: [], structures: { footbridges: [], platforms: [], canopies: [] }, count: {} };
   const tally = (k, n = 1) => { out.count[k] = (out.count[k] ?? 0) + n; };
+  const lampCells = new Set(); // (one path lamp per 14 m square: paths that run side by side share them)
   const quadArea = (kind, code) => (ring, mx, mz) => { if (inBounds(mx, mz)) out.areas.push({ kind, code, ring }); };
 
   // rail level near a point (platforms sit beside the track)
@@ -114,6 +115,18 @@ export function buildExtras({ ways, points }, { idx, ground, inBounds, rails, ro
       if (!inBounds(mx, mz) || idx.road.has(mx, mz) || idx.building.has(mx, mz)) return;
       out.areas.push({ kind: hw === 'steps' ? AREA.STEPS : AREA.PATH, code: unpaved ? 1 : 0, ring });
     });
+    // Lamps along a path that is mapped as lit, or runs through a park (unless mapped as unlit): OSM seldom has the lamps
+    // themselves, so they are set out beside the path, on alternating sides. A park lamp is half a street light.
+    const mid = w.pts[w.pts.length >> 1];
+    if (hw !== 'steps' && (t.lit === 'yes' || (t.lit !== 'no' && idx.park?.has(mid[0], mid[1])))) {
+      forEachAlong(w.pts, 26, (x, z, dx, dz, n) => {
+        const side = n % 2 ? 1 : -1, off = width / 2 + 0.5, lx = x - dz * off * side, lz = z + dx * off * side;
+        const cell = Math.floor(lx / 14) + ',' + Math.floor(lz / 14);
+        if (!inBounds(lx, lz) || idx.road.has(lx, lz) || idx.building.has(lx, lz) || idx.water.has(lx, lz) || lampCells.has(cell)) return;
+        lampCells.add(cell);
+        out.props.push({ kind: PROP.LIGHT, variant: 1, rot: Math.atan2(dz * side, -dx * side), x: lx, z: lz, scale: 0.5 }); tally('path lamp');
+      }, 8 + (w.id % 13));
+    }
     tally(hw === 'steps' ? 'stairs' : hw);
   }
 

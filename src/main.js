@@ -176,6 +176,8 @@ let guiState, clockText;
   gui.add(traffic, 'count', 0, MAX_CARS, 10).name('cars');
   gui.add(traffic, 'highway', 0, 20, 0.5).name('highway traffic');
   gui.add(traffic, 'headlights', 0, 20, 0.5).name('car headlights');
+  gui.add(props, 'streetLights', 0, 3, 0.05).name('street lights');
+  gui.add(props, 'parkLights', 0, 3, 0.05).name('park lights');
   gui.add(state, 'trains');
   gui.add(state, 'photo').name('aerial photo').listen();
   gui.add(birds.geometry, 'instanceCount', 0, MAX_BIRDS, 10).name('birds');

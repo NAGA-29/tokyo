@@ -432,8 +432,12 @@ export class Props {
       wire: new THREE.LineBasicMaterial({ color: 0x14161a }),
     };
     this.mats.poolCool = lampMaterial(this.mats.pool.map); // white LED lamps on the back streets
+    this.mats.poolPark = lampMaterial(this.mats.pool.map); // lamps along park paths
     this.time = 0;
   }
+
+  streetLights = 1; // strength of the light the street lamps throw on the ground at night (1: as designed)
+  parkLights = 1;   // the same for the lamps along park paths
 
   update(dt) {
     this.time += dt;
@@ -441,8 +445,11 @@ export class Props {
     shared.uTime.value = this.time;
     this.mats.lens.uniforms.uTime.value = this.time;
     // the light straight under a lamp, in its colour: sodium-warm on the avenues, white on the back streets
-    this.mats.pool.color.setRGB(1.9 * night, 1.5 * night, 0.95 * night);
-    this.mats.poolCool.color.setRGB(1.15 * night, 1.25 * night, 1.4 * night);
+    const k = night * this.streetLights;
+    this.mats.pool.color.setRGB(1.9 * k, 1.5 * k, 0.95 * k);
+    this.mats.poolCool.color.setRGB(1.15 * k, 1.25 * k, 1.4 * k);
+    const p = night * this.parkLights;
+    this.mats.poolPark.color.setRGB(1.7 * p, 1.5 * p, 1.05 * p);
     this.mats.lamp.color.setRGB(0.35 + 2.4 * night, 0.34 + 2.2 * night, 0.32 + 1.8 * night);
     this.mats.panel.color.setScalar(0.85 + 1.1 * night);
   }
@@ -493,7 +500,10 @@ export class Props {
       } else if (kind === PROP.LIGHT) {
         instanced(rows, this.models.light, this.mats.metal, { lift: 0.15 });
         instanced(rows, this.models.lamp, this.mats.lamp, { lift: 0.15, shadow: false, local: [0, LAMP.y, LAMP.z] });
-        instanced(rows, this.models.pool, this.mats.pool, { lift: 0.34, shadow: false, local: [0, 0, LAMP.z + 1], scale: () => 2 * POOL_REACH * LAMP.y }).layers.set(LAMP_LAYER);
+        // the light on the ground: street lights, and park lamps (half the height: a smaller patch, a strength of its own)
+        const street = rows.filter((r) => props[r + 5] >= 1), park = rows.filter((r) => props[r + 5] < 1);
+        if (street.length) instanced(street, this.models.pool, this.mats.pool, { lift: 0.34, shadow: false, local: [0, 0, LAMP.z + 1], scale: () => 2 * POOL_REACH * LAMP.y }).layers.set(LAMP_LAYER);
+        if (park.length) instanced(park, this.models.pool, this.mats.poolPark, { lift: 0.34, shadow: false, local: [0, 0, LAMP.z + 1], scale: () => 1.4 * POOL_REACH * LAMP.y }).layers.set(LAMP_LAYER);
       } else if (kind === PROP.VENDING) {
         const body = instanced(rows, this.models.vending, this.mats.vending, { lift: 0.02 });
         rows.forEach((i, n) => body.setColorAt(n, new THREE.Color().setRGB(...VENDING_BODY[props[i + 1] % 4], THREE.SRGBColorSpace)));

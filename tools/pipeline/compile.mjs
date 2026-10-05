@@ -314,6 +314,8 @@ const land = landRaw.areas.map(({ kind, ring, code }) => {
   return { kind, ring: r, code: kind === AREA.PITCH ? code : 0 };
 }).filter((a) => a.ring.length >= 3 && Math.abs(areaEN(a.ring)) > 4);
 for (const a of land) if (a.kind === AREA.WATER) idx.water.add([a.ring]);
+idx.park = new PolyIndex(); // (paths in a park get lamps)
+for (const a of land) if (a.kind === AREA.PARK) idx.park.add([a.ring]);
 // Large areas (a park can span a kilometre) are cut at tile edges so they stream with their tile.
 const lstats = {};
 const pushClipped = (kind, ring, code = 0) => {
