@@ -19,8 +19,26 @@ const ASSETS = 'assets/takram'; // cloud shape and weather textures and blue noi
 const UNITS = 0.1;              // scene radiance -> the radiance the atmosphere works in (a sunlit white wall in both)
 const FADE = 500;                // metres beyond the area over which the clouds thin out to nothing
 const CLOUD_GLOW = 0.6, CLOUD_NIGHT = new THREE.Vector3(0.55, 0.6, 0.8); // the clouds' own light at the horizon, and its colour by night
+const FOG_DAY = new THREE.Color(0.72, 0.75, 0.79), HAZE_DAY = new THREE.Color(0.56, 0.68, 0.86), HAZE_WARM = new THREE.Color(1.05, 0.56, 0.3);
 const FOG_WARM = new THREE.Color(0.85, 0.6, 0.45), FOG_NIGHT = new THREE.Color(0.035, 0.04, 0.055); // fog under the low sun, and at night
 export const SHADE = 0.42;             // what is left of a surface's light under a thick cloud: the sky still lights it
+
+// The grade of the finished picture, as a camera and a print would give it: more contrast (an S-curve), a
+// little more colour, warm lights and cool shades, darker corners. Nothing at amount 0.
+class Grade extends Effect {
+  constructor() {
+    super('Grade', `uniform float amount;
+void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+  vec3 g = pow(max(inputColor.rgb, 0.0), vec3(1.0 / 2.2));
+  g = mix(g, g * g * (3.0 - 2.0 * g), 0.4 * amount);
+  float l = dot(g, vec3(0.2126, 0.7152, 0.0722));
+  g = mix(vec3(l), g, 1.0 + 0.16 * amount);
+  g += amount * (vec3(0.03, 0.012, -0.022) * smoothstep(0.45, 1.0, l) + vec3(-0.016, 0.0, 0.026) * (1.0 - smoothstep(0.0, 0.45, l)));
+  g *= 1.0 - 0.26 * amount * smoothstep(0.35, 1.0, length(uv - 0.5) * 1.3);
+  outputColor = vec4(mix(inputColor.rgb, pow(max(g, 0.0), vec3(2.2)), step(1e-4, amount)), inputColor.a);
+}`, { uniforms: new Map([['amount', new THREE.Uniform(0)]]) });
+  }
+}
 
 class Scale extends Effect {
   constructor(k) {
@@ -172,7 +190,9 @@ export class Atmosphere {
     this.fogAmount = 0;
     this.composer.addPass(this.fogPass);
     this.bloom = new BloomEffect({ intensity: 0.5, luminanceThreshold: 0.9, luminanceSmoothing: 0.2, mipmapBlur: true });
-    this.composer.addPass(new EffectPass(camera, this.bloom, new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC })));
+    this.gradeEffect = new Grade();
+    this.composer.addPass(new EffectPass(camera, this.bloom, new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC }), this.gradeEffect));
+    this.hazeAmount = 0;
     this.connect();
     this.sun = new THREE.Vector3(); this.moon = new THREE.Vector3();
     this.cloudsOn = false; // volumetric clouds are heavy: off until asked for
@@ -202,13 +222,28 @@ export class Atmosphere {
 
   // How foggy the city is: 0 none .. 1 thick (a few hundred metres to be seen).
   get fog() { return this.fogAmount; }
-  set fog(v) { this.fogAmount = v; this.fogPass.enabled = v > 0; this.fogEffect.uniforms.get('uDensity').value = 0.0001 + 0.0059 * v * v; this.fogEffect.uniforms.get('uHeight').value = 120 + 260 * v; }
+  set fog(v) { this.fogAmount = v; this.setAir(); }
+  // The haze of the distance (0 none .. 1): thin air that takes the colour of the hour — blue-white by day,
+  // orange under a low sun — so that the far city glows with the sky instead of going grey.
+  get haze() { return this.hazeAmount; }
+  set haze(v) { this.hazeAmount = v; this.setAir(); }
+  setAir() {
+    const f = this.fogAmount, h = this.hazeAmount, u = this.fogEffect.uniforms;
+    this.fogPass.enabled = f > 0 || h > 0;
+    u.get('uDensity').value = (f > 0 ? 0.0001 + 0.0059 * f * f : 0) + 0.00009 * h;
+    u.get('uHeight').value = f > 0 ? 120 + 260 * f : 420;
+  }
+  // How strongly the finished picture is graded (0: not at all).
+  get grade() { return this.gradeEffect.uniforms.get('amount').value; }
+  set grade(v) { this.gradeEffect.uniforms.get('amount').value = v; }
   // The fog's colour is the light it stands in: dark (0 day .. 1 night), warm (0 .. 1: the low sun); ground: the
   // height the fog lies on.
   lightFog(dark, warm, ground) {
     if (!this.fogPass.enabled) return;
     const u = this.fogEffect.uniforms;
-    u.get('uColor').value.setRGB(0.72, 0.75, 0.79).lerp(FOG_WARM, 0.55 * warm * (1 - dark)).lerp(FOG_NIGHT, dark);
+    // (fog is grey; the haze of the distance has more of the sky's colour, and of the low sun's)
+    const thick = Math.min(1, this.fogAmount * 3);
+    u.get('uColor').value.copy(HAZE_DAY).lerp(HAZE_WARM, warm * (1 - dark)).lerp(FOG_DAY.clone().lerp(FOG_WARM, 0.55 * warm * (1 - dark)), thick).lerp(FOG_NIGHT, dark);
     u.get('uGround').value = ground;
   }
 

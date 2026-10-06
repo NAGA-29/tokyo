@@ -121,6 +121,7 @@ const applyShade = () => { atmosphere.shade = Math.round((1 - cloudShadow) * (va
 const setAbstract = (on) => { setVariant({ abstract: on }); streamer.setAbstract(on); applyShade(); };
 env.lightFromSky(atmosphere.environmentSky(), () => atmosphere.ready);
 if (params.get('skylight') === '1') env.skyLight = true;
+if (params.get('realistic') === '1') { env.realistic = true; atmosphere.haze = 1; atmosphere.grade = 1; }
 if (Number(params.get('fog')) > 0) atmosphere.fog = Number(params.get('fog'));
 shared.uGlintOn.value = params.get('glint') != null ? Number(params.get('glint')) : 2; // (1: as it was designed; brighter by default)
 env.golden = params.get('golden') != null ? Number(params.get('golden')) : 1;
@@ -170,6 +171,8 @@ let guiState, clockText;
     // (the number is written into a shader: it is set a moment after the slider has come to rest)
     get cloudShadow() { return cloudShadow; }, set cloudShadow(v) { cloudShadow = v; clearTimeout(shadeTimer); shadeTimer = setTimeout(applyShade, 250); },
     windowPace: 6, // how fast the lit rooms come and go (1: a room may change every 1.5 to 5.5 minutes)
+    // realistic lighting: the shade lit by the sky, the distance in the colour of the hour, the picture graded
+    get realistic() { return env.realistic; }, set realistic(v) { env.realistic = v; atmosphere.haze = v ? 1 : 0; atmosphere.grade = v ? 1 : 0; },
     get windows() { return variant.windows; }, set windows(v) { if (v !== variant.windows) setVariant({ windows: v }); },
     // the whole city at once, or only what lies within the view radius of the point looked at (fewer tiles: more frames)
     wholeCity: false, near: Number(params.get('radius')) || 900,
@@ -204,7 +207,8 @@ let guiState, clockText;
   gui.add(props, 'parkLights', 0, 3, 0.05).name('park lights');
   gui.add(state, 'trains');
   gui.add(env, 'brightness', 0.5, 2, 0.05);
-  gui.add(env, 'skyLight').name('light from the real sky');
+  gui.add(state, 'realistic').name('realistic lighting');
+  gui.add(env, 'skyLight').name('light from the real sky').listen();
   gui.add(shared.uGlintOn, 'value', 0, 5, 0.1).name('sun in the windows (strength)');
   gui.add(shared.uGlass, 'value', 0, 3, 0.05).name('window glass');
   gui.add(atmosphere, 'fog', 0, 1, 0.01);

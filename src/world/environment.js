@@ -15,6 +15,7 @@ const SUNSET = new THREE.Color(0xff9a52);
 // The golden hour (see `golden`): the sun's colour at the horizon, the light of the sky on what the sun does not
 // reach (peach from above, a cool violet from below: warm light, cool shade), and the colours they have by day.
 const GOLD = { sun: new THREE.Color(0xff6a24), sky: new THREE.Color(0xffb890), ground: new THREE.Color(0x5a4c7c) };
+const REAL = { fill: 0.72, sky: 1.35, sun: 1.12 }; // realistic light: how much of the even fill goes, and the sky's and the sun's share
 const HEMI = { sky: new THREE.Color(0xfff4e6), ground: new THREE.Color(0x8a8172) };
 const MOON_STAND_IN = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 40), THREE.MathUtils.degToRad(205));
 
@@ -28,6 +29,7 @@ export class Environment {
     this.time = 0;
     this.brightness = 1; // of the whole picture (the exposure is multiplied by it)
     this.golden = 0;     // how much the low sun colours the city (0: as it was; 1: a golden hour)
+    this.real = 0;       // realistic light (see `realistic`): 0 or 1
     this.sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 40), THREE.MathUtils.degToRad(205));
 
     this.sky = createSky();
@@ -90,6 +92,10 @@ export class Environment {
     this.envScene.add(group);
     this.physical = { group, glow, scale: sky.scale, ready };
   }
+  // Realistic light: the sky itself lights the shade (and so its colour changes with the hour), with little of
+  // the even fill; the sun a little stronger against it.
+  get realistic() { return this.real > 0; }
+  set realistic(v) { this.real = v ? 1 : 0; this.skyLight = !!v; this.apply(); }
   get skyLight() { return this.skyLit; }
   set skyLight(v) { if (v !== this.skyLit) { this.skyLit = v; this.bakeEnvironment(); this.apply(); } }
 
@@ -145,15 +151,17 @@ export class Environment {
   apply() {
     const t = this.dark, lerp = (a, b) => a + (b - a) * t;
     this.sky.material.uniforms.uNight.value = t;
-    this.hemi.intensity = lerp(DAY.hemi, NIGHT.hemi) * (1 - 0.3 * this.golden * this.warmth * this.warmth * this.daylight);
+    // (realistic light: what the sun does not reach is lit by the sky itself, through the environment map; of the
+    // even fill from above only a little is left)
+    this.hemi.intensity = lerp(DAY.hemi, NIGHT.hemi) * (1 - 0.3 * this.golden * this.warmth * this.warmth * this.daylight) * (1 - REAL.fill * this.real * (1 - t));
     // the golden hour: with the sun low, its light is a deeper orange and stronger against the fill, and the fill
     // takes the colours of the evening sky (nothing of this by day, when warmth is 0, or once the sun is gone)
     const gold = this.golden * this.warmth * this.warmth * this.daylight;
-    this.sun.intensity = DAY.sun * this.daylight * (1 + 0.35 * gold) + NIGHT.sun * this.moonlight;
+    this.sun.intensity = DAY.sun * this.daylight * (1 + 0.35 * gold) * (1 + (REAL.sun - 1) * this.real) + NIGHT.sun * this.moonlight;
     this.sun.color.copy(DAY.sunColor).lerp(SUNSET, this.warmth).lerp(GOLD.sun, 0.75 * gold).lerp(NIGHT.sunColor, this.moonlight);
     this.hemi.color.copy(HEMI.sky).lerp(GOLD.sky, gold);
     this.hemi.groundColor.copy(HEMI.ground).lerp(GOLD.ground, gold);
-    this.scene.environmentIntensity = lerp(DAY.env, NIGHT.env) * this.envScale; // (the map itself darkens with the sky)
+    this.scene.environmentIntensity = lerp(DAY.env, NIGHT.env) * this.envScale * (1 + (REAL.sky - 1) * this.real * (this.envScale > 1 ? 1 : 0)); // (the map itself darkens with the sky)
     this.renderer.toneMappingExposure = lerp(DAY.exposure, NIGHT.exposure) * this.brightness;
     this.bloom = lerp(DAY.bloom, NIGHT.bloom);
     shared.uNight.value = this.night;
