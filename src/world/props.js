@@ -331,8 +331,10 @@ const TREES = [
 // a third of them — pale pink, deeper pink, almost white — among fresh green. Summer is the trees as they are.
 const SEASON_VERT_PARS = /* glsl */ `
 varying float vTreeSeed;
+varying vec3 vLeafAt;
 `;
 const SEASON_VERT = /* glsl */ `
+  vLeafAt = position;
   #ifdef USE_INSTANCING
     vTreeSeed = fract(sin(dot(floor(instanceMatrix[3].xz * 4.0), vec2(12.9898, 78.233))) * 43758.5453);
   #else
@@ -342,16 +344,30 @@ const SEASON_VERT = /* glsl */ `
 const SEASON_FRAG_PARS = /* glsl */ `
 uniform float uSeason;
 varying float vTreeSeed;
+varying vec3 vLeafAt;
+vec3 seasonColor(float s);
+float leafHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+// Foliage on a smooth crown: clusters of leaves, each its own shade and some a neighbour's colour, with dark
+// gaps between them (fading out where they would be smaller than a pixel). Returns the crown's colour.
+vec3 foliage(float seed, float light) {
+  vec3 at = vLeafAt * 13.0 + seed * 31.0, cell = floor(at);
+  float n = leafHash(cell), m = leafHash(cell + 7.3), fine = 1.0 - smoothstep(0.25, 0.9, fwidth(at.x) + fwidth(at.y) + fwidth(at.z));
+  vec3 c = mix(seasonColor(seed), seasonColor(fract(seed + 0.13 + 0.2 * m)), step(0.62, n) * 0.75 * fine);
+  float gap = smoothstep(0.0, 0.22, n);                       // the dark between the clusters
+  return c * light * mix(1.0, mix(0.28, 1.0, gap) * (0.75 + 0.55 * m), fine);
+}
 vec3 seasonColor(float s) {
   float t = fract(s * 7.31 + 0.13);                       // a second number from the first
   if (uSeason < 1.5) {                                    // autumn
-    if (s < 0.1) return vec3(0.1, 0.2, 0.05);             // evergreen
-    if (s < 0.36) return mix(vec3(0.62, 0.045, 0.02), vec3(0.42, 0.02, 0.03), t);   // reds
-    if (s < 0.68) return mix(vec3(0.85, 0.24, 0.025), vec3(0.75, 0.12, 0.02), t);   // oranges
-    return mix(vec3(0.85, 0.6, 0.06), vec3(0.8, 0.42, 0.04), t);                    // yellows, gold
+    // a Tokyo park in November: rust, russet and ochre among dark evergreens — deep colours, none of them bright
+    if (s < 0.34) return mix(vec3(0.035, 0.085, 0.03), vec3(0.06, 0.11, 0.035), t);  // evergreen
+    if (s < 0.42) return mix(vec3(0.16, 0.15, 0.04), vec3(0.2, 0.13, 0.035), t);     // turning
+    if (s < 0.72) return mix(vec3(0.4, 0.15, 0.03), vec3(0.3, 0.1, 0.025), t);       // rust, burnt orange
+    if (s < 0.86) return mix(vec3(0.24, 0.085, 0.03), vec3(0.3, 0.06, 0.03), t);     // russet, dull red
+    return mix(vec3(0.46, 0.27, 0.05), vec3(0.38, 0.2, 0.04), t);                    // ochre
   }
-  if (s < 0.38) return mix(mix(vec3(1.0, 0.62, 0.74), vec3(0.95, 0.42, 0.6), t), vec3(1.0, 0.86, 0.9), step(0.8, t)); // blossom
-  return mix(vec3(0.3, 0.52, 0.12), vec3(0.42, 0.6, 0.16), t);                      // fresh green
+  if (s < 0.38) return mix(mix(vec3(0.86, 0.6, 0.68), vec3(0.78, 0.45, 0.56), t), vec3(0.9, 0.8, 0.82), step(0.75, t)); // blossom
+  return mix(vec3(0.2, 0.36, 0.09), vec3(0.3, 0.42, 0.12), t);                      // fresh green
 }
 `;
 
@@ -386,7 +402,7 @@ function leafMaterial(map, tint, recolor = false) {
         float sway = 0.6 * sin(uTime * 1.3 + swayAt.x * 0.35 + swayAt.z * 0.27) + 0.3 * sin(uTime * 2.9 + swayAt.x * 1.1 + swayAt.y);
         transformed.xz += uv.y * sway * 0.07;`);
   };
-  m.customProgramCacheKey = () => (recolor ? 'leaves-recolor-v2' : 'leaves-v2');
+  m.customProgramCacheKey = () => (recolor ? 'leaves-recolor-v6' : 'leaves-v6');
   return m;
 }
 
@@ -399,9 +415,10 @@ function seasonal(m) {
     shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>' + SEASON_VERT_PARS).replace('#include <project_vertex>', SEASON_VERT + '#include <project_vertex>');
     shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\n' + SEASON_FRAG_PARS)
       .replace('#include <color_fragment>', `#include <color_fragment>
-        if (uSeason > 0.5 && vColor.g > vColor.r) diffuseColor.rgb = seasonColor(vTreeSeed) * (0.22 + 0.62 * clamp(vColor.g / 0.1, 0.0, 1.0));`);
+        // (a crown is not of one colour: patches of it lean towards another tree's, and are lighter or darker)
+        if (uSeason > 0.5 && vColor.g > vColor.r) diffuseColor.rgb = foliage(vTreeSeed, 0.22 + 0.85 * clamp(vColor.g / 0.1, 0.0, 1.0));`);
   };
-  m.customProgramCacheKey = () => 'blob-season-v1';
+  m.customProgramCacheKey = () => 'blob-season-v5';
   return m;
 }
 
@@ -430,15 +447,20 @@ function buildTree(def) {
 
 // Far trees: a smooth lumpy crown on a stick (unit height, unit width), coloured per vertex.
 function blobTreeGeometry() {
-  const crown = mergeVertices(new THREE.IcosahedronGeometry(0.5, 2).deleteAttribute('uv').deleteAttribute('normal'));
-  const p = crown.attributes.position;
-  for (let i = 0; i < p.count; i++) {
-    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-    const k = 0.8 + 0.2 * Math.sin(x * 9.1 + z * 5.3) * Math.sin(y * 7.7 + x * 3.1) + 0.12 * Math.sin(z * 15.0 + y * 11.0);
-    p.setXYZ(i, x * k, y * k * 0.8 + 0.62, z * k);
-  }
-  crown.computeVertexNormals();
-  const g = crown.toNonIndexed(), n = g.attributes.position.count, c = new Float32Array(n * 3);
+  // a crown of several lumps grown into one another (a main mass, shoulders, a top), each a little uneven
+  const lump = ([cx, cy, cz, r, squash], k) => {
+    const g = mergeVertices(new THREE.IcosahedronGeometry(r, 1).deleteAttribute('uv').deleteAttribute('normal'));
+    const p = g.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+      const w = 0.86 + 0.2 * Math.sin(x * 21 + z * 13 + k * 2.1) * Math.sin(y * 17 + x * 9 + k) + 0.1 * Math.sin(z * 31 + y * 23 + k * 4.7);
+      p.setXYZ(i, cx + x * w, cy + y * w * squash, cz + z * w);
+    }
+    g.computeVertexNormals();
+    return g.toNonIndexed();
+  };
+  const crown = mergeGeometries([[0, 0.6, 0, 0.36, 0.95], [0.21, 0.52, 0.08, 0.26, 0.85], [-0.19, 0.55, -0.11, 0.27, 0.85], [0.03, 0.8, -0.04, 0.24, 0.9], [-0.06, 0.5, 0.22, 0.25, 0.8], [0.1, 0.56, -0.22, 0.23, 0.8]].map(lump));
+  const g = crown, n = g.attributes.position.count, c = new Float32Array(n * 3);
   // darker underneath, lighter on top, like a lit canopy
   for (let i = 0; i < n; i++) {
     const t = THREE.MathUtils.clamp((g.attributes.position.getY(i) - 0.25) / 0.75, 0, 1);
@@ -520,16 +542,22 @@ export class Props {
     }
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), v = new THREE.Vector3(), s = new THREE.Vector3();
     // An InstancedMesh with one matrix per prop: `local` offsets the part within the prop's frame.
-    const instanced = (rows, geo, mat, { parent = group, shadow = true, lift = 0, local = null, scale = null } = {}) => {
-      const mesh = new THREE.InstancedMesh(geo, mat, rows.length);
-      rows.forEach((i, n) => {
-        const x = props[i + 3], z = props[i + 4], k = scale ? scale(i) : props[i + 5];
-        q.setFromAxisAngle(up, props[i + 2]);
+    // clump: so many more of each are stood round it, a few metres off and a little smaller (park trees: a wood
+    // is not a grid of single trees). The same for every part of the tree, near and far.
+    const rand = (i, c, k) => { const h = Math.sin(props[i + 3] * 12.9898 + props[i + 4] * 78.233 + c * 37.719 + k * 11.13) * 43758.5453; return h - Math.floor(h); };
+    const instanced = (rows, geo, mat, { parent = group, shadow = true, lift = 0, local = null, scale = null, clump = 0 } = {}) => {
+      const mesh = new THREE.InstancedMesh(geo, mat, rows.length * (1 + clump));
+      rows.forEach((i, row) => { for (let c = 0; c <= clump; c++) {
+        const n = row * (1 + clump) + c, away = c ? 3 + 3.5 * rand(i, c, 1) : 0, turn = rand(i, c, 2) * 6.2832, size = c ? 0.7 + 0.35 * rand(i, c, 3) : 1;
+        const x = props[i + 3] + Math.cos(turn) * away, z = props[i + 4] + Math.sin(turn) * away;
+        let k = scale ? scale(i) : props[i + 5];
+        k = Array.isArray(k) ? k.map((e) => e * size) : k * size;
+        q.setFromAxisAngle(up, props[i + 2] + c * 2.1);
         v.set(x, ground(x, z) + lift, z);
         if (local) v.add(new THREE.Vector3(...local).multiplyScalar(props[i + 5]).applyQuaternion(q)); // (parts sit on a model of that size)
         if (Array.isArray(k)) s.set(...k); else s.setScalar(k);
         mesh.setMatrixAt(n, m.compose(v, q, s));
-      });
+      } });
       mesh.castShadow = shadow; mesh.receiveShadow = shadow;
       mesh.computeBoundingSphere();
       parent.add(mesh);
@@ -539,10 +567,10 @@ export class Props {
     for (const [key, rows] of by) {
       const kind = key >> 4, variant = key & 15;
       if (kind === PROP.TREE) {
-        const t = this.trees[variant % this.trees.length];
-        instanced(rows, t.branches, t.branchMat, { parent: near });
-        instanced(rows, t.leaves, t.leafMat, { parent: near });
-        instanced(rows, this.models.blob, this.mats.blob, { parent: far, shadow: false, scale: (i) => [t.radius * 1.75 * props[i + 5], t.height * props[i + 5], t.radius * 1.75 * props[i + 5]] });
+        const t = this.trees[variant % this.trees.length], clump = variant === 2 || variant === 3 ? 2 : 0; // (park trees)
+        instanced(rows, t.branches, t.branchMat, { parent: near, clump });
+        instanced(rows, t.leaves, t.leafMat, { parent: near, clump });
+        instanced(rows, this.models.blob, this.mats.blob, { parent: far, shadow: false, clump, scale: (i) => [t.radius * 1.75 * props[i + 5], t.height * props[i + 5], t.radius * 1.75 * props[i + 5]] });
       } else if (kind === PROP.POLE) {
         instanced(rows, this.models.pole[variant % 2], this.mats.metal);
         instanced(rows, this.models.lamp, this.mats.lamp, { shadow: false, local: [POLE_LAMP.x, POLE_LAMP.y - 0.02, 0], scale: () => [1.6, 1, 0.3] });
