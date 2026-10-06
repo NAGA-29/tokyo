@@ -220,6 +220,18 @@ const BAY = { [CAT.HOUSE]: 3.4, [CAT.APARTMENT]: 3.3, [CAT.MIXED]: 3.2, [CAT.COM
 const HINT_LAYER = { [MATERIAL.TILE]: WALL.TILE, [MATERIAL.CONCRETE]: WALL.CONCRETE, [MATERIAL.PLASTER]: WALL.PLASTER, [MATERIAL.BRICK]: WALL.BRICK, [MATERIAL.METAL]: WALL.SIDING };
 const SINK = 4; // walls run this far below the base so they meet sloping ground
 
+// Where PLATEAU has photographs, a building takes its colour from them: seen from the air that is a cool grey,
+// of middling brightness and little colour (measured: about sRGB 125, 138, 146). A building without photographs
+// takes its colour from the palette above, which is brighter and warmer — the two met at a line across the city.
+// A generated colour is brought most of the way to the photographed city's: its brightness into the same
+// range, its hue towards the same cool grey, some of its own character left.
+const AERIAL = 0.72;
+const aerial = (c) => {
+  const l = 0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2], to = 0.41 + 0.24 * Math.min(1, Math.max(0, (l - 0.3) / 0.6)), k = to / Math.max(l, 0.05);
+  const grey = [to * 0.93, to * 1.02, to * 1.08];
+  return c.map((v, i) => v * k + (grey[i] - v * k) * AERIAL);
+};
+
 const ringArea = (r) => { let s = 0; for (let i = 0, n = r.length / 2; i < n; i++) { const j = (i + 1) % n; s += r[j * 2] * r[i * 2 + 1] - r[i * 2] * r[j * 2 + 1]; } return s / 2; };
 
 function insideRings(x, z, rings) {
@@ -299,7 +311,7 @@ export function buildingMesh(buildings, tx, tz, marks = []) {
     const glassTower = !!b.surfaces?.length && !b.surfaces.some((f) => f.uv) && Math.max(b.height, shellTop(b.surfaces) - b.base) > 90;
     const cat = material === MATERIAL.GLASS || glassTower ? CAT.GLASS : category(b.usage, b.height, seed);
     const pal = PALETTE[cat], pick = pal[Math.floor(rnd() * pal.length)], tone = 0.92 + 0.16 * rnd();
-    const wallCol = glassTower ? lin([0.3, 0.35, 0.41].map((c) => c * tone)) : painted ? lin([((b.hint >> 16) & 255) / 255, ((b.hint >> 8) & 255) / 255, (b.hint & 255) / 255]) : lin(pick.slice(0, 3).map((c) => Math.min(1, c * tone)));
+    const wallCol = glassTower ? lin([0.3, 0.35, 0.41].map((c) => c * tone)) : painted ? lin([((b.hint >> 16) & 255) / 255, ((b.hint >> 8) & 255) / 255, (b.hint & 255) / 255]) : lin(aerial(pick.slice(0, 3)).map((c) => Math.min(1, c * tone)));
     const wallLayer = HINT_LAYER[material] ?? pick[3];
     const top = b.base + b.height, bottom = b.base - SINK;
     const outer = b.polygons[0][0];
@@ -420,7 +432,7 @@ export function buildingMesh(buildings, tx, tz, marks = []) {
 
     // ---- walls, parapet, flat roof
     const inner = wallCol.map((c) => c * 0.8);
-    const flatRoof = lin(rnd() < 0.1 ? [0.4, 0.47, 0.42] : (() => { const g = 0.5 + 0.2 * rnd(); return [g, g, g * 0.97]; })());
+    const flatRoof = lin(rnd() < 0.1 ? [0.4, 0.45, 0.44] : (() => { const g = 0.46 + 0.16 * rnd(); return [g * 0.96, g, g * 1.04]; })());
     let longest = { len: 0, dx: 1, dz: 0 };
     const fronts = []; // candidate balcony edges
     for (const rings of b.polygons) {
@@ -453,7 +465,7 @@ export function buildingMesh(buildings, tx, tz, marks = []) {
     // ---- pitched roof over the bounding rectangle: hipped or gabled
     if (roof) {
       const { cx, cz, ax, az, a, b: hb } = roof, sx = -az, sz = ax, over = 0.4;
-      const c = lin(PITCHED_ROOFS[Math.floor(rnd() * PITCHED_ROOFS.length)]);
+      const c = lin(aerial(PITCHED_ROOFS[Math.floor(rnd() * PITCHED_ROOFS.length)]).map((v) => v * 0.8));
       const eave = wallTop - (over * rise) / hb;
       const corner = (sa, sb) => [cx + ax * sa * (a + over) + sx * sb * (hb + over), eave, cz + az * sa * (a + over) + sz * sb * (hb + over)];
       const hip = rnd() < 0.5 && a - hb > 0.3;
