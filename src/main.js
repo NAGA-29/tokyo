@@ -53,6 +53,9 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
+// The scene is drawn several times per frame (shadows, the water mirror, the lamp light, the picture): where its
+// things stand is worked out once, in tick(), and not again at every render.
+scene.matrixWorldAutoUpdate = false;
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 1, 60000);
 const controls = new MapControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -399,6 +402,7 @@ function tick() {
   clockText.textContent = clockTime.label();
   env.update(dt);
   env.follow(controls.target, camera);
+  scene.updateMatrixWorld(); // (once for all of the frame's renders: see matrixWorldAutoUpdate above)
   lampLight.update(scene, controls.target, camera.position, env.night);
   contact.update(scene, controls.target, camera.position, [birds]);
   shared.uTreeGlow.value.setRGB(...ABSTRACT.night.tree).multiplyScalar(variant.abstract ? env.dark : 0);

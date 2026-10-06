@@ -219,6 +219,9 @@ export class Streamer {
     }
     const tris = terrain.index.length / 3 + roads.position.length / 9 + buildings.triangles;
     Object.assign(t, { state: 'ready', group, trees, signs, atlases, signNear: false, buildings: info.length, tris });
+    // nothing in a tile is placed or moved (its points are the world's own): its matrices are never worked out
+    group.matrixAutoUpdate = false;
+    group.updateMatrixWorld = () => {};
     this.scene.add(group);
     this.stats.loaded++; this.stats.buildings += info.length; this.stats.triangles += tris;
   }

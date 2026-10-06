@@ -27,7 +27,7 @@ twelve fixed views, frozen in time, taken before the work began (`tools/_fid.mjs
 
 - [x] 1. Lamp light quads drawn in a single pass (they were drawn twice, and looked their shader up anew at
       every draw)
-- [ ] 2. Matrices of things that never move are computed once, and the scene's matrices once per frame
+- [x] 2. Matrices of things that never move are computed once, and the scene's matrices once per frame
       instead of once per render
 - [ ] 3. Ambient occlusion: no walks through the whole scene for the few transparent things
 - [ ] 4. Lamp light quads: one instanced mesh for the whole city, in a scene of its own (the light map no
@@ -45,3 +45,4 @@ Frame time: the median of 100 frames, each waited for (`gl.finish`), best of fiv
 |---|---|---|---|---|---|
 | baseline | 3.6 ms | 9.6 ms | 13.9 ms | 32.9 ms | |
 | 1. lamp quads in one pass | 3.6 ms | 4.9 ms | 13.9 ms | 20.1 ms | identical |
+| 2. matrices once per frame | 3.2 ms | 3.9 ms | 10.9 ms | 14.7 ms | identical |
