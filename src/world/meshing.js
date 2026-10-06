@@ -373,18 +373,23 @@ export function buildingMesh(buildings, tx, tz, marks = []) {
         // 2D frame for triangulation: (along the wall, height) for walls, the ground plan for roofs
         const hl = Math.hypot(nx, nz) || 1, tx = nz / hl, tz = -nx / hl;
         const flat = [], holes = [], verts = [];
-        let s0 = Infinity, s1 = -Infinity, y1 = -Infinity;
+        let s0 = Infinity, s1 = -Infinity, y1 = -Infinity, y0 = Infinity;
         rings.forEach((r, ri) => {
           if (ri) holes.push(flat.length / 2);
           for (let i = 0; i < r.length; i += 3) {
             const s = r[i] * tx + r[i + 2] * tz;
             if (steep) flat.push(s, r[i + 1]); else flat.push(r[i], r[i + 2]);
             verts.push([r[i], r[i + 1], r[i + 2], s, uv ? uv[ri][(i / 3) * 2] : 0, uv ? uv[ri][(i / 3) * 2 + 1] : 0]);
-            s0 = Math.min(s0, s); s1 = Math.max(s1, s); y1 = Math.max(y1, r[i + 1]);
+            s0 = Math.min(s0, s); s1 = Math.max(s1, s); y1 = Math.max(y1, r[i + 1]); y0 = Math.min(y0, r[i + 1]);
           }
         });
         const wall = !isRoof && steep, len = s1 - s0;
-        const bays = wall && len >= 1.8 ? Math.max(1, Math.round(len / BAY[cat])) : 0, bay = bays ? len / bays : 0;
+        let bays = wall && len >= 1.8 ? Math.max(1, Math.round(len / BAY[cat])) : 0, bay = bays ? len / bays : 0;
+        // A wall modelled as many narrow strips (a curved tower, a facade with its piers) has no strip wide enough
+        // for a window: there the bays are counted along the wall as a whole — the same measure for every strip in
+        // the same plane, so the windows run on across them. (Its photograph is left out: a few texels a strip.)
+        const strip = wall && len < 3 && y1 - y0 > 2.4 && b.surfaces.length > 150;
+        if (strip) { bay = BAY[cat]; bays = len / bay; s0 = 0; }
         const kind = wall ? KIND.WALL : ny > 0.985 ? KIND.FLAT_ROOF : steep ? KIND.SOLID : KIND.PITCHED_ROOF;
         const color = wall || kind === KIND.SOLID ? wallCol : kind === KIND.FLAT_ROOF ? flatCol : roofCol;
         const layer = wall || kind === KIND.SOLID ? wallLayer : kind === KIND.FLAT_ROOF ? WALL.ROOF : WALL.SIDING;
@@ -398,7 +403,7 @@ export function buildingMesh(buildings, tx, tz, marks = []) {
           if (cx * nx + cy * ny + cz * nz < 0) [q, r] = [r, q];
           if (uv && isRoof) { for (const v of [p, q, r]) { photo.pos.push(v[0], v[1], v[2]); photo.nor.push(nx, ny, nz); photo.uv.push(v[4], v[5]); photo.mark.push(mark); } continue; }
           for (const v of [p, q, r]) {
-            if (uv) { pu = v[4]; pv = v[5]; }
+            if (uv && !strip) { pu = v[4]; pv = v[5]; }
             vtx(v[0], v[1], v[2], N, color, bays ? ((v[3] - s0) / len) * bays : 0, v[1] - b.base, kind, bay, layer);
           }
           pu = pv = -1;
