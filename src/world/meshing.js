@@ -292,9 +292,14 @@ export function buildingMesh(buildings, tx, tz, marks = []) {
     const seed = Math.floor(hash3(tx, tz, i) * 4096) / 4096; // quantised: the shader hashes it per room
     // OSM's building:material / building:colour, where mapped, replace the generated finish
     const material = (b.hint >>> 24) & 15, painted = b.hint >>> 31;
-    const cat = material === MATERIAL.GLASS ? CAT.GLASS : category(b.usage, b.height, seed);
+    // A tall tower that PLATEAU gives a detailed shell but no photographs is a recent one (modelled from its
+    // plans): a curtain wall of dark glass, whatever it is used for, with a plain dark roof.
+    // (how tall is taken from the shell itself: the height on record is not always that of the whole tower)
+    const shellTop = (list) => { let y = -Infinity; for (const f of list) for (let k = 1; k < f.rings[0].length; k += 3) y = Math.max(y, f.rings[0][k]); return y; };
+    const glassTower = !!b.surfaces?.length && !b.surfaces.some((f) => f.uv) && Math.max(b.height, shellTop(b.surfaces) - b.base) > 90;
+    const cat = material === MATERIAL.GLASS || glassTower ? CAT.GLASS : category(b.usage, b.height, seed);
     const pal = PALETTE[cat], pick = pal[Math.floor(rnd() * pal.length)], tone = 0.92 + 0.16 * rnd();
-    const wallCol = painted ? lin([((b.hint >> 16) & 255) / 255, ((b.hint >> 8) & 255) / 255, (b.hint & 255) / 255]) : lin(pick.slice(0, 3).map((c) => Math.min(1, c * tone)));
+    const wallCol = glassTower ? lin([0.3, 0.35, 0.41].map((c) => c * tone)) : painted ? lin([((b.hint >> 16) & 255) / 255, ((b.hint >> 8) & 255) / 255, (b.hint & 255) / 255]) : lin(pick.slice(0, 3).map((c) => Math.min(1, c * tone)));
     const wallLayer = HINT_LAYER[material] ?? pick[3];
     const top = b.base + b.height, bottom = b.base - SINK;
     const outer = b.polygons[0][0];
@@ -343,7 +348,7 @@ export function buildingMesh(buildings, tx, tz, marks = []) {
     // ---- LOD2: PLATEAU's own walls and roof planes replace everything generated below
     if (b.surfaces?.length) {
       const roofCol = lin(cat === CAT.HOUSE ? PITCHED_ROOFS[Math.floor(rnd() * PITCHED_ROOFS.length)] : [0.5, 0.5, 0.49]);
-      const flatCol = lin((() => { const g = 0.5 + 0.2 * rnd(); return [g, g, g * 0.97]; })());
+      const flatCol = lin(glassTower ? [0.36, 0.37, 0.39] : (() => { const g = 0.5 + 0.2 * rnd(); return [g, g, g * 0.97]; })());
       // A steel lattice tower is built member by member (tower.js) where the shell stands: on its axis, as
       // wide as its foot, as high as its top, and turned as its foot is turned.
       if (b.flags & BFLAG.LATTICE) {
