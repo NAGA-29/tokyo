@@ -126,6 +126,7 @@ const applyShade = () => { atmosphere.shade = Math.round((1 - cloudShadow) * (va
 const setAbstract = (on) => { setVariant({ abstract: on }); streamer.setAbstract(on); applyShade(); };
 env.lightFromSky(atmosphere.environmentSky(), () => atmosphere.ready);
 if (params.get('skylight') === '1') env.skyLight = true;
+shared.uSeason.value = Math.max(0, ['summer', 'autumn', 'spring'].indexOf(params.get('season')));
 atmosphere.antialias = params.get('aa') ?? 'smaa';
 const contact = new ContactShadows(renderer);
 if (Number(params.get('contact')) > 0) { shared.uContact.value = Number(params.get('contact')); setVariant({ contact: true }); }
@@ -186,6 +187,8 @@ let guiState, clockText;
     get contact() { return shared.uContact.value; }, set contact(v) { shared.uContact.value = v; if ((v > 0) !== variant.contact) setVariant({ contact: v > 0 }); },
     // facade relief: windows set back into the wall (materials.js)
     get relief() { return variant.relief; }, set relief(v) { if (v !== variant.relief) setVariant({ relief: v }); },
+    // the season of the trees (props.js)
+    get season() { return ['summer', 'autumn', 'spring'][shared.uSeason.value]; }, set season(v) { shared.uSeason.value = Math.max(0, ['summer', 'autumn', 'spring'].indexOf(v)); },
     get windows() { return variant.windows; }, set windows(v) { if (v !== variant.windows) setVariant({ windows: v }); },
     // the whole city at once, or only what lies within the view radius of the point looked at (fewer tiles: more frames)
     wholeCity: false, near: Number(params.get('radius')) || 900,
@@ -236,6 +239,7 @@ let guiState, clockText;
   gui.add(state, 'landmarks').name('landmarks in detail (abstract)');
   gui.add(state, 'windows');
   gui.add(state, 'relief').name('recessed windows');
+  gui.add(state, 'season', ['summer', 'autumn', 'spring']);
   gui.add(state, 'photo').name('aerial photo').listen();
   gui.add(birds.geometry, 'instanceCount', 0, MAX_BIRDS, 10).name('birds');
   gui.add(state, 'info').name('info panel');

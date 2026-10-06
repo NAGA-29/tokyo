@@ -21,6 +21,8 @@ export const shared = {
   uCityGlass: { value: 0 }, // (off: the glass is flat and mirrors what is really there; the drawn lights are dots)
   // how bright the lit rooms are at night (1: as designed)
   uRoomLight: { value: 1 },
+  // the season of the trees (props.js): 0 summer (green, as they are), 1 autumn, 2 spring
+  uSeason: { value: 0 },
   // contact shadows (contact.js): how dark (0: none), the blurred mask of what stands on the ground, where it lies
   uContact: { value: 0 }, uContactMap: { value: null }, uContactRect: { value: new THREE.Vector4(0, 0, 1, 0) },
   // how much the windows look like glass (0: as plain mirrors, the way they were): see the facade shader

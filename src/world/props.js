@@ -326,6 +326,35 @@ const TREES = [
   { preset: 'Ash Small', seed: 31, height: 7, tint: 0xf4b6cf, recolor: true },
 ];
 
+// The seasons: every tree draws a colour of its own by where it stands (so the tree near by and the simple one
+// far off agree). Autumn: reds, oranges and yellows, with a few evergreens left; spring: cherry blossom on about
+// a third of them — pale pink, deeper pink, almost white — among fresh green. Summer is the trees as they are.
+const SEASON_VERT_PARS = /* glsl */ `
+varying float vTreeSeed;
+`;
+const SEASON_VERT = /* glsl */ `
+  #ifdef USE_INSTANCING
+    vTreeSeed = fract(sin(dot(floor(instanceMatrix[3].xz * 4.0), vec2(12.9898, 78.233))) * 43758.5453);
+  #else
+    vTreeSeed = 0.5;
+  #endif
+`;
+const SEASON_FRAG_PARS = /* glsl */ `
+uniform float uSeason;
+varying float vTreeSeed;
+vec3 seasonColor(float s) {
+  float t = fract(s * 7.31 + 0.13);                       // a second number from the first
+  if (uSeason < 1.5) {                                    // autumn
+    if (s < 0.1) return vec3(0.1, 0.2, 0.05);             // evergreen
+    if (s < 0.36) return mix(vec3(0.62, 0.045, 0.02), vec3(0.42, 0.02, 0.03), t);   // reds
+    if (s < 0.68) return mix(vec3(0.85, 0.24, 0.025), vec3(0.75, 0.12, 0.02), t);   // oranges
+    return mix(vec3(0.85, 0.6, 0.06), vec3(0.8, 0.42, 0.04), t);                    // yellows, gold
+  }
+  if (s < 0.38) return mix(mix(vec3(1.0, 0.62, 0.74), vec3(0.95, 0.42, 0.6), t), vec3(1.0, 0.86, 0.9), step(0.8, t)); // blossom
+  return mix(vec3(0.3, 0.52, 0.12), vec3(0.42, 0.6, 0.16), t);                      // fresh green
+}
+`;
+
 // Leaves: ez-tree's own leaf material moves vertices without the instance matrix, so it cannot be
 // instanced. This one keeps its texture and adds a sway that works per instance. The alpha cutoff is
 // low on purpose: minified, the texture's averaged alpha drops, and at 0.5 the canopy would vanish
@@ -340,8 +369,14 @@ function leafMaterial(map, tint, recolor = false) {
       diffuseColor.rgb *= 0.55 + 0.7 * dot(leaf.rgb, vec3(0.3, 0.6, 0.1));
       diffuseColor.a *= leaf.a;`);
     shader.uniforms.uTime = shared.uTime;
+    shader.uniforms.uSeason = shared.uSeason;
+    // (the season: the leaf keeps its outline and its light and shade, and takes the tree's colour)
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\n' + SEASON_FRAG_PARS)
+      .replace('#include <alphatest_fragment>', `if (uSeason > 0.5) diffuseColor.rgb = seasonColor(vTreeSeed) * (0.45 + 1.0 * dot(texture2D(map, vMapUv).rgb, vec3(0.3, 0.6, 0.1)));\n#include <alphatest_fragment>`);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nuniform float uTime;')
+      .replace('#include <common>', '#include <common>\nuniform float uTime;' + SEASON_VERT_PARS)
+      .replace('#include <project_vertex>', SEASON_VERT + '#include <project_vertex>')
       .replace('#include <begin_vertex>', `#include <begin_vertex>
         #ifdef USE_INSTANCING
           vec3 swayAt = (instanceMatrix * vec4(transformed, 1.0)).xyz;
@@ -351,7 +386,22 @@ function leafMaterial(map, tint, recolor = false) {
         float sway = 0.6 * sin(uTime * 1.3 + swayAt.x * 0.35 + swayAt.z * 0.27) + 0.3 * sin(uTime * 2.9 + swayAt.x * 1.1 + swayAt.y);
         transformed.xz += uv.y * sway * 0.07;`);
   };
-  m.customProgramCacheKey = () => (recolor ? 'leaves-recolor-v1' : 'leaves-v1');
+  m.customProgramCacheKey = () => (recolor ? 'leaves-recolor-v2' : 'leaves-v2');
+  return m;
+}
+
+// The simple far trees take the season too: their crowns (green in the model; the trunk is brown) are recoloured.
+function seasonal(m) {
+  const base = m.onBeforeCompile;
+  m.onBeforeCompile = (shader, renderer) => {
+    base.call(m, shader, renderer); // (the lamp light's uniforms: lamplight.js)
+    shader.uniforms.uSeason = shared.uSeason;
+    shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>' + SEASON_VERT_PARS).replace('#include <project_vertex>', SEASON_VERT + '#include <project_vertex>');
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\n' + SEASON_FRAG_PARS)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        if (uSeason > 0.5 && vColor.g > vColor.r) diffuseColor.rgb = seasonColor(vTreeSeed) * (0.22 + 0.62 * clamp(vColor.g / 0.1, 0.0, 1.0));`);
+  };
+  m.customProgramCacheKey = () => 'blob-season-v1';
   return m;
 }
 
@@ -417,7 +467,7 @@ export class Props {
       [PROP.PLAY]: [playGeometry(0), playGeometry(1)], [PROP.TORII]: [toriiGeometry()], [PROP.RAIL_CROSSING]: [railCrossingGeometry()],
     };
     this.mats = {
-      metal: std(), blob: std({ roughness: 0.95, metalness: 0 }),
+      metal: std(), blob: seasonal(std({ roughness: 0.95, metalness: 0 })),
       vending: new THREE.MeshStandardMaterial({ roughness: 0.5, metalness: 0.2 }),
       panel: new THREE.MeshBasicMaterial({ map: vendingTexture() }),
       lamp: new THREE.MeshBasicMaterial({ color: 0xfff2d8 }),
