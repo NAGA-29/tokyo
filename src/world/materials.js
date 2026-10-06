@@ -21,6 +21,8 @@ export const shared = {
   uCityGlass: { value: 0 }, // (off: the glass is flat and mirrors what is really there; the drawn lights are dots)
   // how bright the lit rooms are at night (1: as designed)
   uRoomLight: { value: 1 },
+  // how soft the lit rooms are at night (0: even bright panels, as they were; 1: lamps, curtains, spill)
+  uSoft: { value: 1 },
   // the season of the trees (props.js): 0 summer (green, as they are), 1 autumn, 2 spring
   uSeason: { value: 0 },
   // contact shadows (contact.js): how dark (0: none), the blurred mask of what stands on the ground, where it lies
@@ -103,6 +105,7 @@ uniform float uTime;
 uniform vec2 uWindowLife;
 uniform float uCityGlass;
 uniform float uRoomLight;
+uniform float uSoft;
 uniform float uGlass;
 uniform float uNightBlue;
 uniform vec3 uSunDir;
@@ -263,7 +266,24 @@ const FACADE_MAIN = /* glsl */ `
     float tilt = 0.008;
     gNm = mix(gNm, normalize(vec3((hash12(room + 5.1) - 0.5) * tilt, (hash12(room + 9.4) - 0.5) * tilt, 1.0)), inWin);
     float daylight = (1.0 - uNight) * (shop ? 0.3 : cat > 4.5 ? 0.06 : 0.12);
-    gEmissive = pane * interior * (daylight + uNight * on * glow * 1.25 * lamp * uRoomLight);
+    // A lit room is not an even bright panel (uSoft: 0 as it was .. 1). The light comes from a lamp somewhere in
+    // it, brightest there and falling away towards the corners of the window; in many rooms a curtain or a blind
+    // is drawn and the whole window glows evenly and more dimly, in the colour of the cloth; the colours are
+    // nearer to one another, and some of the light spills on the frame and on the wall round the window.
+    {
+      vec2 inPane = vec2((fx - r.x) / (r.y - r.x), (fy - r.z) / (r.w - r.z));
+      vec2 lampAt = vec2(0.25 + 0.5 * hash12(room + 12.1), 0.55 + 0.35 * hash12(room + 14.9));
+      float fall = mix(1.0, 0.32 + 0.95 * exp(-3.2 * dot(inPane - lampAt, inPane - lampAt)), uSoft);
+      float curtain = step(0.52, hash12(room + 16.3)) * uSoft * (shop ? 0.0 : 1.0);
+      vec3 cloth = mix(vec3(0.95, 0.82, 0.62), vec3(0.85, 0.86, 0.84), hash12(room + 18.7)) * 0.42;
+      vec3 soft = mix(lamp, mix(vec3(1.0, 0.8, 0.58), lamp, 0.45), uSoft);          // (less colour between rooms)
+      vec3 room3 = mix(interior * fall, cloth * (0.75 + 0.35 * fall), curtain);
+      float power = uNight * on * glow * mix(1.25, 0.78, uSoft) * uRoomLight;
+      gEmissive = pane * (interior * daylight + room3 * soft * power);
+      // the spill: on the frame and mullions, and a hand's breadth of wall round the opening
+      float spill = uSoft * (1.0 - far) * valid * power * 0.16;
+      gEmissive += soft * spill * (inWin * frame * 0.6 + (1.0 - inWin) * exp(min(edge, 0.0) * 4.5) * step(-0.9, edge));
+    }
     // The sun in the glass. Each pane sits a little out of true and float glass is never quite flat, so the
     // mirrored sun is a hot core with a glare around it that wanders from pane to pane as the view moves. The
     // third, wide term is not physics: the true mirror image is only seen from below the sun's own height, and
@@ -426,7 +446,7 @@ function facadeMaterial(tex) {
     Object.assign(shader.uniforms, {
       uLampOn: { value: 0 }, uLampMap: shared.uLampMap, // (no lamp light on buildings; the sampler still needs its texture)
       uPhoto: m.userData.photo, uPhotoOn: m.userData.photoOn, uPhotoRange: shared.uPhotoRange, uPhotoMix: shared.uPhotoMix,
-      uNight: shared.uNight, uTime: shared.uTime, uWindowLife: shared.uWindowLife, uCityGlass: shared.uCityGlass, uRoomLight: shared.uRoomLight, uGlass: shared.uGlass, uNightBlue: shared.uNightBlue, uSunDir: shared.uSunDir, uSunGlint: shared.uSunGlint, uGlintOn: shared.uGlintOn, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
+      uNight: shared.uNight, uTime: shared.uTime, uWindowLife: shared.uWindowLife, uCityGlass: shared.uCityGlass, uRoomLight: shared.uRoomLight, uSoft: shared.uSoft, uGlass: shared.uGlass, uNightBlue: shared.uNightBlue, uSunDir: shared.uSunDir, uSunGlint: shared.uSunGlint, uGlintOn: shared.uGlintOn, uWallAlb: { value: tex.wall.albedo }, uWallNor: { value: tex.wall.normal },
       uWallScale: { value: tex.wall.scales }, uWallDetail: { value: tex.wall.details },
     });
     shader.vertexShader = shader.vertexShader
@@ -464,7 +484,7 @@ function facadeMaterial(tex) {
       shader.fragmentShader = part(part(part(shader.fragmentShader, PHOTO_PARS, PHOTO_PARS + ABSTRACT_PARS), PHOTO_MAIN, abstractMain(variant.landmarks)), '#include <lights_fragment_end>', neutralShade('0.92 * gPlain'));
     }
   };
-  m.customProgramCacheKey = () => 'facade-v27' + variantKey();
+  m.customProgramCacheKey = () => 'facade-v33' + variantKey();
   return m;
 }
 

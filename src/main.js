@@ -253,6 +253,7 @@ let guiState, clockText;
   sky.add(atmosphere.clouds.localWeatherVelocity, 'x', 0, 0.02, 0.0005).name('wind');
   const rooms = gui.addFolder('Night windows');
   rooms.add(shared.uRoomLight, 'value', 0, 4, 0.05).name('light strength');
+  rooms.add(shared.uSoft, 'value', 0, 1, 0.05).name('softness');
   rooms.add(shared.uWindowLife.value, 'x', 0, 1, 0.05).name('rooms that change');
   rooms.add(state, 'windowPace', 0, 60, 0.5).name('pace');
   rooms.add(shared.uCityGlass, 'value', 0, 3, 0.05).name('drawn city lights in tower glass');
