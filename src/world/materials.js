@@ -354,6 +354,12 @@ varying float vMark;
 `;
 const abstractMain = (landmarks) => /* glsl */ `
 {
+  vec3 photo = texture2D(uPhoto, vPhoto).rgb; // (sampled outside any branch: derivatives)
+${landmarks ? `  // a landmark keeps the photograph of its walls, at any distance (its roofs keep theirs: streamer.js)
+  float shown = uPhotoOn * step(0.0, vPhoto.x) * step(0.5, vMark);
+  diffuseColor.rgb = mix(diffuseColor.rgb, photo * 1.12, shown);
+  gRough = mix(gRough, 0.85, shown);
+  gMetal *= 1.0 - shown;` : ''}
   float lattice = step(3.5, vBldg.z);
   float plain = ${landmarks ? '1.0 - max(step(0.5, vMark), lattice)' : '1.0'};
   float lum = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
