@@ -676,14 +676,21 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       // contact shadows (contact.js): the ground is darker round the foot of what stands on it
       Object.assign(shader.uniforms, { uContact: shared.uContact, uContactMap: shared.uContactMap, uContactRect: shared.uContactRect });
       shader.fragmentShader = shader.fragmentShader
-        .replace('uniform float uDark;', 'uniform float uDark;\nuniform float uContact;\nuniform sampler2D uContactMap;\nuniform vec4 uContactRect;')
+        .replace('uniform float uDark;', 'uniform float uDark;\nuniform float uContact;\nuniform sampler2D uContactMap;\nuniform vec4 uContactRect;\nfloat gContactLeft = 1.0; // what a contact shadow leaves of the light')
         .replace('roughnessFactor = gRough;', `roughnessFactor = gRough;
   {
     vec2 cuv = vec2(vWPos.x - uContactRect.x, uContactRect.y - vWPos.z) / (2.0 * uContactRect.z) + 0.5;
     vec2 cedge = smoothstep(vec2(0.0), vec2(0.05), cuv) * (1.0 - smoothstep(vec2(0.95), vec2(1.0), cuv));
     float contact = smoothstep(0.0, 0.75, texture2D(uContactMap, cuv).r) * cedge.x * cedge.y * (1.0 - gWater);
-    diffuseColor.rgb *= 1.0 - uContact * contact;
-  }`);
+    gContactLeft = 1.0 - uContact * contact;
+  }`)
+        // (a shadow: it takes the light of the sun and the sky away, not the light of a lamp that stands in it — a
+        // car's headlamps under a bridge light the road as anywhere. The lamps' light is added after this.)
+        .replace('#include <lights_fragment_end>', `reflectedLight.directDiffuse *= gContactLeft; reflectedLight.directSpecular *= gContactLeft;
+  #if defined( RE_IndirectDiffuse )
+    irradiance *= gContactLeft; iblIrradiance *= gContactLeft;
+  #endif
+  #include <lights_fragment_end>`);
     }
     if (variant.abstract) {
       const part = (text, a, b) => { if (!text.includes(a)) console.warn('ground: the shader has changed; the abstract model is not applied'); return text.replace(a, b); };
@@ -696,7 +703,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       shader.fragmentShader = part(shader.fragmentShader, '#include <lights_fragment_end>', neutralShade('0.92'));
     }
   };
-  m.customProgramCacheKey = () => 'ground-v14' + (variant.abstract ? 'a' : '') + (variant.contact ? 'c' : '');
+  m.customProgramCacheKey = () => 'ground-v14' + (variant.abstract ? 'a' : '') + (variant.contact ? 'c2' : '');
   return m;
 }
 
