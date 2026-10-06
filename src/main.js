@@ -136,6 +136,7 @@ env.brightness = Number(params.get('brightness')) || 1.15; // (a little brighter
 if (params.get('abstract') === '1') setAbstract(true);
 if (params.get('landmarks') === '1') setVariant({ landmarks: true });
 if (params.get('windows') === '0') setVariant({ windows: false });
+if (params.get('relief') !== '0') setVariant({ relief: true }); // (on, unless asked not to)
 if (Number(params.get('clouds')) > 0) { atmosphere.coverage = Number(params.get('clouds')); atmosphere.cloudsOn = true; }
 let orthoLoaded = false, orthoWanted = true; // (the photo fills in when the tiles arrive; the panel may have switched it off by then)
 if (params.get('ortho') !== '0') loadOrtho(`ortho/${AREA}`, proj, manifest.bounds, renderer).then((ok) => { orthoLoaded = ok; shared.uOrthoOn.value = ok && orthoWanted ? 1 : 0; });
@@ -182,6 +183,8 @@ let guiState, clockText;
     get realistic() { return env.realistic; }, set realistic(v) { env.realistic = v; atmosphere.haze = v ? 1 : 0; atmosphere.grade = v ? 1 : 0; },
     // contact shadows: the soft dark on the ground round the foot of things (0: none, and nothing is drawn for it)
     get contact() { return shared.uContact.value; }, set contact(v) { shared.uContact.value = v; if ((v > 0) !== variant.contact) setVariant({ contact: v > 0 }); },
+    // facade relief: windows set back into the wall (materials.js)
+    get relief() { return variant.relief; }, set relief(v) { if (v !== variant.relief) setVariant({ relief: v }); },
     get windows() { return variant.windows; }, set windows(v) { if (v !== variant.windows) setVariant({ windows: v }); },
     // the whole city at once, or only what lies within the view radius of the point looked at (fewer tiles: more frames)
     wholeCity: false, near: Number(params.get('radius')) || 900,
@@ -230,6 +233,7 @@ let guiState, clockText;
   gui.add(state, 'abstract').name('abstract model');
   gui.add(state, 'landmarks').name('landmarks in detail (abstract)');
   gui.add(state, 'windows');
+  gui.add(state, 'relief').name('recessed windows');
   gui.add(state, 'photo').name('aerial photo').listen();
   gui.add(birds.geometry, 'instanceCount', 0, MAX_BIRDS, 10).name('birds');
   gui.add(state, 'info').name('info panel');

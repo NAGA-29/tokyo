@@ -46,9 +46,9 @@ export const shared = {
 // their look on it, and whether the buildings have windows. These are not values the shaders read but variants
 // the shaders are compiled in: with all three as they are here, every shader is exactly what it is without
 // this section, to the letter.
-export const variant = { abstract: false, landmarks: false, windows: true, contact: false };
+export const variant = { abstract: false, landmarks: false, windows: true, contact: false, relief: false };
 const varying = new Set(); // the materials whose shaders depend on `variant`
-export const variantKey = () => (variant.abstract ? 'a' : '') + (variant.abstract && variant.landmarks ? 'l' : '') + (variant.windows ? '' : 'w');
+export const variantKey = () => (variant.abstract ? 'a' : '') + (variant.abstract && variant.landmarks ? 'l' : '') + (variant.windows ? '' : 'w') + (variant.relief ? 'r' : '');
 // Registers a material whose onBeforeCompile reads `variant`.
 export function varies(material) {
   varying.add(material);
@@ -389,6 +389,34 @@ ${landmarks ? `  // a landmark keeps the photograph of its walls, at any distanc
 }
 `;
 
+// Facade relief: the windows are set back into the wall instead of painted on it. The glass lies a hand's
+// breadth behind the face of the wall, so that from the side the reveal of the opening comes into view — its sill
+// bright, its head dark, its sides by the way they face the sun — and the wall throws a shadow across the
+// glass when the sun stands to one side. (No geometry: the ray to the eye is followed to the plane of the glass.)
+const RELIEF_PARS = /* glsl */ `
+float gJamb = 0.0, gJambShade = 1.0, gReveal = 0.0;
+`;
+const RELIEF_PM = /* glsl */ `
+    {
+      float deep = (shop ? 0.1 : cat > 4.5 ? 0.0 : 0.24) * (1.0 - far);
+      vec3 toWall = normalize(vWPos - cameraPosition);
+      vec2 slide = vec2(dot(toWall, gT), dot(toWall, gB)) / max(-dot(toWall, gN), 0.12) * deep;
+      vec2 pg = pm + slide;                                   // where the ray meets the glass
+      vec2 below = wmin - pg, above = pg - wmax;              // > 0: beyond the opening on that side
+      float out2 = max(max(below.x, above.x), max(below.y, above.y));
+      gJamb = inWin * step(0.0, out2) * step(1e-4, deep);
+      // which side of the opening is seen: its sill, its head, or a side lit by how it faces the sun
+      vec3 side = above.x > max(below.x, max(below.y, above.y)) ? -gT : below.x > max(below.y, above.y) ? gT : below.y > above.y ? gB : -gB;
+      gJambShade = 0.5 + 0.75 * max(dot(side, uSunDir), 0.0) + 0.2 * side.y;
+      // the shadow of the wall on the glass: the sun's ray to this point of the glass passes the face of the wall
+      float sunN = dot(uSunDir, gN);
+      vec2 through = pg + vec2(dot(uSunDir, gT), dot(uSunDir, gB)) / max(sunN, 0.08) * deep;
+      vec2 edge2 = min(through - wmin, wmax - through);
+      gReveal = step(0.0, sunN) * (1.0 - smoothstep(-0.02, 0.03, min(edge2.x, edge2.y))) * inWin * step(1e-4, deep);
+      pm = pg;
+    }
+`;
+
 function facadeMaterial(tex) {
   const m = varies(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.0 }));
   m.userData.photo = { value: NO_PHOTO }; m.userData.photoOn = { value: 0 };
@@ -415,6 +443,20 @@ function facadeMaterial(tex) {
     // ---- variants (see `variant`): nothing below is done as things are by default
     const part = (text, a, b) => { if (!text.includes(a)) console.warn('facade: the shader has changed; a variant is not applied'); return text.replace(a, b); };
     if (!variant.windows) shader.fragmentShader = part(shader.fragmentShader, 'cellW = vBldg.w;', 'cellW = 0.0;'); // (no bay width: no windows)
+    if (variant.relief) {
+      let f = shader.fragmentShader;
+      f = part(f, 'float gPane = 0.0;', 'float gPane = 0.0;' + RELIEF_PARS);
+      f = part(f, '    vec2 pm = vec2(fx * cellW, fy * floorH);\n', '    vec2 pm = vec2(fx * cellW, fy * floorH);\n' + RELIEF_PM);
+      f = part(f, '    float pane = inWin * (1.0 - frame);', '    float pane = inWin * (1.0 - frame) * (1.0 - gJamb);');
+      // the reveal is wall, in its own light; the glass in the wall's shadow is darker and mirrors no sun
+      f = part(f, '    gRough = mix(gRough, 0.05, pane);', `    gRough = mix(gRough, 0.05, pane);
+    diffuseColor.rgb = mix(diffuseColor.rgb, wall * gJambShade, gJamb);
+    diffuseColor.rgb *= 1.0 - 0.45 * gReveal * pane;
+    gRough = mix(gRough, 0.85, gJamb);`);
+      f = part(f, 'float daylight = (1.0 - uNight) * (shop ? 0.3 : cat > 4.5 ? 0.06 : 0.12);', 'float daylight = (1.0 - uNight) * (shop ? 0.3 : cat > 4.5 ? 0.06 : 0.12) * (1.0 - 0.6 * gReveal);');
+      f = part(f, '* step(0.0, dot(gN, uSunDir));', '* step(0.0, dot(gN, uSunDir)) * (1.0 - gReveal);');
+      shader.fragmentShader = f;
+    }
     if (variant.abstract) {
       shader.uniforms.uDark = shared.uDark;
       shader.fragmentShader = part(part(part(shader.fragmentShader, PHOTO_PARS, PHOTO_PARS + ABSTRACT_PARS), PHOTO_MAIN, abstractMain(variant.landmarks)), '#include <lights_fragment_end>', neutralShade('0.92 * gPlain'));
