@@ -9,6 +9,10 @@ import { shared } from './materials.js';
 export const LAMP_LAYER = 2; // the layer the lamp quads live on: the picture's camera does not see it
 const SIZE = 2048;
 const Y0 = 200, YSPAN = 1000; // heights are stored as (y + Y0) / YSPAN
+// The map is drawn twice, side by side: once keeping, where lights lie one above the other, the height of the
+// highest (the left half), once that of the lowest (the right half). So a street under a flyover keeps its
+// lamps and its cars' headlamps, though cars with theirs drive on the deck above — and the deck keeps its own.
+const lampLowest = { value: 0 }; // which of the two is being drawn
 
 // Material for a lamp quad: `map` is the footprint; the colour (times the vertex colour, if any) is the light.
 export function lampMaterial(map, params = {}) {
@@ -17,8 +21,10 @@ export function lampMaterial(map, params = {}) {
     blending: THREE.CustomBlending, blendEquation: THREE.MaxEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, ...params,
   });
   // The height the light lies at goes into the alpha channel, so that a lamp under a flyover does not light
-  // the deck above it, nor a car on the deck the street below.
+  // the deck above it, nor a car on the deck the street below. (Lights keep the greater value where they
+  // overlap: for the lowest height, the height is written the other way up.)
   m.onBeforeCompile = (shader) => {
+    shader.uniforms.uLampLowest = lampLowest;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying float vLampY;')
       .replace('#include <project_vertex>', `#include <project_vertex>
@@ -28,11 +34,12 @@ export function lampMaterial(map, params = {}) {
         #endif
         vLampY = (modelMatrix * lampWorld).y;`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vLampY;')
+      .replace('#include <common>', '#include <common>\nvarying float vLampY;\nuniform float uLampLowest;')
       .replace('#include <opaque_fragment>', `#include <opaque_fragment>
-        gl_FragColor.a = dot(gl_FragColor.rgb, vec3(1.0)) > 0.004 ? (vLampY + ${Y0}.0) / ${YSPAN}.0 : 0.0;`);
+        float lampHeight = (vLampY + ${Y0}.0) / ${YSPAN}.0;
+        gl_FragColor.a = dot(gl_FragColor.rgb, vec3(1.0)) > 0.004 ? (uLampLowest > 0.5 ? 1.0 - lampHeight : lampHeight) : 0.0;`);
   };
-  m.customProgramCacheKey = () => 'lamp-quad-v1';
+  m.customProgramCacheKey = () => 'lamp-quad-v2';
   return m;
 }
 
@@ -50,9 +57,12 @@ if (uLampOn > 0.5) {
   vec2 lampUv = vec2(lampAt.x - uLampRect.x, uLampRect.y - lampAt.z) / (2.0 * uLampRect.z) + 0.5;
   vec2 lampEdge = smoothstep(vec2(0.0), vec2(0.04), lampUv) * (1.0 - smoothstep(vec2(0.96), vec2(1.0), lampUv));
   float lampUp = smoothstep(0.25, 0.7, (lampToWorld * geometryNormal).y);
-  vec4 lampTexel = texture2D(uLampMap, lampUv);
-  float lampLevel = 1.0 - smoothstep(2.5, 5.0, abs(lampAt.y - (lampTexel.a * ${YSPAN}.0 - ${Y0}.0)));   // only light lying at this height
-  reflectedLight.directDiffuse += lampTexel.rgb * lampEdge.x * lampEdge.y * lampUp * lampLevel * material.diffuseColor;
+  // only light lying at this height: from the map of the highest lights, or from that of the lowest
+  vec4 lampHigh = texture2D(uLampMap, vec2(lampUv.x * 0.5, lampUv.y)), lampLow = texture2D(uLampMap, vec2(lampUv.x * 0.5 + 0.5, lampUv.y));
+  float lampLevelHigh = 1.0 - smoothstep(2.5, 5.0, abs(lampAt.y - (lampHigh.a * ${YSPAN}.0 - ${Y0}.0)));
+  float lampLevelLow = 1.0 - smoothstep(2.5, 5.0, abs(lampAt.y - ((1.0 - lampLow.a) * ${YSPAN}.0 - ${Y0}.0)));
+  vec3 lampLight = max(lampHigh.rgb * lampLevelHigh, lampLow.rgb * lampLevelLow);
+  reflectedLight.directDiffuse += lampLight * lampEdge.x * lampEdge.y * lampUp * material.diffuseColor;
 }
 `;
   // Plain materials get the uniforms here. A material with a hook of its own sets them itself: lampUniforms
@@ -68,7 +78,7 @@ export function lampUniforms(shader) {
 export class LampLight {
   constructor(renderer) {
     this.renderer = renderer;
-    this.target = new THREE.WebGLRenderTarget(SIZE, SIZE, { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+    this.target = new THREE.WebGLRenderTarget(2 * SIZE, SIZE, { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 4000);
     this.camera.up.set(0, 0, -1);
     this.camera.layers.set(LAMP_LAYER);
@@ -93,10 +103,20 @@ export class LampLight {
     const r = this.renderer, shadows = r.shadowMap.autoUpdate, background = scene.background, previous = r.getRenderTarget();
     const clear = r.getClearColor(new THREE.Color()), alpha = r.getClearAlpha();
     r.shadowMap.autoUpdate = false; scene.background = null; // (only the lamp quads are of interest)
-    r.setRenderTarget(this.target);
     r.setClearColor(this.black, 0);
+    this.target.viewport.set(0, 0, 2 * SIZE, SIZE);
+    r.setRenderTarget(this.target);
     r.clear();
-    r.render(scene, cam);
+    const autoClear = r.autoClear;
+    r.autoClear = false; // (a clear is not kept to the viewport: the second drawing would wipe the first)
+    for (const lowest of [0, 1]) { // the highest lights into the left half, the lowest into the right
+      lampLowest.value = lowest;
+      this.target.viewport.set(lowest * SIZE, 0, SIZE, SIZE);
+      r.setRenderTarget(this.target); // (takes the viewport)
+      r.render(scene, cam);
+    }
+    this.target.viewport.set(0, 0, 2 * SIZE, SIZE);
+    r.autoClear = autoClear;
     r.setRenderTarget(previous);
     r.setClearColor(clear, alpha);
     r.shadowMap.autoUpdate = shadows; scene.background = background;
