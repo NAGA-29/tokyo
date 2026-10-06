@@ -323,7 +323,7 @@ const TREES = [
   { preset: 'Oak Large', seed: 42, height: 17, tint: 0x8fae78 },
   // by genus (OSM): 4 ginkgo — tall and narrow, fresh green; 5 cherry — low and spreading, in blossom
   { preset: 'Aspen Medium', seed: 7, height: 13, tint: 0xa9c24f, recolor: true },
-  { preset: 'Ash Small', seed: 31, height: 7, tint: 0xf4b6cf, recolor: true },
+  { preset: 'Ash Small', seed: 31, height: 7, tint: 0xf4b6cf, recolor: true, blossom: true },
 ];
 
 // The seasons: every tree draws a colour of its own by where it stands (so the tree near by and the simple one
@@ -347,6 +347,18 @@ varying float vTreeSeed;
 varying vec3 vLeafAt;
 vec3 seasonColor(float s);
 float leafHash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+// Cherry blossom on a leaf card: instead of leaves, a scatter of small five-petalled flowers — pale pink, each
+// a little different, deeper at the heart — with the air between them cut away. Returns colour and cover.
+vec4 blossom(vec2 uv, float seed) {
+  vec2 g = uv * 5.0, id = floor(g), f = fract(g) - 0.5;
+  float h = leafHash(vec3(id, seed * 91.0)), h2 = leafHash(vec3(id.yx + 3.0, seed * 37.0));
+  f += (vec2(h2, fract(h2 * 7.7)) - 0.5) * 0.35;
+  float r = length(f), a = atan(f.y, f.x) + h * 6.2832;
+  float flower = step(r, 0.3 + 0.13 * cos(5.0 * a)) * step(0.18, h);
+  vec3 c = mix(vec3(0.82, 0.5, 0.6), vec3(0.92, 0.78, 0.82), h2);
+  c = mix(vec3(0.7, 0.25, 0.38), c, smoothstep(0.02, 0.16, r));
+  return vec4(c, flower);
+}
 // Foliage on a smooth crown: clusters of leaves, each its own shade and some a neighbour's colour, with dark
 // gaps between them (fading out where they would be smaller than a pixel). Returns the crown's colour.
 vec3 foliage(float seed, float light) {
@@ -376,7 +388,8 @@ vec3 seasonColor(float s) {
 // low on purpose: minified, the texture's averaged alpha drops, and at 0.5 the canopy would vanish
 // a few tens of metres away.
 // recolor: use only the brightness and outline of the leaf texture, and the tint as the colour (blossom).
-function leafMaterial(map, tint, recolor = false) {
+// blossom: a cherry — in flower whatever the season says.
+function leafMaterial(map, tint, recolor = false, blossom = false) {
   const m = new THREE.MeshStandardMaterial({ map, color: tint, alphaTest: 0.18, side: THREE.DoubleSide, roughness: 0.85 });
   m.onBeforeCompile = (shader) => {
     shader.uniforms.uLampOn = { value: 0 }; shader.uniforms.uLampMap = shared.uLampMap; // (no lamp light here; the sampler still needs its texture)
@@ -389,7 +402,10 @@ function leafMaterial(map, tint, recolor = false) {
     // (the season: the leaf keeps its outline and its light and shade, and takes the tree's colour)
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\n' + SEASON_FRAG_PARS)
-      .replace('#include <alphatest_fragment>', `if (uSeason > 0.5) diffuseColor.rgb = seasonColor(vTreeSeed) * (0.45 + 1.0 * dot(texture2D(map, vMapUv).rgb, vec3(0.3, 0.6, 0.1)));\n#include <alphatest_fragment>`);
+      .replace('#include <alphatest_fragment>', `if (uSeason > 0.5) diffuseColor.rgb = seasonColor(vTreeSeed) * (0.45 + 1.0 * dot(texture2D(map, vMapUv).rgb, vec3(0.3, 0.6, 0.1)));
+      // the trees in blossom (in spring, those the season makes pink; a cherry, always) bear flowers, not leaves
+      if (${blossom ? 'true' : 'uSeason > 1.5 && vTreeSeed < 0.38'}) { vec4 bloom = blossom(vMapUv, vTreeSeed); diffuseColor = vec4(bloom.rgb * (0.85 + 0.3 * vTreeSeed), bloom.a); }
+      #include <alphatest_fragment>`);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nuniform float uTime;' + SEASON_VERT_PARS)
       .replace('#include <project_vertex>', SEASON_VERT + '#include <project_vertex>')
@@ -402,7 +418,7 @@ function leafMaterial(map, tint, recolor = false) {
         float sway = 0.6 * sin(uTime * 1.3 + swayAt.x * 0.35 + swayAt.z * 0.27) + 0.3 * sin(uTime * 2.9 + swayAt.x * 1.1 + swayAt.y);
         transformed.xz += uv.y * sway * 0.07;`);
   };
-  m.customProgramCacheKey = () => (recolor ? 'leaves-recolor-v6' : 'leaves-v6');
+  m.customProgramCacheKey = () => (recolor ? 'leaves-recolor-v7' : 'leaves-v7') + (blossom ? '-blossom' : '');
   return m;
 }
 
@@ -441,7 +457,7 @@ function buildTree(def) {
     radius: (Math.max(size.x, size.z) * s) / 2, height: def.height,
     branches: prep(tree.branchesMesh), leaves: prep(tree.leavesMesh),
     branchMat: new THREE.MeshStandardMaterial({ map: tree.branchesMesh.material.map, roughness: 0.95 }),
-    leafMat: leafMaterial(tree.leavesMesh.material.map, def.tint, def.recolor),
+    leafMat: leafMaterial(tree.leavesMesh.material.map, def.tint, def.recolor, def.blossom),
   };
 }
 
