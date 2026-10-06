@@ -354,7 +354,15 @@ const PHOTO_MAIN = /* glsl */ `
 // look where they are asked to.
 const ABSTRACT_PARS = /* glsl */ `
 uniform float uDark;
+float gPlain = 1.0; // how plain this fragment is (0: a landmark that keeps its look)
 `;
+// On the pale model the blue of the sky would make every shadow blue: there the light of the sky reaches the
+// shade as a neutral grey, a trace warm. (After the lights; `amount` is GLSL.)
+export const neutralShade = (amount) => `#include <lights_fragment_end>
+{
+  float shadeLum = dot(reflectedLight.indirectDiffuse, vec3(0.2126, 0.7152, 0.0722));
+  reflectedLight.indirectDiffuse = mix(reflectedLight.indirectDiffuse, shadeLum * vec3(1.0, 0.985, 0.96), ${amount});
+}`;
 const abstractMain = (landmarks) => /* glsl */ `
 {
   vec3 photo = texture2D(uPhoto, vPhoto).rgb; // (sampled outside any branch: derivatives)
@@ -369,6 +377,7 @@ ${landmarks ? `  // a landmark keeps the photograph of its walls, at any distanc
   float sort = mod(vBldg.y, 8.0), shop = step(1.5, sort) * (1.0 - step(3.5, sort) * step(sort, 4.5));
   float roof = step(0.5, abs(gN.y));
   vec3 pale = mix(${v3(ABSTRACT.home)}, ${v3(ABSTRACT.shop)}, shop) * mix(1.0, 1.14, roof) * mix(0.93, 1.0, smoothstep(0.03, 0.22, lum));
+  gPlain = plain;
   diffuseColor.rgb = mix(diffuseColor.rgb, pale, plain);
   gRough = mix(gRough, 0.92, plain);
   gMetal *= 1.0 - plain;
@@ -408,7 +417,7 @@ function facadeMaterial(tex) {
     if (!variant.windows) shader.fragmentShader = part(shader.fragmentShader, 'cellW = vBldg.w;', 'cellW = 0.0;'); // (no bay width: no windows)
     if (variant.abstract) {
       shader.uniforms.uDark = shared.uDark;
-      shader.fragmentShader = part(part(shader.fragmentShader, PHOTO_PARS, PHOTO_PARS + ABSTRACT_PARS), PHOTO_MAIN, abstractMain(variant.landmarks));
+      shader.fragmentShader = part(part(part(shader.fragmentShader, PHOTO_PARS, PHOTO_PARS + ABSTRACT_PARS), PHOTO_MAIN, abstractMain(variant.landmarks)), '#include <lights_fragment_end>', neutralShade('0.92 * gPlain'));
     }
   };
   m.customProgramCacheKey = () => 'facade-v27' + variantKey();
@@ -622,6 +631,8 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
         '  if (water) {', ABSTRACT_GROUND + '  if (water) {'),
         '    gWater = 1.0;\n', '    gWater = 1.0;\n' + ABSTRACT_WATER),
         '#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += gGlow;');
+      // (roads keep the sky's blue in their shade a little: asphalt is dark, it hardly shows there)
+      shader.fragmentShader = part(shader.fragmentShader, '#include <lights_fragment_end>', neutralShade('0.92'));
     }
   };
   m.customProgramCacheKey = () => 'ground-v13' + (variant.abstract ? 'a' : '') + (variant.contact ? 'c' : '');

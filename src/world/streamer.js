@@ -7,7 +7,7 @@ import { asGround } from './contact.js';
 import { sampleGrid } from '../shared/terrain.js';
 import { makeSurface, makeCover } from '../shared/decks.js';
 import { SIGN_LOD_DISTANCE } from './signs.js';
-import { shared, variant, varies, ABSTRACT } from './materials.js';
+import { shared, variant, varies, ABSTRACT, neutralShade } from './materials.js';
 
 const WORKERS = Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) >> 1));
 const MAX_IN_FLIGHT = WORKERS * 2;
@@ -203,6 +203,7 @@ export class Streamer {
         if (variant.abstract) { // the abstract model: plain roofs, but for the landmarks where they keep their look
           shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nattribute float aMark;\nvarying float vMark;').replace('#include <begin_vertex>', '#include <begin_vertex>\nvMark = aMark;');
           shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nvarying float vMark;')
+            .replace('#include <lights_fragment_end>', neutralShade(variant.landmarks ? '0.92 * (1.0 - step(0.5, vMark))' : '0.92'))
             .replace('#include <map_fragment>', `#include <map_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(${ABSTRACT.home.map((c) => (c * 1.14).toFixed(3)).join(', ')}), ${variant.landmarks ? '1.0 - step(0.5, vMark)' : '1.0'});`);
         }
       };
