@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 import GUI from 'lil-gui';
 import { makeProjection } from './shared/geo.js';
-import { createMaterials, shared, variant, setVariant } from './world/materials.js';
+import { createMaterials, shared, variant, setVariant, ABSTRACT } from './world/materials.js';
 import { loadTextures } from './world/textures.js';
 import { Streamer } from './world/streamer.js';
 import { Props } from './world/props.js';
@@ -401,6 +401,7 @@ function tick() {
   env.follow(controls.target, camera);
   lampLight.update(scene, controls.target, camera.position, env.night);
   contact.update(scene, controls.target, camera.position, [birds]);
+  shared.uTreeGlow.value.setRGB(...ABSTRACT.night.tree).multiplyScalar(variant.abstract ? env.dark : 0);
   atmosphere.bloom.intensity = guiState.bloom ? env.bloom * 3 : 0;
   waterMirror.enabled = atmosphere.reflect && !variant.abstract; // (the abstract model's water mirrors nothing)
   waterMirror.update(scene, camera, streamer.tiles, controls.target, [traffic.group.parent ? null : traffic.group]);

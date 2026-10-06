@@ -23,6 +23,8 @@ export const shared = {
   uRoomLight: { value: 1 },
   // how soft the lit rooms are at night (0: even bright panels, as they were; 1: lamps, curtains, spill)
   uSoft: { value: 1 },
+  // the glow of the trees on the abstract model by night (set every frame: main.js)
+  uTreeGlow: { value: new THREE.Color(0, 0, 0) },
   // the season of the trees (props.js): 0 summer (green, as they are), 1 autumn, 2 spring
   uSeason: { value: 0 },
   // contact shadows (contact.js): how dark (0: none), the blurred mask of what stands on the ground, where it lies
@@ -69,7 +71,8 @@ export function setVariant(changes) {
 // By night the model is slate blue (purple where the shops are), brighter than the dark it stands in.
 export const ABSTRACT = {
   shop: [0.47, 0.42, 0.33], home: [0.4, 0.405, 0.47], land: [0.36, 0.36, 0.38], paving: [0.4, 0.4, 0.43], water: [0.2, 0.36, 0.6],
-  night: { shop: [0.06, 0.042, 0.125], home: [0.028, 0.055, 0.125], land: [0.01, 0.018, 0.045] },
+  // (by night, as a street map shows it: warm grey-brown blocks and slate blue ones, on dark blue-green ground)
+  night: { shop: [0.06, 0.05, 0.045], home: [0.034, 0.052, 0.08], land: [0.012, 0.022, 0.031], tree: [0.006, 0.06, 0.058] },
 };
 const v3 = (c) => `vec3(${c.join(', ')})`;
 
@@ -399,6 +402,7 @@ ${landmarks ? `  // a landmark keeps the photograph of its walls, at any distanc
   float sort = mod(vBldg.y, 8.0), shop = step(1.5, sort) * (1.0 - step(3.5, sort) * step(sort, 4.5));
   float roof = step(0.5, abs(gN.y));
   vec3 pale = mix(${v3(ABSTRACT.home)}, ${v3(ABSTRACT.shop)}, shop) * mix(1.0, 1.14, roof) * mix(0.93, 1.0, smoothstep(0.03, 0.22, lum));
+  pale *= mix(1.0, 0.22, uDark); // (by night the model is dark: it is seen by its own dim colour, below)
   gPlain = plain;
   diffuseColor.rgb = mix(diffuseColor.rgb, pale, plain);
   gRough = mix(gRough, 0.92, plain);
@@ -406,7 +410,7 @@ ${landmarks ? `  // a landmark keeps the photograph of its walls, at any distanc
   gNm = normalize(mix(gNm, vec3(0.0, 0.0, 1.0), plain));
   gPane *= 1.0 - plain;
   gGlint *= 1.0 - plain;
-  vec3 dusk = mix(${v3(ABSTRACT.night.home)}, ${v3(ABSTRACT.night.shop)}, shop) * mix(0.62 + 0.3 * dot(gN, normalize(vec3(0.5, 0.0, 0.85))), 1.3, roof);
+  vec3 dusk = mix(${v3(ABSTRACT.night.home)}, ${v3(ABSTRACT.night.shop)}, shop) * mix(0.6 + 0.34 * dot(gN, normalize(vec3(0.5, 0.0, 0.85))), 1.45, roof);
   gEmissive = mix(gEmissive, gEmissive * 0.55 * (1.0 - lattice) + dusk * uDark, plain); // (no floodlights on a plain tower)
 }
 `;
@@ -484,7 +488,7 @@ function facadeMaterial(tex) {
       shader.fragmentShader = part(part(part(shader.fragmentShader, PHOTO_PARS, PHOTO_PARS + ABSTRACT_PARS), PHOTO_MAIN, abstractMain(variant.landmarks)), '#include <lights_fragment_end>', neutralShade('0.92 * gPlain'));
     }
   };
-  m.customProgramCacheKey = () => 'facade-v33' + variantKey();
+  m.customProgramCacheKey = () => 'facade-v36' + variantKey();
   return m;
 }
 
@@ -628,6 +632,8 @@ const ABSTRACT_GROUND = /* glsl */ `
     diffuseColor.rgb = flatC;
     gNm = vec3(0.0, 0.0, 1.0);
     gRough = 0.95;
+    flatC *= mix(1.0, 0.3, uDark);
+    diffuseColor.rgb = flatC;
     gGlow = ${v3(ABSTRACT.night.land)} * (flatC / 0.36) * uDark;
   }
 `;
@@ -723,7 +729,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       shader.fragmentShader = part(shader.fragmentShader, '#include <lights_fragment_end>', neutralShade('0.92'));
     }
   };
-  m.customProgramCacheKey = () => 'ground-v14' + (variant.abstract ? 'a' : '') + (variant.contact ? 'c2' : '');
+  m.customProgramCacheKey = () => 'ground-v17' + (variant.abstract ? 'a' : '') + (variant.contact ? 'c2' : '');
   return m;
 }
 

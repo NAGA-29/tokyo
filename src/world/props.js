@@ -427,14 +427,16 @@ function seasonal(m) {
   const base = m.onBeforeCompile;
   m.onBeforeCompile = (shader, renderer) => {
     base.call(m, shader, renderer); // (the lamp light's uniforms: lamplight.js)
-    shader.uniforms.uSeason = shared.uSeason;
+    shader.uniforms.uSeason = shared.uSeason; shader.uniforms.uTreeGlow = shared.uTreeGlow;
     shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>' + SEASON_VERT_PARS).replace('#include <project_vertex>', SEASON_VERT + '#include <project_vertex>');
-    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\n' + SEASON_FRAG_PARS)
+    shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 uTreeGlow;\n' + SEASON_FRAG_PARS)
+      // (on the abstract model by night the crowns glow a little, blue-green: lighter on top)
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\nif (vColor.g > vColor.r) totalEmissiveRadiance += uTreeGlow * (0.35 + 0.9 * clamp(vColor.g / 0.1, 0.0, 1.0));')
       .replace('#include <color_fragment>', `#include <color_fragment>
         // (a crown is not of one colour: patches of it lean towards another tree's, and are lighter or darker)
         if (uSeason > 0.5 && vColor.g > vColor.r) diffuseColor.rgb = foliage(vTreeSeed, 0.22 + 0.85 * clamp(vColor.g / 0.1, 0.0, 1.0));`);
   };
-  m.customProgramCacheKey = () => 'blob-season-v5';
+  m.customProgramCacheKey = () => 'blob-season-v6';
   return m;
 }
 
