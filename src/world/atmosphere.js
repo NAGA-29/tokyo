@@ -176,6 +176,7 @@ export class Atmosphere {
     Object.assign(this.ao.configuration, { aoRadius: 7, distanceFalloff: 1, intensity: 2.6, halfRes: true, gammaCorrection: false });
     this.ao.configuration.color = new THREE.Color(0.02, 0.02, 0.03);
     this.composer.addPass(this.ao);
+    leanTransparency(this.ao);
     // (each scale in a pass of its own: within one pass, postprocessing runs the effects that read depth first)
     this.composer.addPass(new EffectPass(camera, new Scale(UNITS)));
     this.cloudPass = new EffectPass(camera, clouds, aerial);
@@ -306,4 +307,48 @@ export class Atmosphere {
     shared.uCloudFade.value = this.cityFade.value;
     this.composer.render(dt);
   }
+}
+
+// N8AO keeps its shading off what is drawn see-through (road markings laid on the asphalt, signs' glow, the sky):
+// for that it draws those things again, apart — and to pick them out it walks the whole scene five times per
+// frame and hides everything else, one thing at a time. The same two pictures are drawn here with one walk: the
+// see-through things are put on a layer of their own, and the camera looks at that layer alone.
+const SEE_THROUGH = 3, SEE_THROUGH_SOLID = 4; // (without and with depth written; layer 2 is the lamp light's)
+function leanTransparency(ao) {
+  const clear = new THREE.Color(0, 0, 0), old = new THREE.Color(), found = [0, 0];
+  let mask = 0;
+  const mark = (o) => {
+    if (!o.visible) return;
+    const m = o.material;
+    if (m) {
+      const seen = (o.layers.mask & mask) !== 0, off = o.userData.treatAsOpaque;
+      const a = seen && ((m.transparent && !m.depthWrite && !off) || !!o.userData.cannotReceiveAO), b = seen && !!m.transparent && m.depthWrite && !off;
+      if (a) { o.layers.enable(SEE_THROUGH); found[0]++; } else o.layers.disable(SEE_THROUGH);
+      if (b) { o.layers.enable(SEE_THROUGH_SOLID); found[1]++; } else o.layers.disable(SEE_THROUGH_SOLID);
+    } else if (o.isLight) { o.layers.enable(SEE_THROUGH); o.layers.enable(SEE_THROUGH_SOLID); } // (the light stays as it is)
+    for (const c of o.children) mark(c);
+  };
+  ao.renderTransparency = function (renderer) {
+    const scene = this.scene, camera = this.camera, background = scene.background, alpha = renderer.getClearAlpha(), depth = renderer.autoClearDepth;
+    renderer.getClearColor(old);
+    mask = camera.layers.mask & ~((1 << SEE_THROUGH) | (1 << SEE_THROUGH_SOLID));
+    found[0] = found[1] = 0;
+    mark(scene);
+    scene.background = null;
+    renderer.autoClearDepth = false;
+    renderer.setClearColor(clear, 0);
+    this.depthCopyPass.material.uniforms.depthTexture.value = this.depthTexture;
+    this.depthCopyPass.material.uniforms.reverseDepthBuffer.value = this.configuration.depthBufferType === 3; // (N8AO's DepthType.Reverse)
+    [[this.transparencyRenderTargetDWFalse, SEE_THROUGH], [this.transparencyRenderTargetDWTrue, SEE_THROUGH_SOLID]].forEach(([target, layer], i) => {
+      renderer.setRenderTarget(target);
+      renderer.clear(true, true, true);
+      this.depthCopyPass.render(renderer);
+      camera.layers.mask = 1 << layer;
+      if (found[i]) renderer.render(scene, camera);
+      camera.layers.mask = mask;
+    });
+    renderer.setClearColor(old, alpha);
+    scene.background = background;
+    renderer.autoClearDepth = depth;
+  };
 }

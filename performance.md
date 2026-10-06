@@ -29,7 +29,7 @@ twelve fixed views, frozen in time, taken before the work began (`tools/_fid.mjs
       every draw)
 - [x] 2. Matrices of things that never move are computed once, and the scene's matrices once per frame
       instead of once per render
-- [ ] 3. Ambient occlusion: no walks through the whole scene for the few transparent things
+- [x] 3. Ambient occlusion: no walks through the whole scene for the few transparent things
 - [ ] 4. Lamp light quads: one instanced mesh for the whole city, in a scene of its own (the light map no
       longer walks the city three times)
 - [ ] 5. Trees: one instanced mesh per tile for the far shapes instead of one per species
@@ -46,3 +46,7 @@ Frame time: the median of 100 frames, each waited for (`gl.finish`), best of fiv
 | baseline | 3.6 ms | 9.6 ms | 13.9 ms | 32.9 ms | |
 | 1. lamp quads in one pass | 3.6 ms | 4.9 ms | 13.9 ms | 20.1 ms | identical |
 | 2. matrices once per frame | 3.2 ms | 3.9 ms | 10.9 ms | 14.7 ms | identical |
+| 3. ambient occlusion without the scene walks | = | = | −1.5 ms | −1.5 ms | identical |
+
+From step 3 on the machine was busy with other work while measuring, so the times of different runs no longer
+compare: a step's gain is given as the difference between the old and the new code, switched within one run.
