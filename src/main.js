@@ -272,7 +272,7 @@ let guiState, clockText;
 
   // The panel's settings are kept (in this browser) and are the same for every city: what is switched off in
   // one is off in the next. A URL that sets something itself (?time=, ?cars=, ...) is taken as it stands.
-  const KEY = 'procedural-tokyo:settings:5'; // (a new number when the defaults change: what was kept before is left behind)
+  const KEY = 'procedural-tokyo:settings:6'; // (a new number when the defaults change: what was kept before is left behind)
   const explicit = [...params.keys()].some((k) => k !== 'area');
   const strip = (saved) => { delete saved.controllers?.city; return saved; }; // (the city is the page's, not a setting)
   if (!explicit) {
