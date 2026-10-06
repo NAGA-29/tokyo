@@ -9,10 +9,13 @@ import { shared } from './materials.js';
 export const LAMP_LAYER = 2; // the layer the lamp quads live on: the picture's camera does not see it
 const SIZE = 2048;
 const Y0 = 200, YSPAN = 1000; // heights are stored as (y + Y0) / YSPAN
-// The map is drawn twice, side by side: once keeping, where lights lie one above the other, the height of the
-// highest (the left half), once that of the lowest (the right half). So a street under a flyover keeps its
-// lamps and its cars' headlamps, though cars with theirs drive on the deck above — and the deck keeps its own.
-const lampLowest = { value: 0 }; // which of the two is being drawn
+// Lights lie one above the other where a flyover crosses a street, and each level must keep its own: the map
+// has two halves, side by side. First the heights are drawn: at every point the highest and the lowest light
+// there. Then the lights themselves, twice: into the left half only those at the highest height, into the right
+// half only those at the lowest — so a car's headlamps on the deck light the deck and not the street under it,
+// and the street keeps its own lamps.
+const lampPass = { value: 0 };       // 0: heights; 1: the highest lights; 2: the lowest
+const lampHeights = { value: null }; // the heights drawn in pass 0 (r: highest, g: 1 - lowest)
 
 // Material for a lamp quad: `map` is the footprint; the colour (times the vertex colour, if any) is the light.
 export function lampMaterial(map, params = {}) {
@@ -24,7 +27,7 @@ export function lampMaterial(map, params = {}) {
   // the deck above it, nor a car on the deck the street below. (Lights keep the greater value where they
   // overlap: for the lowest height, the height is written the other way up.)
   m.onBeforeCompile = (shader) => {
-    shader.uniforms.uLampLowest = lampLowest;
+    shader.uniforms.uLampPass = lampPass; shader.uniforms.uLampHeights = lampHeights;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying float vLampY;')
       .replace('#include <project_vertex>', `#include <project_vertex>
@@ -34,12 +37,19 @@ export function lampMaterial(map, params = {}) {
         #endif
         vLampY = (modelMatrix * lampWorld).y;`);
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vLampY;\nuniform float uLampLowest;')
+      .replace('#include <common>', '#include <common>\nvarying float vLampY;\nuniform float uLampPass;\nuniform sampler2D uLampHeights;')
       .replace('#include <opaque_fragment>', `#include <opaque_fragment>
-        float lampHeight = (vLampY + ${Y0}.0) / ${YSPAN}.0;
-        gl_FragColor.a = dot(gl_FragColor.rgb, vec3(1.0)) > 0.004 ? (uLampLowest > 0.5 ? 1.0 - lampHeight : lampHeight) : 0.0;`);
+        float lampHeight = (vLampY + ${Y0}.0) / ${YSPAN}.0, lampLit = step(0.004, dot(gl_FragColor.rgb, vec3(1.0)));
+        if (uLampPass < 0.5) gl_FragColor = vec4(lampHeight, 1.0 - lampHeight, 0.0, 0.0) * lampLit;
+        else {
+          // (only the lights of this half's level: within three metres of the highest, or of the lowest)
+          vec2 known = texture2D(uLampHeights, (gl_FragCoord.xy - vec2(uLampPass > 1.5 ? ${SIZE}.0 : 0.0, 0.0)) / ${SIZE}.0).rg;
+          float level = uLampPass > 1.5 ? 1.0 - known.g : known.r;
+          float mine = lampLit * step(abs(lampHeight - level), 3.0 / ${YSPAN}.0);
+          gl_FragColor = vec4(gl_FragColor.rgb * mine, lampHeight * mine);
+        }`);
   };
-  m.customProgramCacheKey = () => 'lamp-quad-v2';
+  m.customProgramCacheKey = () => 'lamp-quad-v3';
   return m;
 }
 
@@ -60,7 +70,7 @@ if (uLampOn > 0.5) {
   // only light lying at this height: from the map of the highest lights, or from that of the lowest
   vec4 lampHigh = texture2D(uLampMap, vec2(lampUv.x * 0.5, lampUv.y)), lampLow = texture2D(uLampMap, vec2(lampUv.x * 0.5 + 0.5, lampUv.y));
   float lampLevelHigh = 1.0 - smoothstep(2.5, 5.0, abs(lampAt.y - (lampHigh.a * ${YSPAN}.0 - ${Y0}.0)));
-  float lampLevelLow = 1.0 - smoothstep(2.5, 5.0, abs(lampAt.y - ((1.0 - lampLow.a) * ${YSPAN}.0 - ${Y0}.0)));
+  float lampLevelLow = 1.0 - smoothstep(2.5, 5.0, abs(lampAt.y - (lampLow.a * ${YSPAN}.0 - ${Y0}.0)));
   vec3 lampLight = max(lampHigh.rgb * lampLevelHigh, lampLow.rgb * lampLevelLow);
   reflectedLight.directDiffuse += lampLight * lampEdge.x * lampEdge.y * lampUp * material.diffuseColor;
 }
@@ -84,6 +94,10 @@ export class LampLight {
     this.camera.layers.set(LAMP_LAYER);
     this.half = 0;
     this.black = new THREE.Color(0, 0, 0);
+    this.heights = new THREE.WebGLRenderTarget(SIZE, SIZE, { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter });
+    this.none = new THREE.DataTexture(new Uint8Array(4), 1, 1);
+    this.none.needsUpdate = true;
+    lampHeights.value = this.none;
     shared.uLampMap.value = this.target.texture;
   }
 
@@ -104,14 +118,20 @@ export class LampLight {
     const clear = r.getClearColor(new THREE.Color()), alpha = r.getClearAlpha();
     r.shadowMap.autoUpdate = false; scene.background = null; // (only the lamp quads are of interest)
     r.setClearColor(this.black, 0);
+    lampPass.value = 0; // the heights
+    lampHeights.value = this.none; // (a target cannot be read while it is drawn into)
+    r.setRenderTarget(this.heights);
+    r.clear();
+    r.render(scene, cam);
+    lampHeights.value = this.heights.texture;
     this.target.viewport.set(0, 0, 2 * SIZE, SIZE);
     r.setRenderTarget(this.target);
     r.clear();
     const autoClear = r.autoClear;
     r.autoClear = false; // (a clear is not kept to the viewport: the second drawing would wipe the first)
-    for (const lowest of [0, 1]) { // the highest lights into the left half, the lowest into the right
-      lampLowest.value = lowest;
-      this.target.viewport.set(lowest * SIZE, 0, SIZE, SIZE);
+    for (const pass of [1, 2]) { // the highest lights into the left half, the lowest into the right
+      lampPass.value = pass;
+      this.target.viewport.set((pass - 1) * SIZE, 0, SIZE, SIZE);
       r.setRenderTarget(this.target); // (takes the viewport)
       r.render(scene, cam);
     }
