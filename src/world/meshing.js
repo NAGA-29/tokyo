@@ -232,6 +232,14 @@ const aerial = (c) => {
   return c.map((v, i) => v * k + (grey[i] - v * k) * AERIAL);
 };
 
+// A colour a mapper gave a building (OSM building:colour) is a word as often as a measurement: "red" comes as
+// pure signal red, which no wall is. It is read as the paint of that name: its colour kept, but no more
+// saturated and no brighter than paint on a wall in daylight.
+const paint = (c) => {
+  const top = Math.max(...c), low = Math.min(...c), sat = top ? (top - low) / top : 0, keep = sat > 0.55 ? 0.55 / sat : 1, to = Math.min(top, 0.72);
+  return c.map((v) => (top ? (top - (top - v) * keep) * (to / top) : v));
+};
+
 const ringArea = (r) => { let s = 0; for (let i = 0, n = r.length / 2; i < n; i++) { const j = (i + 1) % n; s += r[j * 2] * r[i * 2 + 1] - r[i * 2] * r[j * 2 + 1]; } return s / 2; };
 
 function insideRings(x, z, rings) {
@@ -311,7 +319,7 @@ export function buildingMesh(buildings, tx, tz, marks = []) {
     const glassTower = !!b.surfaces?.length && !b.surfaces.some((f) => f.uv) && Math.max(b.height, shellTop(b.surfaces) - b.base) > 90;
     const cat = material === MATERIAL.GLASS || glassTower ? CAT.GLASS : category(b.usage, b.height, seed);
     const pal = PALETTE[cat], pick = pal[Math.floor(rnd() * pal.length)], tone = 0.92 + 0.16 * rnd();
-    const wallCol = glassTower ? lin([0.3, 0.35, 0.41].map((c) => c * tone)) : painted ? lin([((b.hint >> 16) & 255) / 255, ((b.hint >> 8) & 255) / 255, (b.hint & 255) / 255]) : lin(aerial(pick.slice(0, 3)).map((c) => Math.min(1, c * tone)));
+    const wallCol = glassTower ? lin([0.3, 0.35, 0.41].map((c) => c * tone)) : painted ? lin(b.surfaces?.some((f) => f.uv) ? [((b.hint >> 16) & 255) / 255, ((b.hint >> 8) & 255) / 255, (b.hint & 255) / 255] : paint([((b.hint >> 16) & 255) / 255, ((b.hint >> 8) & 255) / 255, (b.hint & 255) / 255])) : lin(aerial(pick.slice(0, 3)).map((c) => Math.min(1, c * tone)));
     const wallLayer = HINT_LAYER[material] ?? pick[3];
     const top = b.base + b.height, bottom = b.base - SINK;
     const outer = b.polygons[0][0];
