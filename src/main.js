@@ -208,6 +208,7 @@ let guiState, clockText;
   gui.add(state, 'trains');
   gui.add(env, 'brightness', 0.5, 2, 0.05);
   gui.add(state, 'realistic').name('realistic lighting');
+  gui.add(env.sun.shadow, 'radius', 0, 12, 0.1).name('shadow softness');
   gui.add(env, 'skyLight').name('light from the real sky').listen();
   gui.add(shared.uGlintOn, 'value', 0, 5, 0.1).name('sun in the windows (strength)');
   gui.add(shared.uGlass, 'value', 0, 3, 0.05).name('window glass');
