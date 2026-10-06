@@ -126,6 +126,7 @@ const applyShade = () => { atmosphere.shade = Math.round((1 - cloudShadow) * (va
 const setAbstract = (on) => { setVariant({ abstract: on }); streamer.setAbstract(on); applyShade(); };
 env.lightFromSky(atmosphere.environmentSky(), () => atmosphere.ready);
 if (params.get('skylight') === '1') env.skyLight = true;
+atmosphere.antialias = params.get('aa') ?? 'smaa';
 const contact = new ContactShadows(renderer);
 if (Number(params.get('contact')) > 0) { shared.uContact.value = Number(params.get('contact')); setVariant({ contact: true }); }
 if (params.get('realistic') === '1') { env.realistic = true; atmosphere.haze = 1; atmosphere.grade = 1; }
@@ -222,6 +223,7 @@ let guiState, clockText;
   gui.add(state, 'trains');
   gui.add(env, 'brightness', 0.5, 2, 0.05);
   gui.add(state, 'realistic').name('realistic lighting');
+  gui.add(atmosphere, 'antialias', ['off', 'smaa', 'msaa', 'both']).name('smooth edges');
   gui.add(env.sun.shadow, 'radius', 0, 12, 0.1).name('shadow softness');
   gui.add(state, 'contact', 0, 1, 0.01).name('contact shadows');
   gui.add(contact, 'softness', 0.5, 20, 0.1).name('contact shadow blur (m)');

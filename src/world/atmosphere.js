@@ -6,7 +6,7 @@
 // local frame: worldToECEFMatrix places it on the globe, and the colour buffer is scaled into their units
 // before the effects and back after them.
 import * as THREE from 'three';
-import { EffectComposer, RenderPass, EffectPass, Effect, BloomEffect, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
+import { EffectComposer, RenderPass, EffectPass, Effect, BloomEffect, ToneMappingEffect, ToneMappingMode, SMAAEffect, SMAAPreset } from 'postprocessing';
 import { N8AOPostPass } from 'n8ao';
 import { WindowReflections } from './reflections.js';
 import { FogEffect } from './fog.js';
@@ -191,7 +191,14 @@ export class Atmosphere {
     this.composer.addPass(this.fogPass);
     this.bloom = new BloomEffect({ intensity: 0.5, luminanceThreshold: 0.9, luminanceSmoothing: 0.2, mipmapBlur: true });
     this.gradeEffect = new Grade();
-    this.composer.addPass(new EffectPass(camera, this.bloom, new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC }), this.gradeEffect));
+    this.finalPass = new EffectPass(camera, this.bloom, new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC }), this.gradeEffect);
+    this.composer.addPass(this.finalPass);
+    // smooth edges (see `antialias`): a pass over the finished picture that finds the stair-steps and blends
+    // them (SMAA), and/or several samples per pixel when the scene is drawn (MSAA)
+    this.smaaPass = new EffectPass(camera, new SMAAEffect({ preset: SMAAPreset.HIGH }));
+    this.composer.addPass(this.smaaPass);
+    this.composer.autoRenderToScreen = false; // (which pass is the last one is said below)
+    this.antialias = 'off';
     this.hazeAmount = 0;
     this.connect();
     this.sun = new THREE.Vector3(); this.moon = new THREE.Vector3();
@@ -232,6 +239,15 @@ export class Atmosphere {
     this.fogPass.enabled = f > 0 || h > 0;
     u.get('uDensity').value = (f > 0 ? 0.0001 + 0.0059 * f * f : 0) + 0.00009 * h;
     u.get('uHeight').value = f > 0 ? 120 + 260 * f : 420;
+  }
+  // Smooth edges: 'off', 'smaa', 'msaa' (four samples a pixel: heavier), or 'both'.
+  get antialias() { return this.aa; }
+  set antialias(mode) {
+    this.aa = mode;
+    const smaa = mode === 'smaa' || mode === 'both', samples = mode === 'msaa' || mode === 'both' ? 4 : 0;
+    this.smaaPass.enabled = this.smaaPass.renderToScreen = smaa;
+    this.finalPass.renderToScreen = !smaa;
+    if (this.composer.multisampling !== samples) this.composer.multisampling = samples;
   }
   // How strongly the finished picture is graded (0: not at all).
   get grade() { return this.gradeEffect.uniforms.get('amount').value; }
