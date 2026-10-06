@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { tileKey, makeProjection } from '../shared/geo.js';
 import { LANDMARKS } from './landmarks.js';
+import { asGround } from './contact.js';
 import { sampleGrid } from '../shared/terrain.js';
 import { makeSurface, makeCover } from '../shared/decks.js';
 import { SIGN_LOD_DISTANCE } from './signs.js';
@@ -138,12 +139,12 @@ export class Streamer {
 
     const ground = new THREE.Mesh(geometry(terrain, [['position', 3], ['normal', 3]]), this.materials.terrain);
     ground.receiveShadow = true;
-    group.add(ground);
+    group.add(asGround(ground));
 
     if (roads.position.length) {
       const m = new THREE.Mesh(geometry(roads, [['position', 3], ['normal', 3], ['color', 3], ['aLayer', 1]]), this.materials.road);
       m.receiveShadow = true;
-      group.add(m);
+      group.add(asGround(m));
       // the tile's water (for the mirror): the sphere around it, and its level
       const box = new THREE.Box3(), v = new THREE.Vector3();
       let sum = 0, n = 0;
@@ -153,13 +154,13 @@ export class Streamer {
     if (paint.position.length) {
       const m = new THREE.Mesh(geometry(paint, [['position', 3], ['normal', 3], ['color', 3], ['aLayer', 1]]), this.materials.paint);
       m.receiveShadow = true;
-      group.add(m);
+      group.add(asGround(m));
     }
     if (decals.position.length) {
       const m = new THREE.Mesh(geometry(decals, [['position', 3], ['normal', 3], ['uv', 2]]), this.props.mats.decal);
       m.receiveShadow = true;
       m.renderOrder = 2;
-      group.add(m);
+      group.add(asGround(m));
     }
     let trees = null;
     if (props.length || wires.length) {

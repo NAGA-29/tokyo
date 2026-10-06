@@ -20,6 +20,7 @@ import { Atmosphere } from './world/atmosphere.js';
 import { createBirds, MAX_BIRDS } from './world/birds.js';
 import { loadBackdrop } from './world/backdrop.js';
 import { WaterMirror } from './world/mirror.js';
+import { ContactShadows, asGround } from './world/contact.js';
 import { LampLight, installLampLight } from './world/lamplight.js';
 
 installLampLight(); // (before any material is compiled)
@@ -95,11 +96,11 @@ const proj = makeProjection(manifest.origin.lon, manifest.origin.lat);
   plain.position.set((b.minX + b.maxX) / 2, manifest.terrain.min - 1, (b.minZ + b.maxZ) / 2); // just under the lowest ground
   plain.receiveShadow = true;
   plain.name = 'plain';
-  scene.add(plain);
+  scene.add(asGround(plain));
   // an area with the land around it (mountains on the horizon): the plain becomes the sea, at sea level
   if (manifest.backdrop) {
     plain.position.y = -0.5; plain.material.color.set(0x2c4a5e); plain.material.roughness = 0.35;
-    loadBackdrop(`tiles/${AREA}`, `ortho/${AREA}/backdrop`, manifest, proj, renderer).then((mesh) => scene.add(mesh));
+    loadBackdrop(`tiles/${AREA}`, `ortho/${AREA}/backdrop`, manifest, proj, renderer).then((mesh) => scene.add(asGround(mesh)));
   }
 }
 const birds = createBirds();
@@ -121,6 +122,8 @@ const applyShade = () => { atmosphere.shade = Math.round((1 - cloudShadow) * (va
 const setAbstract = (on) => { setVariant({ abstract: on }); streamer.setAbstract(on); applyShade(); };
 env.lightFromSky(atmosphere.environmentSky(), () => atmosphere.ready);
 if (params.get('skylight') === '1') env.skyLight = true;
+const contact = new ContactShadows(renderer);
+if (Number(params.get('contact')) > 0) { shared.uContact.value = Number(params.get('contact')); setVariant({ contact: true }); }
 if (params.get('realistic') === '1') { env.realistic = true; atmosphere.haze = 1; atmosphere.grade = 1; }
 if (Number(params.get('fog')) > 0) atmosphere.fog = Number(params.get('fog'));
 shared.uGlintOn.value = params.get('glint') != null ? Number(params.get('glint')) : 2; // (1: as it was designed; brighter by default)
@@ -173,6 +176,8 @@ let guiState, clockText;
     windowPace: 6, // how fast the lit rooms come and go (1: a room may change every 1.5 to 5.5 minutes)
     // realistic lighting: the shade lit by the sky, the distance in the colour of the hour, the picture graded
     get realistic() { return env.realistic; }, set realistic(v) { env.realistic = v; atmosphere.haze = v ? 1 : 0; atmosphere.grade = v ? 1 : 0; },
+    // contact shadows: the soft dark on the ground round the foot of things (0: none, and nothing is drawn for it)
+    get contact() { return shared.uContact.value; }, set contact(v) { shared.uContact.value = v; if ((v > 0) !== variant.contact) setVariant({ contact: v > 0 }); },
     get windows() { return variant.windows; }, set windows(v) { if (v !== variant.windows) setVariant({ windows: v }); },
     // the whole city at once, or only what lies within the view radius of the point looked at (fewer tiles: more frames)
     wholeCity: false, near: Number(params.get('radius')) || 900,
@@ -209,6 +214,8 @@ let guiState, clockText;
   gui.add(env, 'brightness', 0.5, 2, 0.05);
   gui.add(state, 'realistic').name('realistic lighting');
   gui.add(env.sun.shadow, 'radius', 0, 12, 0.1).name('shadow softness');
+  gui.add(state, 'contact', 0, 1, 0.01).name('contact shadows');
+  gui.add(contact, 'softness', 0.5, 20, 0.1).name('contact shadow blur (m)');
   gui.add(env, 'skyLight').name('light from the real sky').listen();
   gui.add(shared.uGlintOn, 'value', 0, 5, 0.1).name('sun in the windows (strength)');
   gui.add(shared.uGlass, 'value', 0, 3, 0.05).name('window glass');
@@ -375,6 +382,7 @@ function tick() {
   env.update(dt);
   env.follow(controls.target, camera);
   lampLight.update(scene, controls.target, camera.position, env.night);
+  contact.update(scene, controls.target, camera.position, [birds]);
   atmosphere.bloom.intensity = guiState.bloom ? env.bloom * 3 : 0;
   waterMirror.enabled = atmosphere.reflect && !variant.abstract; // (the abstract model's water mirrors nothing)
   waterMirror.update(scene, camera, streamer.tiles, controls.target, [traffic.group.parent ? null : traffic.group]);

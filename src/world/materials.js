@@ -21,6 +21,8 @@ export const shared = {
   uCityGlass: { value: 0 }, // (off: the glass is flat and mirrors what is really there; the drawn lights are dots)
   // how bright the lit rooms are at night (1: as designed)
   uRoomLight: { value: 1 },
+  // contact shadows (contact.js): how dark (0: none), the blurred mask of what stands on the ground, where it lies
+  uContact: { value: 0 }, uContactMap: { value: null }, uContactRect: { value: new THREE.Vector4(0, 0, 1, 0) },
   // how much the windows look like glass (0: as plain mirrors, the way they were): see the facade shader
   uGlass: { value: 1 },
   // how blue the lights of the city are at night (0: mostly warm, 1: a cool blue city)
@@ -44,7 +46,7 @@ export const shared = {
 // their look on it, and whether the buildings have windows. These are not values the shaders read but variants
 // the shaders are compiled in: with all three as they are here, every shader is exactly what it is without
 // this section, to the letter.
-export const variant = { abstract: false, landmarks: false, windows: true };
+export const variant = { abstract: false, landmarks: false, windows: true, contact: false };
 const varying = new Set(); // the materials whose shaders depend on `variant`
 export const variantKey = () => (variant.abstract ? 'a' : '') + (variant.abstract && variant.landmarks ? 'l' : '') + (variant.windows ? '' : 'w');
 // Registers a material whose onBeforeCompile reads `variant`.
@@ -599,7 +601,20 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
         }
         #include <opaque_fragment>
         gl_FragColor.a = 1.0 - gWater * (1.0 - uMirrorOn);`);
-    // ---- variant (see `variant`): nothing below is done as things are by default
+    // ---- variants (see `variant`): nothing below is done as things are by default
+    if (variant.contact) {
+      // contact shadows (contact.js): the ground is darker round the foot of what stands on it
+      Object.assign(shader.uniforms, { uContact: shared.uContact, uContactMap: shared.uContactMap, uContactRect: shared.uContactRect });
+      shader.fragmentShader = shader.fragmentShader
+        .replace('uniform float uDark;', 'uniform float uDark;\nuniform float uContact;\nuniform sampler2D uContactMap;\nuniform vec4 uContactRect;')
+        .replace('roughnessFactor = gRough;', `roughnessFactor = gRough;
+  {
+    vec2 cuv = vec2(vWPos.x - uContactRect.x, uContactRect.y - vWPos.z) / (2.0 * uContactRect.z) + 0.5;
+    vec2 cedge = smoothstep(vec2(0.0), vec2(0.05), cuv) * (1.0 - smoothstep(vec2(0.95), vec2(1.0), cuv));
+    float contact = smoothstep(0.0, 0.75, texture2D(uContactMap, cuv).r) * cedge.x * cedge.y * (1.0 - gWater);
+    diffuseColor.rgb *= 1.0 - uContact * contact;
+  }`);
+    }
     if (variant.abstract) {
       const part = (text, a, b) => { if (!text.includes(a)) console.warn('ground: the shader has changed; the abstract model is not applied'); return text.replace(a, b); };
       shader.fragmentShader = part(part(part(part(shader.fragmentShader,
@@ -609,7 +624,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
         '#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += gGlow;');
     }
   };
-  m.customProgramCacheKey = () => 'ground-v13' + (variant.abstract ? 'a' : '');
+  m.customProgramCacheKey = () => 'ground-v13' + (variant.abstract ? 'a' : '') + (variant.contact ? 'c' : '');
   return m;
 }
 
