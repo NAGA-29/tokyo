@@ -331,11 +331,13 @@ uniform float uPhotoOn;
 uniform vec2 uPhotoRange;
 uniform float uPhotoMix;
 varying vec2 vPhoto;
+varying float vMark; // 1 on a landmark (landmarks.js)
 `;
 const PHOTO_MAIN = /* glsl */ `
 {
   vec3 photo = texture2D(uPhoto, vPhoto).rgb; // (sampled outside the branch: derivatives)
-  float k = uPhotoOn * uPhotoMix * step(0.0, vPhoto.x) * smoothstep(uPhotoRange.x, uPhotoRange.y, distance(cameraPosition, vWPos));
+  // (a landmark is known by its own look: it keeps its photograph from close by as well)
+  float k = uPhotoOn * uPhotoMix * step(0.0, vPhoto.x) * max(smoothstep(uPhotoRange.x, uPhotoRange.y, distance(cameraPosition, vWPos)), step(0.5, vMark));
   diffuseColor.rgb = mix(diffuseColor.rgb, photo * 1.12, k);
   gRough = mix(gRough, 0.85, k);
   gMetal *= 1.0 - k;
@@ -350,7 +352,6 @@ const PHOTO_MAIN = /* glsl */ `
 // look where they are asked to.
 const ABSTRACT_PARS = /* glsl */ `
 uniform float uDark;
-varying float vMark;
 `;
 const abstractMain = (landmarks) => /* glsl */ `
 {
@@ -388,8 +389,8 @@ function facadeMaterial(tex) {
       uWallScale: { value: tex.wall.scales }, uWallDetail: { value: tex.wall.details },
     });
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', `#include <common>\nattribute vec4 aFacade;\nattribute vec4 aBldg;\nattribute vec2 aPhoto;\nvarying vec4 vFacade;\nvarying vec4 vBldg;\nvarying vec2 vPhoto;\n${WORLD_VARYINGS_VERT}`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>\nvFacade = aFacade;\nvBldg = aBldg;\nvPhoto = aPhoto;\n${WORLD_VARYINGS_SET}`);
+      .replace('#include <common>', `#include <common>\nattribute vec4 aFacade;\nattribute vec4 aBldg;\nattribute vec2 aPhoto;\nattribute float aMark;\nvarying float vMark;\nvarying vec4 vFacade;\nvarying vec4 vBldg;\nvarying vec2 vPhoto;\n${WORLD_VARYINGS_VERT}`)
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\nvFacade = aFacade;\nvBldg = aBldg;\nvPhoto = aPhoto;\nvMark = aMark;\n${WORLD_VARYINGS_SET}`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\n' + FACADE_PARS + PHOTO_PARS)
       .replace('#include <color_fragment>', '#include <color_fragment>\n' + FACADE_MAIN + PHOTO_MAIN)
@@ -405,11 +406,10 @@ function facadeMaterial(tex) {
     if (!variant.windows) shader.fragmentShader = part(shader.fragmentShader, 'cellW = vBldg.w;', 'cellW = 0.0;'); // (no bay width: no windows)
     if (variant.abstract) {
       shader.uniforms.uDark = shared.uDark;
-      shader.vertexShader = part(part(shader.vertexShader, 'attribute vec2 aPhoto;', 'attribute vec2 aPhoto;\nattribute float aMark;\nvarying float vMark;'), 'vPhoto = aPhoto;', 'vPhoto = aPhoto;\nvMark = aMark;');
       shader.fragmentShader = part(part(shader.fragmentShader, PHOTO_PARS, PHOTO_PARS + ABSTRACT_PARS), PHOTO_MAIN, abstractMain(variant.landmarks));
     }
   };
-  m.customProgramCacheKey = () => 'facade-v26' + variantKey();
+  m.customProgramCacheKey = () => 'facade-v27' + variantKey();
   return m;
 }
 
