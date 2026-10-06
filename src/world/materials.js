@@ -118,8 +118,7 @@ varying vec3 vWPos;
 varying vec3 vWNrm;
 float gRough, gMetal;
 vec3 gGlint = vec3(0.0); // the sun mirrored in a pane (added to the specular light where the sun reaches it)
-float gPane = 0.0;
-float gWindow = 0.0; // 1 on the glass of a window // how much of a mirror this fragment is: window glass (written to alpha for the reflection pass)
+float gPane = 0.0; // how much of a mirror this fragment is: window glass (written to alpha for the reflection pass)
 vec3 gEmissive, gT, gB, gN, gNm;
 ${NOISE}
 `;
@@ -260,29 +259,6 @@ const FACADE_MAIN = /* glsl */ `
     gRough = mix(gRough, 0.45, inWin * frame);
     gRough = mix(gRough, 0.05, pane);
     gMetal = mix(gMetal, 0.92, pane);
-    gWindow = pane;
-    // Glass seen from above mirrors what lies below it. Where that is on screen the reflection pass finds it
-    // and shows it; where it is not, the environment map has only a flat ground colour to offer, and the glass
-    // turned a dull cream. There the glass is shown as it looks from above in a city: dark and deep.
-    {
-      vec3 mirrored = reflect(normalize(vWPos - cameraPosition), gN);
-      float down = pane * (1.0 - smoothstep(-0.32, 0.04, mirrored.y)) * min(uGlass, 1.0);
-      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.055, 0.075, 0.105), down);
-      gMetal = mix(gMetal, 0.12, down);
-    }
-    gWindow = pane;
-    // Glass seen from above mirrors what lies below it. Where the real thing is on screen the reflection pass
-    // finds it; where it is not, the environment map has only a flat ground colour to offer, and the glass
-    // turned a dull cream. There the pane shows what such a reflection is: the dark of the city, in blocks of
-    // slightly different shades that slide across the glass as the view moves — and the glass is dark and deep.
-    {
-      vec3 mirrored = reflect(normalize(vWPos - cameraPosition), gN);
-      float down = pane * (1.0 - smoothstep(-0.32, 0.04, mirrored.y)) * min(uGlass, 1.0);
-      vec2 block = floor(mirrored.xz / max(-mirrored.y, 0.18) * 2.6 + seed * 37.0);
-      vec3 below = mix(vec3(0.03, 0.045, 0.07), vec3(0.12, 0.15, 0.2), hash12(block)) * mix(0.8, 1.2, hash12(room + 3.3));
-      diffuseColor.rgb = mix(diffuseColor.rgb, below, down);
-      gMetal = mix(gMetal, 0.12, down);
-    }
     // (the panes are flat but for a trace: the glass mirrors the world as it is)
     float tilt = 0.008;
     gNm = mix(gNm, normalize(vec3((hash12(room + 5.1) - 0.5) * tilt, (hash12(room + 9.4) - 0.5) * tilt, 1.0)), inWin);
@@ -366,9 +342,6 @@ const PHOTO_MAIN = /* glsl */ `
   vec3 photo = texture2D(uPhoto, vPhoto).rgb; // (sampled outside the branch: derivatives)
   // (a landmark is known by its own look: it keeps its photograph from close by as well)
   float k = uPhotoOn * uPhotoMix * step(0.0, vPhoto.x) * max(smoothstep(uPhotoRange.x, uPhotoRange.y, distance(cameraPosition, vWPos)), step(0.5, vMark));
-  // (the photograph is of the wall; in it the glass is a dull smear. The windows stay glass: mostly their own
-  // dark, shining selves, with a little of the photograph in them)
-  k *= 1.0 - 0.72 * gWindow * min(uGlass, 1.0);
   diffuseColor.rgb = mix(diffuseColor.rgb, photo * 1.12, k);
   gRough = mix(gRough, 0.85, k);
   gMetal *= 1.0 - k;
@@ -491,7 +464,7 @@ function facadeMaterial(tex) {
       shader.fragmentShader = part(part(part(shader.fragmentShader, PHOTO_PARS, PHOTO_PARS + ABSTRACT_PARS), PHOTO_MAIN, abstractMain(variant.landmarks)), '#include <lights_fragment_end>', neutralShade('0.92 * gPlain'));
     }
   };
-  m.customProgramCacheKey = () => 'facade-v30' + variantKey();
+  m.customProgramCacheKey = () => 'facade-v27' + variantKey();
   return m;
 }
 
