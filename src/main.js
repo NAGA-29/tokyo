@@ -425,4 +425,4 @@ function frame() { tick(); requestAnimationFrame(frame); }
 requestAnimationFrame(frame);
 
 // (for the console and for tools: tick() draws a frame by hand, clockTime sets the hour)
-window.__app = { scene, camera, controls, streamer, env, renderer, materials, ao, atmosphere, traffic, shared, tick, clockTime };
+window.__app = { scene, camera, controls, streamer, env, renderer, materials, ao, atmosphere, traffic, shared, tick, clockTime, waterMirror, lampLight, contact, props, birds, railways, variant, setVariant };

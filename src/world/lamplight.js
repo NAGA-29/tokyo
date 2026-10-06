@@ -21,6 +21,7 @@ const lampHeights = { value: null }; // the heights drawn in pass 0 (r: highest,
 export function lampMaterial(map, params = {}) {
   const m = new THREE.MeshBasicMaterial({
     map, side: THREE.DoubleSide, depthTest: false, depthWrite: false, transparent: true,
+    forceSinglePass: true, // (both faces in one draw: three would draw a transparent two-sided thing twice, and look its shader up anew each time)
     blending: THREE.CustomBlending, blendEquation: THREE.MaxEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor, ...params,
   });
   // The height the light lies at goes into the alpha channel, so that a lamp under a flyover does not light
