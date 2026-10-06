@@ -64,6 +64,7 @@ export class Environment {
 
   // Renders the environment map for the sky as dark as it now is (again whenever that has changed a little).
   bakeEnvironment() {
+    this.bakedAt = performance.now();
     this.baked = this.dark;
     this.envSky.material.uniforms.uNight.value = this.baked;
     const physical = this.skyLit && this.physical && this.physical.ready();
@@ -119,7 +120,11 @@ export class Environment {
     shared.uSunGlint.value.copy(DAY.sunColor).lerp(SUNSET, this.warmth).multiplyScalar(this.daylight * 3);
     this.apply();
     this.sunWas = sun;
-    if (Math.abs(this.dark - this.baked) > 0.04 || (this.dark !== this.baked && (this.dark === 0 || this.dark === 1))) this.bakeEnvironment();
+    // (the map is baked again as the light changes — not more often than a few times a second, however fast the
+    // day is played through)
+    const now = performance.now(), due = now - (this.bakedAt ?? 0) > 200;
+    if (!due) { /* soon */ }
+    else if (Math.abs(this.dark - this.baked) > 0.04 || (this.dark !== this.baked && (this.dark === 0 || this.dark === 1))) this.bakeEnvironment();
     // lit from the physical sky, the map follows the sun (and waits for the atmosphere's tables to be ready)
     else if (this.skyLit && this.physical && this.physical.ready() && (this.envScale === 1 || sun.angleTo(this.bakedSun) > 0.006)) this.bakeEnvironment();
   }

@@ -67,6 +67,10 @@ const env = new Environment(scene, renderer);
 const clockTime = {
   live: params.get('time') == null && params.get('night') !== '1',
   hour: params.get('time') != null ? Number(params.get('time')) : params.get('night') === '1' ? 22 : 12,
+  // the day played through: `speed` minutes of Tokyo's clock go by in every second (1: a day in 24 minutes,
+  // 100: in about a quarter of a minute)
+  play: params.get('play') != null, speed: Number(params.get('play')) || 10,
+  advance(dt) { if (this.play) { this.live = false; this.hour = (this.hour + dt * this.speed / 60) % 24; } },
   // the moment on today's Tokyo date at which its clock shows `hour`
   date() {
     const JST = 9 * 3600e3, now = Date.now();
@@ -197,7 +201,9 @@ let guiState, clockText;
     setTimeout(() => { location.href = url.href; }, 60); // (let the screen appear first)
   });
   const time = gui.addFolder('Time (Tokyo)');
-  time.add(clockTime, 'live').name('live clock').listen();
+  time.add(clockTime, 'live').name('live clock').listen().onChange((v) => { if (v) clockTime.play = false; });
+  time.add(clockTime, 'play').name('auto play').listen();
+  time.add(clockTime, 'speed', 1, 100, 1).name('speed (min / s)');
   // one slider over the day, with the clock time written beside it in place of the number box
   const slider = time.add(clockTime, 'hour', 0, 24, 1 / 60).name('time').listen().onChange(() => { clockTime.live = false; });
   slider.$input.style.display = 'none';
@@ -352,6 +358,7 @@ let loading = true;
 // one frame: everything that moves, then the picture
 function tick() {
   const dt = Math.min(clock.getDelta(), 0.1);
+  clockTime.advance(dt);
   renderer.info.reset();
   keyboardPan(dt);
   wheelZoom(dt);
