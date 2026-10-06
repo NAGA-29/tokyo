@@ -555,6 +555,23 @@ const GROUND_MAIN = /* glsl */ `
   gNm = texture(uGroundNor, vec3(st / sc, layer)).xyz * 2.0 - 1.0;
   gNm = normalize(vec3(gNm.xy * 0.8, gNm.z));
   gRough = layer < 0.5 ? 0.86 - 0.12 * blotch : 0.93;
+  // Pavements: the pale concrete pavers of a Japanese footway — oblongs of 60 by 30 cm laid in running bond,
+  // each a shade of its own, with dark joints between them (fading out where they are smaller than a pixel).
+  if (layer > 0.5 && layer < 1.5 && !water) {
+    vec2 q = st / vec2(0.6, 0.3);
+    q.x += 0.5 * mod(floor(q.y), 2.0);
+    vec2 slab = floor(q), f = fract(q), w = fwidth(st) / vec2(0.6, 0.3);
+    float fine = 1.0 - smoothstep(0.3, 0.9, max(w.x, w.y));
+    vec2 edge = min(f, 1.0 - f) * vec2(0.6, 0.3);                       // metres to the nearest joint
+    float joint = 1.0 - smoothstep(0.004, 0.011 + 0.6 * fwidth(st.x), min(edge.x, edge.y));
+    float grey = dot(tint, vec3(0.3, 0.59, 0.11));
+    vec3 paver = mix(tint, vec3(grey) * vec3(0.99, 1.0, 1.02), 0.65) * 1.12;
+    paver *= (0.92 + 0.16 * hash12(slab)) * (0.96 + 0.08 * vnoise(st * 14.0));
+    paver = mix(paver, paver * 0.55, joint);
+    diffuseColor.rgb = mix(diffuseColor.rgb, paver, fine);
+    gNm = normalize(mix(gNm, vec3(0.0, 0.0, 1.0), 0.75 * fine));
+    gRough = mix(gRough, 0.88, fine);
+  }
   // the open ground (not roads, which have their own surface) shows the aerial photo: car parks, yards, gardens
   if (uFixedLayer >= 0.0 && uOrthoOn > 0.5) {
     vec2 ouv = (vWPos.xz - uOrthoRect.xy) / uOrthoRect.zw;
@@ -679,7 +696,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       shader.fragmentShader = part(shader.fragmentShader, '#include <lights_fragment_end>', neutralShade('0.92'));
     }
   };
-  m.customProgramCacheKey = () => 'ground-v13' + (variant.abstract ? 'a' : '') + (variant.contact ? 'c' : '');
+  m.customProgramCacheKey = () => 'ground-v14' + (variant.abstract ? 'a' : '') + (variant.contact ? 'c' : '');
   return m;
 }
 
