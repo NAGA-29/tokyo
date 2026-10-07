@@ -239,7 +239,16 @@ let guiState, clockText;
   gui.add(shared.uGlass, 'value', 0, 3, 0.05).name('window glass');
   gui.add(atmosphere, 'fog', 0, 1, 0.01);
   gui.add(env, 'golden', 0, 1.5, 0.05).name('golden hour').onChange(() => env.apply());
-  gui.add(state, 'abstract').name('abstract model');
+  const abstractSwitch = gui.add(state, 'abstract').name('abstract model');
+  // the same switch as a button in the corner, showing the city it changes to
+  const modeButton = document.getElementById('mode');
+  const showMode = () => {
+    modeButton.style.backgroundImage = `url(assets/ui/mode-${variant.abstract ? 'photo' : 'abstract'}.jpg)`;
+    modeButton.title = variant.abstract ? 'Photorealistic city' : 'Abstract model';
+  };
+  modeButton.addEventListener('click', () => abstractSwitch.setValue(!variant.abstract));
+  abstractSwitch.onChange(showMode);
+  showMode();
   gui.add(state, 'landmarks').name('landmarks in detail (abstract)');
   gui.add(state, 'windows');
   gui.add(state, 'relief').name('recessed windows');
