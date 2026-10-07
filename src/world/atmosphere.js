@@ -214,6 +214,13 @@ export class Atmosphere {
     this.ao.configuration.color = new THREE.Color(0.02, 0.02, 0.03);
     this.composer.addPass(this.ao);
     leanTransparency(this.ao);
+    // fog over the city (fog.js): no pass at all until there is some. Before the clouds: the fog
+    // lies on the city and the land, and a cloud that stands nearer than the far land is drawn over it
+    this.fogEffect = new FogEffect(camera);
+    this.fogPass = new EffectPass(camera, this.fogEffect);
+    this.fogPass.enabled = false;
+    this.fogAmount = 0;
+    this.composer.addPass(this.fogPass);
     // (each scale in a pass of its own: within one pass, postprocessing runs the effects that read depth first)
     this.composer.addPass(new EffectPass(camera, new Scale(UNITS)));
     this.cloudPass = new EffectPass(camera, clouds, aerial);
@@ -221,12 +228,6 @@ export class Atmosphere {
     this.skyPass = new EffectPass(camera, plain);
     this.composer.addPass(this.skyPass);
     this.composer.addPass(new EffectPass(camera, new Scale(1 / UNITS)));
-    // fog over the city (fog.js): no pass at all until there is some
-    this.fogEffect = new FogEffect(camera);
-    this.fogPass = new EffectPass(camera, this.fogEffect);
-    this.fogPass.enabled = false;
-    this.fogAmount = 0;
-    this.composer.addPass(this.fogPass);
     this.bloom = new BloomEffect({ intensity: 0.5, luminanceThreshold: 0.9, luminanceSmoothing: 0.2, mipmapBlur: true });
     this.gradeEffect = new Grade();
     // the end of the picture as the atmosphere library's own examples have it: the flare of the lens round what is
