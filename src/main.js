@@ -59,7 +59,7 @@ scene.matrixWorldAutoUpdate = false;
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 1, 60000);
 const controls = new MapControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.dampingFactor = 0.06; // (less: the view glides on longer after a drag)
+controls.dampingFactor = 0.3; // (the view keeps close to the hand; how it glides on after a drag is worked out below: glide)
 controls.maxPolarAngle = THREE.MathUtils.degToRad(88);
 controls.minDistance = 8;
 controls.maxDistance = 3500;
@@ -360,6 +360,56 @@ function wheelZoom(dt) {
   controls.target.sub(zoom.pivot).multiplyScalar(scale).add(zoom.pivot);
 }
 
+// Gliding on after a drag: as fast as the view was moving when it was let go. A quick flick sends it far, a slow
+// drag leaves it where it was put (and so does a drag that stopped before the button was released).
+const glide = {
+  dragging: false, pan: new THREE.Vector3(), turn: new THREE.Vector2(),   // speeds: metres and radians per second
+  focus: new THREE.Vector3(), angles: new THREE.Spherical(), known: false, // where the view was a frame ago
+  go: new THREE.Vector3(), spin: new THREE.Vector2(), slow: 4,           // the glide itself, and how fast it dies away
+};
+const glideStop = () => { glide.go.set(0, 0, 0); glide.spin.set(0, 0); };
+renderer.domElement.addEventListener('pointerdown', () => { glide.dragging = true; glide.pan.set(0, 0, 0); glide.turn.set(0, 0); glideStop(); });
+renderer.domElement.addEventListener('wheel', glideStop, { passive: true });
+const glideRelease = () => {
+  if (!glide.dragging) return;
+  glide.dragging = false;
+  // how fast it went, by the measure of the view: its own width per second for a pan, radians per second for a turn
+  const dist = camera.position.distanceTo(controls.target);
+  const flick = Math.max(THREE.MathUtils.smoothstep(glide.pan.length() / dist, 0.2, 1.2), THREE.MathUtils.smoothstep(glide.turn.length(), 0.4, 2));
+  glide.go.copy(glide.pan).multiplyScalar(flick);
+  glide.spin.copy(glide.turn).multiplyScalar(flick);
+  glide.slow = THREE.MathUtils.lerp(6, 2.4, flick); // (the quicker the flick, the longer it runs)
+};
+addEventListener('pointerup', glideRelease);
+addEventListener('pointercancel', glideRelease);
+const _angles = new THREE.Spherical(), _arm = new THREE.Vector3();
+function glideStep(dt) {
+  if (dt <= 0) return;
+  _angles.setFromVector3(_arm.subVectors(camera.position, controls.target));
+  if (glide.dragging && glide.known) {
+    // the speed of the drag, over the last few hundredths of a second (so that a pause before letting go counts)
+    const k = 1 - Math.exp(-dt / 0.05);
+    glide.pan.lerp(_arm.subVectors(controls.target, glide.focus).setY(0).divideScalar(dt), k);
+    let turned = _angles.theta - glide.angles.theta;
+    turned -= Math.round(turned / (2 * Math.PI)) * 2 * Math.PI;
+    glide.turn.x += (turned / dt - glide.turn.x) * k;
+    glide.turn.y += ((_angles.phi - glide.angles.phi) / dt - glide.turn.y) * k;
+  } else if (!glide.dragging && (glide.go.lengthSq() > 1e-6 || glide.spin.lengthSq() > 1e-8)) {
+    controls.target.addScaledVector(glide.go, dt);
+    camera.position.addScaledVector(glide.go, dt);
+    if (glide.spin.lengthSq() > 1e-8) {
+      _angles.theta += glide.spin.x * dt;
+      _angles.phi = THREE.MathUtils.clamp(_angles.phi + glide.spin.y * dt, 0.02, controls.maxPolarAngle);
+      camera.position.copy(controls.target).add(_arm.setFromSpherical(_angles));
+    }
+    const fade = Math.exp(-dt * glide.slow);
+    glide.go.multiplyScalar(fade); glide.spin.multiplyScalar(fade);
+  }
+  glide.focus.copy(controls.target);
+  glide.angles.setFromVector3(_arm.subVectors(camera.position, controls.target));
+  glide.known = true;
+}
+
 // Click a building to inspect it.
 let picked = null;
 const raycaster = new THREE.Raycaster();
@@ -392,6 +442,7 @@ function tick() {
   renderer.info.reset();
   keyboardPan(dt);
   wheelZoom(dt);
+  glideStep(dt);
   controls.update();
 
   // Keep the focus on the ground and the camera above it. The ground rises and falls under the focus as the view
