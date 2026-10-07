@@ -278,7 +278,8 @@ let guiState, clockText;
   // one is off in the next. A URL that sets something itself (?time=, ?cars=, ...) is taken as it stands.
   const KEY = 'procedural-tokyo:settings:6'; // (a new number when the defaults change: what was kept before is left behind)
   const explicit = [...params.keys()].some((k) => k !== 'area');
-  const strip = (saved) => { delete saved.controllers?.city; return saved; }; // (the city is the page's, not a setting)
+  // (the city is the page's, not a setting; and the abstract model is never kept: the page always opens on the city as it is)
+  const strip = (saved) => { delete saved.controllers?.city; delete saved.controllers?.['abstract model']; return saved; };
   if (!explicit) {
     try {
       const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null');
