@@ -234,6 +234,9 @@ const previewMode = { on: params.get('preview') !== '0', live: params.get('previ
   light.add(env, 'sunStrength', 0, 2, 0.01).name('sun');
   light.add(env, 'skyStrength', 0, 3, 0.01).name('sky (blue fill)');
   light.add(env, 'bounceStrength', 0, 3, 0.01).name('sunlight sent on by the city');
+  light.add(env, 'moonStrength', 0, 4, 0.01).name('moonlight');
+  light.add(env, 'glowStrength', 0, 4, 0.01).name('glow of the city by night');
+  light.add(env, 'nightBrightness', 0.3, 3, 0.01).name('night exposure');
   withReset(light);
 
   // the finished picture, as in a photo editor

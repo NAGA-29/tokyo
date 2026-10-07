@@ -21,8 +21,9 @@ const LIGHT = 10;
 const EXPOSURE = { target: 1.8, least: 0.38, most: 1.7 };
 const BLOOM = { day: 0.12, night: 0.45 };
 const DAYLIGHT = new THREE.Vector3(0.83, 1, 1.2); // what daylight is multiplied by to be white on the screen
-const MOON = { strength: 0.2, color: new THREE.Color(0x9fb4e0) };
-const GLOW = { strength: 0.16, sky: new THREE.Color(0x8f9bc0), ground: new THREE.Color(0x8a7a66) }; // the night's even light
+const MOON = { strength: 0.32, color: new THREE.Color(0x9fb4e0) };
+// the night's even light: a city is never dark — its own lights come back from the haze above it, a pale grey on everything
+const GLOW = { strength: 0.5, sky: new THREE.Color(0xe6eaf4), ground: new THREE.Color(0x8a8172) };
 const MOON_STAND_IN = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 40), THREE.MathUtils.degToRad(205));
 
 // Call once, before any material is compiled. The environment map is for reflections only: the sky's even light
@@ -46,6 +47,8 @@ export class Environment {
     // Sunlight that the ground and the walls send on (bounceStrength: 1 as worked out below): without it the shade is
     // lit by the blue sky alone, and is as blue as the sky and darker than it is in a city of pale stone and concrete.
     this.bounceStrength = 2.5;
+    // By night: the moon's light, the city's own glow (each 1 as designed), and how bright the night is shown.
+    this.moonStrength = 1; this.glowStrength = 1; this.nightBrightness = 1;
     this.balance = new THREE.Vector3(1, 1, 1); // (see apply)
     this.sunDir = new THREE.Vector3(0.3, 0.8, 0.5).normalize(); // where the light comes from: the sun, or the moon by night
     this.bloom = BLOOM.day;
@@ -128,7 +131,7 @@ export class Environment {
       this.sun.update();
       this.sunColor.copy(this.sun.color);
       if (sunUp) this.sun.intensity = LIGHT * this.sunStrength;
-      else { this.sun.color.copy(MOON.color); this.sun.intensity = MOON.strength * this.moonlight; }
+      else { this.sun.color.copy(MOON.color); this.sun.intensity = MOON.strength * this.moonStrength * this.moonlight; }
       // the sunlight sent on by the city itself: what falls on the ground, a third of it sent back (the city's
       // albedo), reaches a wall from below and from the side — most of it what faces down, least what faces up
       const sent = sunUp ? 0.3 * this.sun.intensity * Math.max(sun.y, 0) * this.bounceStrength : 0;
@@ -168,11 +171,11 @@ export class Environment {
 
   apply() {
     const t = this.dark, lerp = (a, b) => a + (b - a) * t;
-    this.glow.intensity = GLOW.strength * t;
+    this.glow.intensity = GLOW.strength * this.glowStrength * t;
     // (how much light there is: the sun on the ground, the sky, the night's own glow)
     const lum = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b, sh = this.skyLight.sh.coefficients[0];
-    const light = 0.3 * lum(this.sun.color) * this.sun.intensity * Math.max(this.sunDir.y, 0.05) + 2.5 * (0.2126 * sh.x + 0.7152 * sh.y + 0.0722 * sh.z) * this.skyLight.intensity + 1.5 * t * t * t;
-    this.renderer.toneMappingExposure = THREE.MathUtils.clamp(EXPOSURE.target / Math.max(light, 1e-3), EXPOSURE.least, EXPOSURE.most) * this.brightness;
+    const light = 0.3 * lum(this.sun.color) * this.sun.intensity * Math.max(this.sunDir.y, 0.05) + 2.5 * (0.2126 * sh.x + 0.7152 * sh.y + 0.0722 * sh.z) * this.skyLight.intensity + 1.3 * t * t * t;
+    this.renderer.toneMappingExposure = THREE.MathUtils.clamp(EXPOSURE.target / Math.max(light, 1e-3), EXPOSURE.least, EXPOSURE.most) * this.brightness * (1 + (this.nightBrightness - 1) * t);
     this.bloom = lerp(BLOOM.day, BLOOM.night);
     // the white balance: for daylight — the sun's light a warm white, here cooled to the screen's — and none by night
     this.balance.set(1, 1, 1).lerp(DAYLIGHT, this.daylight);
