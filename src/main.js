@@ -91,6 +91,7 @@ const clockTime = {
 
 const materials = createMaterials(await loadTextures(renderer));
 const props = new Props();
+props.root = scene;
 const signs = new Signs();
 const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 900 }); // (progressive by default: the control panel can ask for the whole city)
 loader.set(0.08, 'terrain');

@@ -33,7 +33,7 @@ twelve fixed views, frozen in time, taken before the work began (`tools/_fid.mjs
 - [x] 4. Lamp light quads in a scene of their own: the light map no longer walks the city three times per
       frame (the quads themselves join the instance pools of step 6)
 - [x] 5. Trees: one instanced mesh per tile for the far shapes instead of one per species
-- [ ] 6. Small props (poles, lamps, signals, vending machines, parked cars, street furniture): instance pools
+- [x] 6. Small props (poles, lamps, signals, vending machines, parked cars, street furniture): instance pools
       for the whole city instead of one mesh per kind per tile
 - [ ] 7. Roof and wall photos: one material for all tiles (the photos in a texture array)
 
@@ -49,6 +49,9 @@ Frame time: the median of 100 frames, each waited for (`gl.finish`), best of fiv
 | 3. ambient occlusion without the scene walks | = | = | −1.5 ms | −1.5 ms | identical |
 | 4. lamp quads in their own scene | = | = | = | −2 ms | identical |
 | 5. far trees: one mesh per tile | −46 draws | −46 draws | −234 draws | −234 draws | identical |
+| 6. props in pools for the whole city | 1519 → 707 draws | 1838 → 739 draws | 13.3 → 9.5 ms, 4146 → 1839 draws | 15.4 → 9.5 ms, 4747 → 1874 draws | identical close up; far away single pixels of props differ (0.016 % of the whole-city view) |
 
 From step 3 on the machine was busy with other work while measuring, so the times of different runs no longer
-compare: a step's gain is given as the difference between the old and the new code, switched within one run.
+compare: a step's gain is given as the difference between the old and the new code, switched within one run
+(steps 3 and 4), or as times taken one after the other under the same load (step 6). To be measured again,
+all of it, on a quiet machine.

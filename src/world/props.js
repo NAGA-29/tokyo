@@ -6,7 +6,7 @@ import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometr
 import { Tree } from '@dgreenheck/ez-tree';
 import { PROP, DECAL } from '../shared/tileformat.js';
 import { shared } from './materials.js';
-import { LAMP_LAYER, lampMaterial } from './lamplight.js';
+import { LAMP_LAYER, lampMaterial, lampScene } from './lamplight.js';
 import { parkedVehicles } from './traffic.js';
 import { DECAL_COLS, DECAL_ROWS } from './decals.js';
 
@@ -489,7 +489,66 @@ function blobTreeGeometry() {
 }
 
 // ---------------------------------------------------------------- per-tile instancing
+// One instanced mesh for all the props of one kind in the whole city (a pole, a lamp, a parked car of one
+// model...). A tile hands in its share when it is loaded and takes it back when it goes: the mesh is then written
+// anew, all shares one after the other. Drawing costs the processor per mesh, not per pole — and one tile's
+// poles are a dozen; so the meshes are few and large, and the graphics card does the rest (these things are
+// small: there is no need to leave out those that are out of view).
+class Pool {
+  constructor(parent, geometry, material, shadow, lamp, extra) {
+    Object.assign(this, { parent, material, shadow, lamp, extra, shares: new Set(), mesh: null, stale: false });
+    this.geometry = extra ? geometry.clone() : geometry; // (extra: an attribute of its own per prop: { name, size })
+  }
+
+  add(share) { this.shares.add(share); this.stale = true; }
+  remove(share) { this.shares.delete(share); this.stale = true; }
+
+  write() {
+    if (!this.stale) return;
+    this.stale = false;
+    let total = 0, coloured = false;
+    for (const s of this.shares) { total += s.count; coloured ||= !!s.colors; }
+    let mesh = this.mesh;
+    if (!mesh || total > mesh.instanceMatrix.count) { // (room for half as many again: tiles come and go all the time)
+      const room = Math.max(64, Math.ceil(total * 1.5));
+      if (mesh) { this.parent.remove(mesh); mesh.dispose(); }
+      mesh = this.mesh = new THREE.InstancedMesh(this.geometry, this.material, room);
+      mesh.castShadow = mesh.receiveShadow = this.shadow;
+      mesh.frustumCulled = false;
+      mesh.raycast = () => {}; // (nothing here is ever picked)
+      if (this.lamp) mesh.layers.set(LAMP_LAYER);
+      if (this.extra) this.geometry.setAttribute(this.extra.name, new THREE.InstancedBufferAttribute(new Float32Array(room * this.extra.size), this.extra.size));
+      this.parent.add(mesh);
+    }
+    if (coloured && !mesh.instanceColor) mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(mesh.instanceMatrix.count * 3).fill(1), 3);
+    const extra = this.extra && this.geometry.attributes[this.extra.name];
+    let n = 0;
+    for (const s of this.shares) {
+      mesh.instanceMatrix.array.set(s.matrices, n * 16);
+      if (s.colors) mesh.instanceColor.array.set(s.colors, n * 3);
+      if (extra) extra.array.set(s.extra, n * this.extra.size);
+      n += s.count;
+    }
+    mesh.count = total;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    if (extra) extra.needsUpdate = true;
+  }
+}
+
 export class Props {
+  root = null;       // the scene the pools' meshes stand in (set by whoever makes the Props)
+  pools = new Map(); // by model, material and kind: see pool()
+
+  pool(geometry, material, shadow, lamp, extra) {
+    const key = `${geometry.uuid} ${material.uuid} ${shadow} ${lamp}`;
+    if (!this.pools.has(key)) this.pools.set(key, new Pool(lamp ? lampScene : this.root, geometry, material, shadow, lamp, extra));
+    return this.pools.get(key);
+  }
+
+  // Takes a tile's props (what build() returned) out of the pools again.
+  release(built) { for (const share of built.shares) share.pool.remove(share); }
+
   constructor() {
     const std = (extra) => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0.1, ...extra });
     this.trees = TREES.map(buildTree);
@@ -540,16 +599,18 @@ export class Props {
     this.mats.poolCool.color.setRGB(1.15 * k, 1.25 * k, 1.4 * k);
     const p = night * this.parkLights;
     this.mats.poolPark.color.setRGB(1.7 * p, 1.5 * p, 1.05 * p);
+    for (const pool of this.pools.values()) pool.write(); // (tiles that came or went since the last frame)
     this.mats.lamp.color.setRGB(0.35 + 2.4 * night, 0.34 + 2.2 * night, 0.32 + 1.8 * night);
     this.mats.panel.color.setScalar(0.85 + 1.1 * night);
   }
 
   // props: Float32Array of [kind, variant, rot, x, z, scale] rows; wires: Float32Array of [x1, z1, x2, z2] rows.
-  // Returns { group, near, far, lamps, count, roosts } — `near` holds the full trees, `far` the simple ones; count =
+  // Returns { group, near, far, shares, count, roosts } — `near` holds the full trees, `far` the simple ones (the
+  // other props are in the city's pools: `shares` is what this tile put there, for release()); count =
   // trees; roosts = [x, y, z, ...] of the tree crowns (where the birds come down).
   build(props, wires, ground) {
-    const group = new THREE.Group(), near = new THREE.Group(), farGroup = new THREE.Group(), lamps = new THREE.Group(), far = [];
-    group.add(near, farGroup); // (lamps: the light the lamps throw on the ground, for the lamp light's scene)
+    const group = new THREE.Group(), near = new THREE.Group(), farGroup = new THREE.Group(), far = [], shares = [];
+    group.add(near, farGroup);
     const by = new Map(), roosts = [];
     for (let i = 0; i < props.length; i += 6) {
       if (props[i] === PROP.TREE) roosts.push(props[i + 3], ground(props[i + 3], props[i + 4]) + this.trees[props[i + 1] % this.trees.length].height * props[i + 5] * 0.72, props[i + 4]);
@@ -559,13 +620,15 @@ export class Props {
       by.get(key).push(i);
     }
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0), v = new THREE.Vector3(), s = new THREE.Vector3();
-    // An InstancedMesh with one matrix per prop: `local` offsets the part within the prop's frame.
+    // One matrix per prop: `local` offsets the part within the prop's frame. With a `parent`, they make an instanced
+    // mesh of the tile's own (the trees: near and far ones are shown in turn); without, they go into the city's
+    // pool of that model (lamp: of the light thrown on the ground; extra: see Pool) and their share is returned.
     // clump: so many more of each are stood round it, a few metres off and a little smaller (park trees: a wood
     // is not a grid of single trees). The same for every part of the tree, near and far.
     const rand = (i, c, k) => { const h = Math.sin(props[i + 3] * 12.9898 + props[i + 4] * 78.233 + c * 37.719 + k * 11.13) * 43758.5453; return h - Math.floor(h); };
-    const instanced = (rows, geo, mat, { parent = group, shadow = true, lift = 0, local = null, scale = null, clump = 0 } = {}) => {
+    const instanced = (rows, geo, mat, { parent = null, shadow = true, lift = 0, local = null, scale = null, clump = 0, lamp = false, extra = null } = {}) => {
       const more = typeof clump === 'function' ? clump : () => clump; // (clump may differ from row to row)
-      const mesh = new THREE.InstancedMesh(geo, mat, rows.reduce((sum, i) => sum + 1 + more(i), 0));
+      const count = rows.reduce((sum, i) => sum + 1 + more(i), 0), matrices = new Float32Array(count * 16);
       let n = -1;
       rows.forEach((i) => { for (let c = 0; c <= more(i); c++) {
         const away = c ? 3 + 3.5 * rand(i, c, 1) : 0, turn = rand(i, c, 2) * 6.2832, size = c ? 0.7 + 0.35 * rand(i, c, 3) : 1;
@@ -576,8 +639,16 @@ export class Props {
         v.set(x, ground(x, z) + lift, z);
         if (local) v.add(new THREE.Vector3(...local).multiplyScalar(props[i + 5]).applyQuaternion(q)); // (parts sit on a model of that size)
         if (Array.isArray(k)) s.set(...k); else s.setScalar(k);
-        mesh.setMatrixAt(++n, m.compose(v, q, s));
+        m.compose(v, q, s).toArray(matrices, ++n * 16);
       } });
+      if (!parent) {
+        const share = { count, matrices, colors: null, extra: null, pool: this.pool(geo, mat, shadow, lamp, extra) };
+        share.pool.add(share);
+        shares.push(share);
+        return share;
+      }
+      const mesh = new THREE.InstancedMesh(geo, mat, count);
+      mesh.instanceMatrix.array.set(matrices);
       mesh.castShadow = shadow; mesh.receiveShadow = shadow;
       mesh.computeBoundingSphere();
       parent.add(mesh);
@@ -594,21 +665,23 @@ export class Props {
       } else if (kind === PROP.POLE) {
         instanced(rows, this.models.pole[variant % 2], this.mats.metal);
         instanced(rows, this.models.lamp, this.mats.lamp, { shadow: false, local: [POLE_LAMP.x, POLE_LAMP.y - 0.02, 0], scale: () => [1.6, 1, 0.3] });
-        instanced(rows, this.models.pool, this.mats.poolCool, { parent: lamps, lift: 0.2, shadow: false, local: [POLE_LAMP.x + 0.6, 0, 0], scale: () => 2 * POOL_REACH * POLE_LAMP.y }).layers.set(LAMP_LAYER);
+        instanced(rows, this.models.pool, this.mats.poolCool, { lamp: true, lift: 0.2, shadow: false, local: [POLE_LAMP.x + 0.6, 0, 0], scale: () => 2 * POOL_REACH * POLE_LAMP.y });
       } else if (kind === PROP.LIGHT) {
         instanced(rows, this.models.light, this.mats.metal, { lift: 0.15 });
         instanced(rows, this.models.lamp, this.mats.lamp, { lift: 0.15, shadow: false, local: [0, LAMP.y, LAMP.z] });
         // the light on the ground: street lights, and park lamps (half the height: a smaller patch, a strength of its own)
         const street = rows.filter((r) => props[r + 5] >= 1), park = rows.filter((r) => props[r + 5] < 1);
-        if (street.length) instanced(street, this.models.pool, this.mats.pool, { parent: lamps, lift: 0.34, shadow: false, local: [0, 0, LAMP.z + 1], scale: () => 2 * POOL_REACH * LAMP.y }).layers.set(LAMP_LAYER);
-        if (park.length) instanced(park, this.models.pool, this.mats.poolPark, { parent: lamps, lift: 0.34, shadow: false, local: [0, 0, LAMP.z + 1], scale: () => 1.4 * POOL_REACH * LAMP.y }).layers.set(LAMP_LAYER);
+        if (street.length) instanced(street, this.models.pool, this.mats.pool, { lamp: true, lift: 0.34, shadow: false, local: [0, 0, LAMP.z + 1], scale: () => 2 * POOL_REACH * LAMP.y });
+        if (park.length) instanced(park, this.models.pool, this.mats.poolPark, { lamp: true, lift: 0.34, shadow: false, local: [0, 0, LAMP.z + 1], scale: () => 1.4 * POOL_REACH * LAMP.y });
       } else if (kind === PROP.VENDING) {
         const body = instanced(rows, this.models.vending, this.mats.vending, { lift: 0.02 });
-        rows.forEach((i, n) => body.setColorAt(n, new THREE.Color().setRGB(...VENDING_BODY[props[i + 1] % 4], THREE.SRGBColorSpace)));
+        body.colors = new Float32Array(rows.length * 3);
+        rows.forEach((i, n) => new THREE.Color().setRGB(...VENDING_BODY[props[i + 1] % 4], THREE.SRGBColorSpace).toArray(body.colors, n * 3));
         instanced(rows, this.models.quad, this.mats.panel, { lift: 0.02, shadow: false, local: [0, 0.97, 0.365], scale: () => [0.94, 1.66, 1] });
       } else if (kind === PROP.PARKED) {
-        const kit = parkedVehicles(), mesh = instanced(rows, kit.models[variant % kit.models.length], kit.material, { lift: 0.05 });
-        rows.forEach((i, n) => mesh.setColorAt(n, new THREE.Color(kit.colors[(props[i + 1] >> 2) % kit.colors.length])));
+        const kit = parkedVehicles(), cars = instanced(rows, kit.models[variant % kit.models.length], kit.material, { lift: 0.05 });
+        cars.colors = new Float32Array(rows.length * 3);
+        rows.forEach((i, n) => new THREE.Color(kit.colors[(props[i + 1] >> 2) % kit.colors.length]).toArray(cars.colors, n * 3));
       } else if (this.furniture[kind]) {
         const models = this.furniture[kind];
         instanced(rows, models[variant % models.length], this.mats.metal, { lift: 0.12 });
@@ -618,13 +691,11 @@ export class Props {
         instanced(rows, this.models.signal, this.mats.metal, { lift: 0.15 });
         // three lenses per head; crossing directions alternate phase
         for (let lens = 0; lens < 3; lens++) {
-          const mesh = instanced(rows, this.models.lens, this.mats.lens, {
-            lift: 0.15, shadow: false, local: [-SIGNAL.arm + 0.35 + (lens - 1) * -0.4, SIGNAL.y, 0.115], scale: (i) => props[i + 5],
+          const lenses = instanced(rows, this.models.lens, this.mats.lens, {
+            lift: 0.15, shadow: false, local: [-SIGNAL.arm + 0.35 + (lens - 1) * -0.4, SIGNAL.y, 0.115], scale: (i) => props[i + 5], extra: { name: 'aLens', size: 2 },
           });
-          const a = new Float32Array(rows.length * 2);
+          const a = lenses.extra = new Float32Array(rows.length * 2);
           rows.forEach((i, n) => { a[n * 2] = lens; a[n * 2 + 1] = Math.round(props[i + 2] / (Math.PI / 2)) % 2; });
-          mesh.geometry = mesh.geometry.clone();
-          mesh.geometry.setAttribute('aLens', new THREE.InstancedBufferAttribute(a, 2));
         }
       }
     }
@@ -651,7 +722,7 @@ export class Props {
       g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
       near.add(new THREE.LineSegments(g, this.mats.wire)); // hair-thin: only worth drawing close up
     }
-    return { group, near, far: farGroup, lamps, roosts, count: (by.get(PROP.TREE * 16) ?? []).length + (by.get(PROP.TREE * 16 + 1) ?? []).length + (by.get(PROP.TREE * 16 + 2) ?? []).length + (by.get(PROP.TREE * 16 + 3) ?? []).length };
+    return { group, near, far: farGroup, shares, roosts, count: (by.get(PROP.TREE * 16) ?? []).length + (by.get(PROP.TREE * 16 + 1) ?? []).length + (by.get(PROP.TREE * 16 + 2) ?? []).length + (by.get(PROP.TREE * 16 + 3) ?? []).length };
   }
 
   static lodDistance = TREE_LOD_DISTANCE;

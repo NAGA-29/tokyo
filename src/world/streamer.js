@@ -7,7 +7,6 @@ import { asGround } from './contact.js';
 import { sampleGrid } from '../shared/terrain.js';
 import { makeSurface, makeCover } from '../shared/decks.js';
 import { SIGN_LOD_DISTANCE } from './signs.js';
-import { lampScene } from './lamplight.js';
 import { shared, variant, varies, ABSTRACT, neutralShade } from './materials.js';
 
 const WORKERS = Math.min(4, Math.max(2, (navigator.hardwareConcurrency || 4) >> 1));
@@ -168,7 +167,6 @@ export class Streamer {
       trees = this.props.build(props, wires, this.surface);
       trees.near.visible = false; // update() picks the level of detail on the next frame
       group.add(trees.group);
-      lampScene.add(trees.lamps);
     }
     let signs = null;
     if (signList.length) {
@@ -252,7 +250,7 @@ export class Streamer {
     const t = this.tiles.get(key);
     for (const a of t.atlases ?? []) { a.small?.dispose(); a.full?.dispose(); }
     this.scene.remove(t.group);
-    if (t.trees) { lampScene.remove(t.trees.lamps); for (const o of t.trees.lamps.children) o.dispose(); }
+    if (t.trees) this.props.release(t.trees);
     t.signs?.dispose();
     // prop models are shared between tiles; only per-tile geometry is freed
     t.group.traverse((o) => { if (o.isInstancedMesh) o.dispose(); else if (!o.isGroup) o.geometry?.dispose(); o.userData.own?.forEach((r) => r.dispose()); });
