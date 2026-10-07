@@ -667,7 +667,11 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
     });
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>\nattribute float aLayer;\nvarying float vLayer;\n${WORLD_VARYINGS_VERT}`)
-      .replace('#include <begin_vertex>', `#include <begin_vertex>\nvLayer = aLayer;\n${WORLD_VARYINGS_SET}`);
+      .replace('#include <begin_vertex>', `#include <begin_vertex>\nvLayer = aLayer;\n${WORLD_VARYINGS_SET}`)
+      // Water lies eight centimetres over the ground it was cut into: from a kilometre off that is less than the
+      // depth buffer can tell apart, and the ground would show through in patches. In depth only (not in place),
+      // water is brought a little nearer — the farther off, the more.
+      .replace('#include <project_vertex>', '#include <project_vertex>\nif (aLayer > 3.5) gl_Position.z -= 0.0008;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\n' + GROUND_PARS)
       .replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_MAIN)
@@ -737,7 +741,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       shader.fragmentShader = part(shader.fragmentShader, '#include <lights_fragment_end>', neutralShade('0.92'));
     }
   };
-  m.customProgramCacheKey = () => 'ground-v18' + (variant.abstract ? 'a' : '') + (variant.contact ? 'c2' : '');
+  m.customProgramCacheKey = () => 'ground-v19' + (variant.abstract ? 'a' : '') + (variant.contact ? 'c2' : '');
   return m;
 }
 
