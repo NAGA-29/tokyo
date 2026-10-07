@@ -55,3 +55,20 @@ From step 3 on the machine was busy with other work while measuring, so the time
 compare: a step's gain is given as the difference between the old and the new code, switched within one run
 (steps 3 and 4), or as times taken one after the other under the same load (step 6). To be measured again,
 all of it, on a quiet machine.
+
+## Where it stands after steps 1 to 6
+
+Script time per frame (what three.js and the demo spend on the processor: the limit before the work), from the
+same profile run before and after — this one compares, whatever else the machine is doing:
+
+| Scene | Before | After | Draw calls |
+|---|---|---|---|
+| Tokyo, view radius 900 m, day | 4.8 ms | 2.2 ms | 1565 → 707 |
+| Tokyo, view radius 900 m, night | 10.3 ms | 2.2 ms | 2190 → 739 |
+| Tokyo, whole city, day | 17.2 ms | 6.4 ms | 4380 → 1839 |
+| Tokyo, whole city, night | 31.8 ms | 6.5 ms | 5545 → 1874 |
+
+What is left of the whole city's 6.4 ms: the picture itself (2.7 ms), the water mirror (2.4 ms: the city drawn a
+second time), the shadow map (0.6 ms), ambient occlusion (0.4 ms). Step 7 would take about a millisecond more
+off the whole city (215 materials looked up and filled in per render); it is the one step that changes how the
+photos are stored, and has not been done.
