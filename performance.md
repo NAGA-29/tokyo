@@ -32,7 +32,7 @@ twelve fixed views, frozen in time, taken before the work began (`tools/_fid.mjs
 - [x] 3. Ambient occlusion: no walks through the whole scene for the few transparent things
 - [x] 4. Lamp light quads in a scene of their own: the light map no longer walks the city three times per
       frame (the quads themselves join the instance pools of step 6)
-- [ ] 5. Trees: one instanced mesh per tile for the far shapes instead of one per species
+- [x] 5. Trees: one instanced mesh per tile for the far shapes instead of one per species
 - [ ] 6. Small props (poles, lamps, signals, vending machines, parked cars, street furniture): instance pools
       for the whole city instead of one mesh per kind per tile
 - [ ] 7. Roof and wall photos: one material for all tiles (the photos in a texture array)
@@ -48,6 +48,7 @@ Frame time: the median of 100 frames, each waited for (`gl.finish`), best of fiv
 | 2. matrices once per frame | 3.2 ms | 3.9 ms | 10.9 ms | 14.7 ms | identical |
 | 3. ambient occlusion without the scene walks | = | = | −1.5 ms | −1.5 ms | identical |
 | 4. lamp quads in their own scene | = | = | = | −2 ms | identical |
+| 5. far trees: one mesh per tile | −46 draws | −46 draws | −234 draws | −234 draws | identical |
 
 From step 3 on the machine was busy with other work while measuring, so the times of different runs no longer
 compare: a step's gain is given as the difference between the old and the new code, switched within one run.

@@ -548,8 +548,8 @@ export class Props {
   // Returns { group, near, far, lamps, count, roosts } — `near` holds the full trees, `far` the simple ones; count =
   // trees; roosts = [x, y, z, ...] of the tree crowns (where the birds come down).
   build(props, wires, ground) {
-    const group = new THREE.Group(), near = new THREE.Group(), far = new THREE.Group(), lamps = new THREE.Group();
-    group.add(near, far); // (lamps: the light the lamps throw on the ground, for the lamp light's scene)
+    const group = new THREE.Group(), near = new THREE.Group(), farGroup = new THREE.Group(), lamps = new THREE.Group(), far = [];
+    group.add(near, farGroup); // (lamps: the light the lamps throw on the ground, for the lamp light's scene)
     const by = new Map(), roosts = [];
     for (let i = 0; i < props.length; i += 6) {
       if (props[i] === PROP.TREE) roosts.push(props[i + 3], ground(props[i + 3], props[i + 4]) + this.trees[props[i + 1] % this.trees.length].height * props[i + 5] * 0.72, props[i + 4]);
@@ -564,9 +564,11 @@ export class Props {
     // is not a grid of single trees). The same for every part of the tree, near and far.
     const rand = (i, c, k) => { const h = Math.sin(props[i + 3] * 12.9898 + props[i + 4] * 78.233 + c * 37.719 + k * 11.13) * 43758.5453; return h - Math.floor(h); };
     const instanced = (rows, geo, mat, { parent = group, shadow = true, lift = 0, local = null, scale = null, clump = 0 } = {}) => {
-      const mesh = new THREE.InstancedMesh(geo, mat, rows.length * (1 + clump));
-      rows.forEach((i, row) => { for (let c = 0; c <= clump; c++) {
-        const n = row * (1 + clump) + c, away = c ? 3 + 3.5 * rand(i, c, 1) : 0, turn = rand(i, c, 2) * 6.2832, size = c ? 0.7 + 0.35 * rand(i, c, 3) : 1;
+      const more = typeof clump === 'function' ? clump : () => clump; // (clump may differ from row to row)
+      const mesh = new THREE.InstancedMesh(geo, mat, rows.reduce((sum, i) => sum + 1 + more(i), 0));
+      let n = -1;
+      rows.forEach((i) => { for (let c = 0; c <= more(i); c++) {
+        const away = c ? 3 + 3.5 * rand(i, c, 1) : 0, turn = rand(i, c, 2) * 6.2832, size = c ? 0.7 + 0.35 * rand(i, c, 3) : 1;
         const x = props[i + 3] + Math.cos(turn) * away, z = props[i + 4] + Math.sin(turn) * away;
         let k = scale ? scale(i) : props[i + 5];
         k = Array.isArray(k) ? k.map((e) => e * size) : k * size;
@@ -574,7 +576,7 @@ export class Props {
         v.set(x, ground(x, z) + lift, z);
         if (local) v.add(new THREE.Vector3(...local).multiplyScalar(props[i + 5]).applyQuaternion(q)); // (parts sit on a model of that size)
         if (Array.isArray(k)) s.set(...k); else s.setScalar(k);
-        mesh.setMatrixAt(n, m.compose(v, q, s));
+        mesh.setMatrixAt(++n, m.compose(v, q, s));
       } });
       mesh.castShadow = shadow; mesh.receiveShadow = shadow;
       mesh.computeBoundingSphere();
@@ -588,7 +590,7 @@ export class Props {
         const t = this.trees[variant % this.trees.length], clump = variant === 2 || variant === 3 ? 2 : 0; // (park trees)
         instanced(rows, t.branches, t.branchMat, { parent: near, clump });
         instanced(rows, t.leaves, t.leafMat, { parent: near, clump });
-        instanced(rows, this.models.blob, this.mats.blob, { parent: far, shadow: false, clump, scale: (i) => [t.radius * 1.75 * props[i + 5], t.height * props[i + 5], t.radius * 1.75 * props[i + 5]] });
+        far.push(...rows); // (the simple shapes of all the tile's trees are one mesh: below)
       } else if (kind === PROP.POLE) {
         instanced(rows, this.models.pole[variant % 2], this.mats.metal);
         instanced(rows, this.models.lamp, this.mats.lamp, { shadow: false, local: [POLE_LAMP.x, POLE_LAMP.y - 0.02, 0], scale: () => [1.6, 1, 0.3] });
@@ -627,6 +629,12 @@ export class Props {
       }
     }
 
+    // the far trees: one shape for every species (each at its own size), so one mesh for the whole tile
+    if (far.length) {
+      const tree = (i) => this.trees[(props[i + 1] & 15) % this.trees.length], park = (i) => ((props[i + 1] & 15) === 2 || (props[i + 1] & 15) === 3 ? 2 : 0);
+      instanced(far, this.models.blob, this.mats.blob, { parent: farGroup, shadow: false, clump: park, scale: (i) => [tree(i).radius * 1.75 * props[i + 5], tree(i).height * props[i + 5], tree(i).radius * 1.75 * props[i + 5]] });
+    }
+
     // wires: catenaries between pole tops
     if (wires.length) {
       const SEG = 6, pts = [];
@@ -643,7 +651,7 @@ export class Props {
       g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
       near.add(new THREE.LineSegments(g, this.mats.wire)); // hair-thin: only worth drawing close up
     }
-    return { group, near, far, lamps, roosts, count: (by.get(PROP.TREE * 16) ?? []).length + (by.get(PROP.TREE * 16 + 1) ?? []).length + (by.get(PROP.TREE * 16 + 2) ?? []).length + (by.get(PROP.TREE * 16 + 3) ?? []).length };
+    return { group, near, far: farGroup, lamps, roosts, count: (by.get(PROP.TREE * 16) ?? []).length + (by.get(PROP.TREE * 16 + 1) ?? []).length + (by.get(PROP.TREE * 16 + 2) ?? []).length + (by.get(PROP.TREE * 16 + 3) ?? []).length };
   }
 
   static lodDistance = TREE_LOD_DISTANCE;
