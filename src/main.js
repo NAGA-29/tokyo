@@ -94,7 +94,7 @@ const materials = createMaterials(await loadTextures(renderer));
 const props = new Props();
 props.root = scene;
 const signs = new Signs();
-const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 1e5 }); // (the whole city by default: ?radius= or the control panel can ask for less)
+const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 900 }); // (what lies round the view by default: the control panel can ask for the whole city)
 loader.set(0.08, 'terrain');
 const manifest = await streamer.init();
 loader.set(0.14, 'railways and roads');
@@ -199,7 +199,7 @@ const previewMode = { on: params.get('preview') !== '0', live: params.get('previ
     get season() { return ['summer', 'autumn', 'spring'][shared.uSeason.value]; }, set season(v) { shared.uSeason.value = Math.max(0, ['summer', 'autumn', 'spring'].indexOf(v)); },
     get windows() { return variant.windows; }, set windows(v) { if (v !== variant.windows) setVariant({ windows: v }); },
     // the whole city at once, or only what lies within the view radius of the point looked at (fewer tiles: more frames)
-    wholeCity: params.get('radius') == null, near: Number(params.get('radius')) || 900, // (the whole city, unless ?radius= asks for less)
+    wholeCity: false, near: Number(params.get('radius')) || 900,
     get whole() { return this.wholeCity; }, set whole(v) { this.wholeCity = v; streamer.radius = v ? 1e5 : this.near; },
     get radius() { return this.near; }, set radius(v) { this.near = v; if (!this.wholeCity) streamer.radius = v; },
   };
@@ -333,7 +333,7 @@ const previewMode = { on: params.get('preview') !== '0', live: params.get('previ
 
   // The panel's settings are kept (in this browser) and are the same for every city: what is switched off in
   // one is off in the next. A URL that sets something itself (?time=, ?cars=, ...) is taken as it stands.
-  const KEY = 'procedural-tokyo:settings:12'; // (a new number when the defaults change: what was kept before is left behind)
+  const KEY = 'procedural-tokyo:settings:13'; // (a new number when the defaults change: what was kept before is left behind)
   const explicit = [...params.keys()].some((k) => k !== 'area');
   // (the city is the page's, not a setting; and the abstract model is never kept: the page always opens on the city as it is)
   const strip = (saved) => { delete saved.controllers?.city; delete saved.folders?.['Abstract model']?.controllers?.['abstract model']; return saved; };
