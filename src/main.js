@@ -380,8 +380,12 @@ function tick() {
   wheelZoom(dt);
   controls.update();
 
-  // keep the focus on the ground and the camera above it
-  controls.target.y = streamer.ground(controls.target.x, controls.target.z);
+  // Keep the focus on the ground and the camera above it. The ground rises and falls under the focus as the view
+  // is moved: the focus follows it gently, and the camera rises and falls with it — so the view keeps its angle
+  // and its distance (moving the focus alone would tilt and zoom the picture at every bump of the terrain).
+  const rise = (streamer.ground(controls.target.x, controls.target.z) - controls.target.y) * (1 - Math.exp(-dt * 5));
+  controls.target.y += rise;
+  camera.position.y += rise;
   const floor = streamer.ground(camera.position.x, camera.position.z) + 2;
   if (camera.position.y < floor) camera.position.y = floor;
 
