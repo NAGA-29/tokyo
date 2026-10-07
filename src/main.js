@@ -164,6 +164,9 @@ controls.update();
 
 // ---------------------------------------------------------------- control panel
 let guiState, clockText;
+// The picture on the switch in the corner (see drawOtherMode): kept up with the view all the time (live), or made
+// anew whenever the view has come to rest; stale: something has changed since it was made.
+const previewMode = { on: params.get('preview') !== '0', live: params.get('preview') === '1', stale: true, now: false };
 {
   // the compiled areas (tools/pipeline/compile.mjs keeps the list); another city is another page load
   const areas = await fetch('tiles/areas.json').then((r) => (r.ok ? r.json() : null)).catch(() => null) ?? [{ id: AREA, name: manifest.name }];
@@ -247,9 +250,11 @@ let guiState, clockText;
     modeButton.title = variant.abstract ? 'Photorealistic city' : 'Abstract model';
   };
   modeButton.addEventListener('click', () => abstractSwitch.setValue(!variant.abstract));
-  abstractSwitch.onChange(showMode);
+  abstractSwitch.onChange(() => { showMode(); previewMode.stale = previewMode.now = true; });
   showMode();
   gui.add(state, 'landmarks').name('landmarks in detail (abstract)');
+  gui.add(previewMode, 'live').name('live preview on the switch');
+  gui.onChange(() => { previewMode.stale = true; }); // (any setting may change the picture)
   gui.add(state, 'windows');
   gui.add(state, 'relief').name('recessed windows');
   gui.add(state, 'season', ['summer', 'autumn', 'spring']);
@@ -440,15 +445,16 @@ function tick() {
       `${picked.storeys ? `, ${picked.storeys} floors` : ''}, base ${picked.base.toFixed(1)} m\n` : '') +
     `\ndrag pan · right-drag rotate · wheel zoom\nWASD move (shift fast) · N day/night · click building`;
 }
-// The switch in the corner shows this very view as the other mode draws it, as it moves. Every few frames the
+// The switch in the corner shows this very view as the other mode draws it: as it moves (the panel's live preview:
+// every few frames), or else each time the view has come to rest. For that the
 // city is drawn once more in the other mode (the whole picture, where the frame is about to be drawn: it is
 // never shown), and the middle of that picture is scaled down into a small texture — all on the graphics card,
 // nothing is read back. Then the frame is drawn as it should be, and the small picture is drawn over the corner
 // of it, under the switch (which is a frame around it and takes the click).
-const PREVIEW_LIVE = params.get('preview') !== '0'; // (?preview=0: the switch keeps a picture made beforehand)
-const PREVIEW_EVERY = 3;                 // the other mode is drawn at one frame in so many
+const PREVIEW_EVERY = 3;                 // live: the other mode is drawn at one frame in so many
+const PREVIEW_REST = 300;                // otherwise: so many milliseconds after the view has stopped moving
 const PREVIEW_BOX = { left: 14, bottom: 14, size: 64, radius: 10 }; // CSS pixels: the inside of the switch (index.html)
-const preview = { steps: [1152, 576, 288, 144].map((n) => new THREE.WebGLRenderTarget(n, n, { depthBuffer: false })), count: 0, ready: false };
+const preview = { steps: [1152, 576, 288, 144].map((n) => new THREE.WebGLRenderTarget(n, n, { depthBuffer: false })), count: 0, ready: false, moved: 0, eye: new THREE.Vector3(), turn: new THREE.Quaternion(), hour: -1, loaded: -1 };
 preview.whole = new THREE.WebGLRenderTarget(4, 4, { depthBuffer: false });
 preview.whole.texture.generateMipmaps = false;
 for (const t of preview.steps) { t.texture.generateMipmaps = false; renderer.initRenderTarget(t); }
@@ -498,8 +504,22 @@ function drawPreview() {
   renderer.setViewport(0, 0, innerWidth, innerHeight);
   renderer.autoClear = auto;
 }
+// Is the picture on the switch to be made now?
+function previewDue() {
+  const m = previewMode, p = preview, now = performance.now();
+  if (!m.on || loading) return false;
+  if (m.live) return p.count++ % PREVIEW_EVERY === 0;
+  // (at rest: within a centimetre and a hair's turn of where it was — the view settles ever more slowly, without end)
+  if (p.eye.distanceToSquared(camera.position) > 1e-4 || 1 - Math.abs(p.turn.dot(camera.quaternion)) > 1e-9) { p.eye.copy(camera.position); p.turn.copy(camera.quaternion); p.moved = now; m.stale = true; }
+  if (streamer.stats.loaded !== p.loaded) { p.loaded = streamer.stats.loaded; m.stale = true; } // (tiles came or went)
+  if (Math.abs(clockTime.hour - p.hour) > 0.2) m.stale = true;                                   // (the light has changed)
+  if (m.now) { m.now = m.stale = false; p.hour = clockTime.hour; return true; }                   // (the switch was used: at once)
+  if (!m.stale || streamer.pending || now - p.moved < PREVIEW_REST || Math.abs(zoom.pending) > 0) return false;
+  m.stale = false; p.hour = clockTime.hour;
+  return true;
+}
 function frame() {
-  if (!loading && PREVIEW_LIVE && preview.count++ % PREVIEW_EVERY === 0) drawOtherMode();
+  if (previewDue()) drawOtherMode();
   tick();
   drawPreview();
   requestAnimationFrame(frame);
