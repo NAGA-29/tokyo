@@ -20,7 +20,7 @@ export const shared = {
   // how strongly the glass of tall buildings mirrors the lights of the city at night (0: off)
   uCityGlass: { value: 0 }, // (off: the glass is flat and mirrors what is really there; the drawn lights are dots)
   // how bright the lit rooms are at night (1: as designed)
-  uRoomLight: { value: 1 },
+  uRoomLight: { value: 1.75 },
   // how soft the lit rooms are at night (0: even bright panels, as they were; 1: lamps, curtains, spill)
   uSoft: { value: 1 },
   // the glow of the trees on the abstract model by night (set every frame: main.js)
@@ -30,7 +30,7 @@ export const shared = {
   // contact shadows (contact.js): how dark (0: none), the blurred mask of what stands on the ground, where it lies
   uContact: { value: 0 }, uContactMap: { value: null }, uContactRect: { value: new THREE.Vector4(0, 0, 1, 0) },
   // how much the windows look like glass (0: as plain mirrors, the way they were): see the facade shader
-  uGlass: { value: 1 },
+  uGlass: { value: 2 },
   // how blue the lights of the city are at night (0: mostly warm, 1: a cool blue city)
   uNightBlue: { value: 0.55 },
   // lamp light on the ground (src/world/lamplight.js): on at night, the light map, where it lies

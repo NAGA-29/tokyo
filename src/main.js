@@ -94,7 +94,7 @@ const materials = createMaterials(await loadTextures(renderer));
 const props = new Props();
 props.root = scene;
 const signs = new Signs();
-const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 900 }); // (progressive by default: the control panel can ask for the whole city)
+const streamer = new Streamer(scene, materials, props, signs, { base: `tiles/${AREA}`, radius: Number(params.get('radius')) || 1e5 }); // (the whole city by default: ?radius= or the control panel can ask for less)
 loader.set(0.08, 'terrain');
 const manifest = await streamer.init();
 loader.set(0.14, 'railways and roads');
@@ -133,14 +133,16 @@ shared.uSeason.value = Math.max(0, ['summer', 'autumn', 'spring'].indexOf(params
 atmosphere.antialias = params.get('aa') ?? 'smaa';
 const contact = new ContactShadows(renderer);
 if (Number(params.get('contact')) > 0) { shared.uContact.value = Number(params.get('contact')); setVariant({ contact: true }); }
-if (Number(params.get('fog')) > 0) atmosphere.fog = Number(params.get('fog'));
+atmosphere.fog = params.get('fog') != null ? Number(params.get('fog')) : 0.01; // (a trace of haze, unless ?fog= says otherwise)
 shared.uGlintOn.value = params.get('glint') != null ? Number(params.get('glint')) : 2; // (1: as it was designed; brighter by default)
-env.brightness = Number(params.get('brightness')) || 1.3;
+env.brightness = Number(params.get('brightness')) || 1;
 if (params.get('abstract') === '1') setAbstract(true);
 if (params.get('landmarks') === '1') setVariant({ landmarks: true });
 if (params.get('windows') === '0') setVariant({ windows: false });
 if (params.get('relief') !== '0') setVariant({ relief: true }); // (on, unless asked not to)
-if (Number(params.get('clouds')) > 0) { atmosphere.coverage = Number(params.get('clouds')); atmosphere.cloudsOn = true; }
+// clouds, unless ?clouds=0 (a number: on, with that cover)
+if (Number(params.get('clouds')) > 0) atmosphere.coverage = Number(params.get('clouds'));
+atmosphere.cloudsOn = params.get('clouds') !== '0';
 let orthoLoaded = false, orthoWanted = true; // (the photo fills in when the tiles arrive; the panel may have switched it off by then)
 if (params.get('ortho') !== '0') loadOrtho(`ortho/${AREA}`, proj, manifest.bounds, renderer).then((ok) => { orthoLoaded = ok; shared.uOrthoOn.value = ok && orthoWanted ? 1 : 0; });
 const railways = await buildRailways(`tiles/${AREA}/${manifest.rails}`, (x, z) => streamer.ground(x, z), streamer.cover);
@@ -193,7 +195,7 @@ const previewMode = { on: params.get('preview') !== '0', live: params.get('previ
     get season() { return ['summer', 'autumn', 'spring'][shared.uSeason.value]; }, set season(v) { shared.uSeason.value = Math.max(0, ['summer', 'autumn', 'spring'].indexOf(v)); },
     get windows() { return variant.windows; }, set windows(v) { if (v !== variant.windows) setVariant({ windows: v }); },
     // the whole city at once, or only what lies within the view radius of the point looked at (fewer tiles: more frames)
-    wholeCity: false, near: Number(params.get('radius')) || 900,
+    wholeCity: params.get('radius') == null, near: Number(params.get('radius')) || 900, // (the whole city, unless ?radius= asks for less)
     get whole() { return this.wholeCity; }, set whole(v) { this.wholeCity = v; streamer.radius = v ? 1e5 : this.near; },
     get radius() { return this.near; }, set radius(v) { this.near = v; if (!this.wholeCity) streamer.radius = v; },
   };
@@ -300,7 +302,7 @@ const previewMode = { on: params.get('preview') !== '0', live: params.get('previ
 
   // The panel's settings are kept (in this browser) and are the same for every city: what is switched off in
   // one is off in the next. A URL that sets something itself (?time=, ?cars=, ...) is taken as it stands.
-  const KEY = 'procedural-tokyo:settings:9'; // (a new number when the defaults change: what was kept before is left behind)
+  const KEY = 'procedural-tokyo:settings:10'; // (a new number when the defaults change: what was kept before is left behind)
   const explicit = [...params.keys()].some((k) => k !== 'area');
   // (the city is the page's, not a setting; and the abstract model is never kept: the page always opens on the city as it is)
   const strip = (saved) => { delete saved.controllers?.city; delete saved.controllers?.['abstract model']; return saved; };

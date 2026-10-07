@@ -45,7 +45,7 @@ export class Environment {
     this.sunStrength = 1; this.skyStrength = 1;
     // Sunlight that the ground and the walls send on (bounceStrength: 1 as worked out below): without it the shade is
     // lit by the blue sky alone, and is as blue as the sky and darker than it is in a city of pale stone and concrete.
-    this.bounceStrength = 1;
+    this.bounceStrength = 2.5;
     this.balance = new THREE.Vector3(1, 1, 1); // (see apply)
     this.sunDir = new THREE.Vector3(0.3, 0.8, 0.5).normalize(); // where the light comes from: the sun, or the moon by night
     this.bloom = BLOOM.day;
@@ -58,6 +58,7 @@ export class Environment {
     this.shadowExtent = 0;
     this.sun.shadow.bias = -0.0003;
     this.sun.shadow.normalBias = 0.5;
+    this.sun.shadow.radius = 5; // (soft edges)
     this.sun.intensity = 0; // (until the atmosphere's tables are there)
     this.skyLight = new SkyLightProbe();
     this.skyLight.intensity = 0;

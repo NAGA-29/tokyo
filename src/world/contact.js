@@ -37,7 +37,7 @@ export class ContactShadows {
       uniforms: { map: { value: null }, step: { value: new THREE.Vector2() } },
       vertexShader: 'varying vec2 vUv;\nvoid main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }', fragmentShader: BLUR, depthTest: false, depthWrite: false,
     }));
-    this.softness = 4; // metres over which the dark fades out
+    this.softness = 0.5; // metres over which the dark fades out
     this.frame = 0;
     this.black = new THREE.Color(0, 0, 0);
     this.extent = 0;

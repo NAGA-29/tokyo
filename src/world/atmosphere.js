@@ -44,8 +44,8 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
 // The finished picture, adjusted as in a photo editor (the panel's Picture folder): white balance (temperature,
 // tint), contrast, highlights and shadows, saturation and vibrance (which colours the dull more than the vivid),
 // darker corners. (Contrast and saturation 1, the rest 0: the picture passes unchanged.)
-// (as the picture is shown unless set otherwise: a little more contrast and colour than the tone curve leaves)
-const PICTURE = { contrast: 1.12, saturation: 1.2, vibrance: 0.25 };
+// (as the picture is shown unless set otherwise)
+const PICTURE = { contrast: 1, saturation: 1, highlights: 0.15, shadows: 0.03, tint: -0.25 };
 class Picture extends Effect {
   constructor() {
     super('Picture', `uniform float contrast, highlights, shadows, saturation, vibrance, temperature, tint, vignette;
@@ -232,7 +232,7 @@ export class Atmosphere {
     // the end of the picture as the atmosphere library's own examples have it: the flare of the lens round what is
     // very bright, the AgX tone curve, and a dither against banding in the sky
     this.composer.addPass(new EffectPass(camera, new LensFlareEffect()));
-    this.toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
+    this.toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.NEUTRAL }); // (the curve that keeps colours as they are)
     this.pictureEffect = new Picture();
     // (the picture's settings by name: contrast, highlights, shadows, saturation, vibrance, temperature, tint, vignette)
     this.picture = Object.fromEntries([...this.pictureEffect.uniforms].map(([k, u]) => [k, u]));
