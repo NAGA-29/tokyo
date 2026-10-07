@@ -7,6 +7,10 @@ import * as THREE from 'three';
 import { shared } from './materials.js';
 
 export const LAMP_LAYER = 2; // the layer the lamp quads live on: the picture's camera does not see it
+// The lamp quads stand in a scene of their own, not in the city's: drawing the light map (three times per frame)
+// does not walk the city, and drawing the city does not walk the lamps.
+export const lampScene = new THREE.Scene();
+lampScene.matrixWorldAutoUpdate = false; // (the quads are placed by their instance matrices, in the world's own frame)
 const SIZE = 2048;
 const Y0 = 200, YSPAN = 1000; // heights are stored as (y + Y0) / YSPAN
 // Lights lie one above the other where a flyover crosses a street, and each level must keep its own: the map
@@ -102,8 +106,9 @@ export class LampLight {
     shared.uLampMap.value = this.target.texture;
   }
 
-  // scene: the scene holding the lamp quads; focus: what the view looks at; eye: the camera's position.
-  update(scene, focus, eye, night) {
+  // focus: what the view looks at; eye: the camera's position.
+  update(focus, eye, night) {
+    const scene = lampScene;
     shared.uLampOn.value = night > 0.02 ? 1 : 0;
     if (night <= 0.02) return;
     // the map reaches as far as the view does (in coarse steps), and moves a whole texel at a time

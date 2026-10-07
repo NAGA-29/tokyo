@@ -545,11 +545,11 @@ export class Props {
   }
 
   // props: Float32Array of [kind, variant, rot, x, z, scale] rows; wires: Float32Array of [x1, z1, x2, z2] rows.
-  // Returns { group, near, far, count, roosts } — `near` holds the full trees, `far` the simple ones; count =
+  // Returns { group, near, far, lamps, count, roosts } — `near` holds the full trees, `far` the simple ones; count =
   // trees; roosts = [x, y, z, ...] of the tree crowns (where the birds come down).
   build(props, wires, ground) {
-    const group = new THREE.Group(), near = new THREE.Group(), far = new THREE.Group();
-    group.add(near, far);
+    const group = new THREE.Group(), near = new THREE.Group(), far = new THREE.Group(), lamps = new THREE.Group();
+    group.add(near, far); // (lamps: the light the lamps throw on the ground, for the lamp light's scene)
     const by = new Map(), roosts = [];
     for (let i = 0; i < props.length; i += 6) {
       if (props[i] === PROP.TREE) roosts.push(props[i + 3], ground(props[i + 3], props[i + 4]) + this.trees[props[i + 1] % this.trees.length].height * props[i + 5] * 0.72, props[i + 4]);
@@ -592,14 +592,14 @@ export class Props {
       } else if (kind === PROP.POLE) {
         instanced(rows, this.models.pole[variant % 2], this.mats.metal);
         instanced(rows, this.models.lamp, this.mats.lamp, { shadow: false, local: [POLE_LAMP.x, POLE_LAMP.y - 0.02, 0], scale: () => [1.6, 1, 0.3] });
-        instanced(rows, this.models.pool, this.mats.poolCool, { lift: 0.2, shadow: false, local: [POLE_LAMP.x + 0.6, 0, 0], scale: () => 2 * POOL_REACH * POLE_LAMP.y }).layers.set(LAMP_LAYER);
+        instanced(rows, this.models.pool, this.mats.poolCool, { parent: lamps, lift: 0.2, shadow: false, local: [POLE_LAMP.x + 0.6, 0, 0], scale: () => 2 * POOL_REACH * POLE_LAMP.y }).layers.set(LAMP_LAYER);
       } else if (kind === PROP.LIGHT) {
         instanced(rows, this.models.light, this.mats.metal, { lift: 0.15 });
         instanced(rows, this.models.lamp, this.mats.lamp, { lift: 0.15, shadow: false, local: [0, LAMP.y, LAMP.z] });
         // the light on the ground: street lights, and park lamps (half the height: a smaller patch, a strength of its own)
         const street = rows.filter((r) => props[r + 5] >= 1), park = rows.filter((r) => props[r + 5] < 1);
-        if (street.length) instanced(street, this.models.pool, this.mats.pool, { lift: 0.34, shadow: false, local: [0, 0, LAMP.z + 1], scale: () => 2 * POOL_REACH * LAMP.y }).layers.set(LAMP_LAYER);
-        if (park.length) instanced(park, this.models.pool, this.mats.poolPark, { lift: 0.34, shadow: false, local: [0, 0, LAMP.z + 1], scale: () => 1.4 * POOL_REACH * LAMP.y }).layers.set(LAMP_LAYER);
+        if (street.length) instanced(street, this.models.pool, this.mats.pool, { parent: lamps, lift: 0.34, shadow: false, local: [0, 0, LAMP.z + 1], scale: () => 2 * POOL_REACH * LAMP.y }).layers.set(LAMP_LAYER);
+        if (park.length) instanced(park, this.models.pool, this.mats.poolPark, { parent: lamps, lift: 0.34, shadow: false, local: [0, 0, LAMP.z + 1], scale: () => 1.4 * POOL_REACH * LAMP.y }).layers.set(LAMP_LAYER);
       } else if (kind === PROP.VENDING) {
         const body = instanced(rows, this.models.vending, this.mats.vending, { lift: 0.02 });
         rows.forEach((i, n) => body.setColorAt(n, new THREE.Color().setRGB(...VENDING_BODY[props[i + 1] % 4], THREE.SRGBColorSpace)));
@@ -643,7 +643,7 @@ export class Props {
       g.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
       near.add(new THREE.LineSegments(g, this.mats.wire)); // hair-thin: only worth drawing close up
     }
-    return { group, near, far, roosts, count: (by.get(PROP.TREE * 16) ?? []).length + (by.get(PROP.TREE * 16 + 1) ?? []).length + (by.get(PROP.TREE * 16 + 2) ?? []).length + (by.get(PROP.TREE * 16 + 3) ?? []).length };
+    return { group, near, far, lamps, roosts, count: (by.get(PROP.TREE * 16) ?? []).length + (by.get(PROP.TREE * 16 + 1) ?? []).length + (by.get(PROP.TREE * 16 + 2) ?? []).length + (by.get(PROP.TREE * 16 + 3) ?? []).length };
   }
 
   static lodDistance = TREE_LOD_DISTANCE;

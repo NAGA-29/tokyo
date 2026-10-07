@@ -12,7 +12,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { shared } from './materials.js';
-import { LAMP_LAYER, lampMaterial } from './lamplight.js';
+import { LAMP_LAYER, lampMaterial, lampScene } from './lamplight.js';
 
 const LANE = 3.0;
 const CAR_RADIUS = 330, CARS = 260; // the default number of cars, and the distance from the focus they keep within
@@ -231,6 +231,8 @@ export class Traffic {
     this.crossing = roads.nodes.map(() => ({ lane: null, until: 0, straight: false }));
     this.group = new THREE.Group();
     this.group.name = 'traffic';
+    this.lamps = new THREE.Group(); // the headlamps' light on the road: in the lamp light's scene (lamplight.js)
+    lampScene.add(this.lamps);
     this.time = 0;
     this.seed = 12345;
 
@@ -244,7 +246,8 @@ export class Traffic {
       beams.instanceMatrix = mesh.instanceMatrix; // the lamps go where the cars go
       beams.frustumCulled = false; beams.count = 0;
       beams.layers.set(LAMP_LAYER);
-      this.group.add(mesh, beams);
+      this.group.add(mesh);
+      this.lamps.add(beams);
       return { ...t, mesh, beams };
     });
     this.cars = [];

@@ -3,7 +3,7 @@
 // at the other.
 import * as THREE from 'three';
 import { beamTexture } from './traffic.js';
-import { LAMP_LAYER, lampMaterial } from './lamplight.js';
+import { LAMP_LAYER, lampMaterial, lampScene } from './lamplight.js';
 
 // Line name (substring) -> rolling stock. Colours follow the real line colours.
 const STOCK = [
@@ -144,6 +144,8 @@ export class Trains {
   constructor(lines) {
     this.group = new THREE.Group();
     this.group.name = 'trains';
+    this.lamps = new THREE.Group(); // the headlamps' light on the track: in the lamp light's scene (lamplight.js)
+    lampScene.add(this.lamps);
     this.sets = [];
     const paths = chain(lines);
     this.beam = lampMaterial(beamTexture());
@@ -166,7 +168,7 @@ export class Trains {
       const beams = new THREE.InstancedMesh(pool, this.beam, list.length);
       beams.frustumCulled = false;
       beams.layers.set(LAMP_LAYER);
-      this.group.add(beams);
+      this.lamps.add(beams);
       this.sets.push({ stock, mesh, beams, material, trains: list.map((path, i) => ({ path, s: (i * 613) % (path.length + GAP) })) });
     }
     this.dummy = new THREE.Object3D();

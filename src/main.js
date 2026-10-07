@@ -151,7 +151,7 @@ scene.add(await buildFlyovers(`tiles/${AREA}/${manifest.roads}`, (x, z) => strea
 if (manifest.structures) scene.add(await buildStructures(`tiles/${AREA}/${manifest.structures}`, (x, z) => streamer.ground(x, z)));
 const traffic = new Traffic(await (await fetch(`tiles/${AREA}/${manifest.roads}`)).json(), streamer.surface);
 if (params.get('cars') != null) traffic.count = Math.min(MAX_CARS, Number(params.get('cars')) || 0);
-if (params.get('traffic') !== '0') scene.add(traffic.group);
+if (params.get('traffic') !== '0') scene.add(traffic.group); else traffic.lamps.visible = false;
 document.getElementById('credits').textContent = manifest.attribution.map((a) => a.split(' (')[0]).join(' · ');
 
 // initial view: the area's own, or over its origin looking north-west (Shibuya: across the Scramble Crossing to the station)
@@ -171,8 +171,8 @@ let guiState, clockText;
     city: AREA,
     get info() { return document.getElementById('hud').style.display !== 'none'; }, set info(v) { document.getElementById('hud').style.display = v ? '' : 'none'; },
 
-    get traffic() { return !!traffic.group.parent; }, set traffic(v) { if (v) scene.add(traffic.group); else scene.remove(traffic.group); },
-    get trains() { return trains.visible; }, set trains(v) { trains.visible = v; },
+    get traffic() { return !!traffic.group.parent; }, set traffic(v) { if (v) scene.add(traffic.group); else scene.remove(traffic.group); traffic.lamps.visible = v; },
+    get trains() { return trains.visible; }, set trains(v) { trains.visible = railways.userData.trains.lamps.visible = v; },
     get photo() { return orthoWanted; }, set photo(v) { orthoWanted = v; shared.uOrthoOn.value = v && orthoLoaded ? 1 : 0; },
     get shadows() { return env.sun.castShadow; }, set shadows(v) { env.sun.castShadow = v; },
     get occlusion() { return ao.configuration.intensity > 0; }, set occlusion(v) { ao.configuration.intensity = v ? AO : 0; },
@@ -403,7 +403,7 @@ function tick() {
   env.update(dt);
   env.follow(controls.target, camera);
   scene.updateMatrixWorld(); // (once for all of the frame's renders: see matrixWorldAutoUpdate above)
-  lampLight.update(scene, controls.target, camera.position, env.night);
+  lampLight.update(controls.target, camera.position, env.night);
   contact.update(scene, controls.target, camera.position, [birds]);
   shared.uTreeGlow.value.setRGB(...ABSTRACT.night.tree).multiplyScalar(variant.abstract ? env.dark : 0);
   atmosphere.bloom.intensity = guiState.bloom ? env.bloom * 3 : 0;
