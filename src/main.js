@@ -165,6 +165,10 @@ controls.update();
 let guiState, clockText;
 // The picture on the switch in the corner (see drawOtherMode): kept up with the view all the time (live), or made
 // anew whenever the view has come to rest; stale: something has changed since it was made.
+// The histogram of the finished picture (in the panel's Picture folder: see drawHistogram)
+const histogram = { canvas: Object.assign(document.createElement('canvas'), { id: 'histogram' }), count: 0 };
+Object.assign(histogram.canvas, { width: 512, height: 180 });
+Object.assign(histogram.canvas.style, { display: 'block', width: 'calc(100% - 12px)', margin: '6px', borderRadius: '3px', background: '#101216' });
 const previewMode = { on: params.get('preview') !== '0', live: params.get('preview') === '1', stale: true, now: false };
 {
   // the compiled areas (tools/pipeline/compile.mjs keeps the list); another city is another page load
@@ -221,47 +225,20 @@ const previewMode = { on: params.get('preview') !== '0', live: params.get('previ
   clockText = document.createElement('span');
   clockText.style.cssText = 'min-width: 3.4em; padding-left: 8px; text-align: right; font-variant-numeric: tabular-nums;';
   slider.$widget.appendChild(clockText);
-  gui.add(state, 'traffic');
-  gui.add(traffic, 'count', 0, MAX_CARS, 10).name('cars');
-  gui.add(traffic, 'highway', 0, 20, 0.5).name('highway traffic');
-  gui.add(traffic, 'headlights', 0, 20, 0.5).name('car headlights');
-  gui.add(props, 'streetLights', 0, 3, 0.05).name('street lights');
-  gui.add(props, 'parkLights', 0, 3, 0.05).name('park lights');
-  gui.add(state, 'trains');
-  gui.add(atmosphere, 'antialias', ['off', 'smaa', 'msaa', 'both']).name('smooth edges');
-  gui.add(env.sun.shadow, 'radius', 0, 12, 0.1).name('shadow softness');
-  gui.add(state, 'contact', 0, 1, 0.01).name('contact shadows');
-  gui.add(contact, 'softness', 0.5, 20, 0.1).name('contact shadow blur (m)');
-  gui.add(shared.uGlintOn, 'value', 0, 5, 0.1).name('sun in the windows (strength)');
-  gui.add(shared.uGlass, 'value', 0, 3, 0.05).name('window glass');
-  gui.add(atmosphere, 'fog', 0, 1, 0.01);
-  const abstractSwitch = gui.add(state, 'abstract').name('abstract model');
-  // the same switch as a button in the corner, showing the city it changes to
-  const modeButton = document.getElementById('mode');
-  const showMode = () => {
-    modeButton.style.backgroundImage = `url(assets/ui/mode-${variant.abstract ? 'photo' : 'abstract'}.jpg)`;
-    modeButton.title = variant.abstract ? 'Photorealistic city' : 'Abstract model';
-  };
-  modeButton.addEventListener('click', () => abstractSwitch.setValue(!variant.abstract));
-  abstractSwitch.onChange(() => { showMode(); previewMode.stale = previewMode.now = true; });
-  showMode();
-  gui.add(state, 'landmarks').name('landmarks in detail (abstract)');
-  gui.add(previewMode, 'live').name('live preview on the switch');
-  gui.onChange(() => { previewMode.stale = true; }); // (any setting may change the picture)
-  gui.add(state, 'windows');
-  gui.add(state, 'relief').name('recessed windows');
-  gui.add(state, 'season', ['summer', 'autumn', 'spring']);
-  gui.add(state, 'photo').name('aerial photo').listen();
-  gui.add(birds.geometry, 'instanceCount', 0, MAX_BIRDS, 10).name('birds');
-  gui.add(state, 'info').name('info panel');
+  // (every folder ends with a button that puts its settings back as they are at the start)
+  const withReset = (folder) => { folder.add({ reset() { folder.reset(); } }, 'reset').name('back to the defaults'); return folder; };
+  withReset(time);
+
   // the light itself: each against what the atmosphere gives
   const light = gui.addFolder('Light');
   light.add(env, 'sunStrength', 0, 2, 0.01).name('sun');
   light.add(env, 'skyStrength', 0, 3, 0.01).name('sky (blue fill)');
   light.add(env, 'bounceStrength', 0, 3, 0.01).name('sunlight sent on by the city');
-  light.add({ reset() { light.reset(); } }, 'reset').name('back to the defaults');
+  withReset(light);
+
   // the finished picture, as in a photo editor
   const picture = gui.addFolder('Picture'), look = atmosphere.picture;
+  picture.$children.prepend(histogram.canvas);
   picture.add(atmosphere, 'curve', ['agx', 'aces', 'neutral']).name('tone curve');
   picture.add(env, 'brightness', 0.4, 2.5, 0.01).name('exposure');
   picture.add(look.contrast, 'value', 0.6, 1.6, 0.01).name('contrast');
@@ -272,40 +249,91 @@ const previewMode = { on: params.get('preview') !== '0', live: params.get('previ
   picture.add(look.temperature, 'value', -1, 1, 0.01).name('temperature');
   picture.add(look.tint, 'value', -1, 1, 0.01).name('tint');
   picture.add(look.vignette, 'value', 0, 1, 0.01).name('vignette');
-  picture.add({ reset() { picture.reset(); } }, 'reset').name('back to the defaults');
-  const sky = gui.addFolder('Clouds');
+  picture.add(state, 'bloom');
+  withReset(picture);
+
+  const shade = gui.addFolder('Shadows');
+  shade.add(state, 'shadows');
+  shade.add(env.sun.shadow, 'radius', 0, 12, 0.1).name('softness');
+  shade.add(state, 'contact', 0, 1, 0.01).name('contact shadows');
+  shade.add(contact, 'softness', 0.5, 20, 0.1).name('contact shadow blur (m)');
+  shade.add(state, 'occlusion').name('ambient occlusion');
+  withReset(shade);
+
+  const sky = gui.addFolder('Sky');
   sky.add(atmosphere, 'cloudsOn').name('clouds');
-  sky.add(atmosphere, 'coverage', 0, 1, 0.05);
-  sky.add(state, 'cloudShadow', 0, 0.85, 0.01).name('shadow on the city');
-  sky.add(atmosphere, 'base', 200, 2000, 50).name('base altitude (m)');
-  sky.add(atmosphere, 'overCity').name('over the city only');
-  sky.add(atmosphere, 'quality', ['low', 'medium', 'high', 'ultra']);
+  sky.add(atmosphere, 'coverage', 0, 1, 0.05).name('cloud cover');
+  sky.add(state, 'cloudShadow', 0, 0.85, 0.01).name('cloud shadow on the city');
+  sky.add(atmosphere, 'base', 200, 2000, 50).name('cloud base (m)');
+  sky.add(atmosphere, 'overCity').name('clouds over the city only');
+  sky.add(atmosphere, 'quality', ['low', 'medium', 'high', 'ultra']).name('cloud quality');
   sky.add(atmosphere.clouds.localWeatherVelocity, 'x', 0, 0.02, 0.0005).name('wind');
-  const rooms = gui.addFolder('Night windows');
-  rooms.add(shared.uRoomLight, 'value', 0, 4, 0.05).name('light strength');
-  rooms.add(shared.uSoft, 'value', 0, 1, 0.05).name('softness');
-  rooms.add(shared.uWindowLife.value, 'x', 0, 1, 0.05).name('rooms that change');
-  rooms.add(state, 'windowPace', 0, 60, 0.5).name('pace');
-  rooms.add(shared.uCityGlass, 'value', 0, 3, 0.05).name('drawn city lights in tower glass');
-  rooms.add(shared.uNightBlue, 'value', 0, 1, 0.05).name('blue lights');
-  const walls = gui.addFolder('Wall photos');
-  walls.add(shared.uPhotoMix, 'value', 0, 1, 0.05).name('amount');
-  walls.add(shared.uPhotoRange.value, 'x', 0, 1000, 10).name('from (m)');
-  walls.add(shared.uPhotoRange.value, 'y', 10, 2000, 10).name('full at (m)');
+  sky.add(atmosphere, 'fog', 0, 1, 0.01);
+  withReset(sky);
+
+  const city = gui.addFolder('City');
+  city.add(state, 'windows');
+  city.add(state, 'relief').name('recessed windows');
+  city.add(shared.uGlass, 'value', 0, 3, 0.05).name('window glass');
+  city.add(shared.uGlintOn, 'value', 0, 5, 0.1).name('sun in the windows');
+  city.add(shared.uPhotoMix, 'value', 0, 1, 0.05).name('wall photos');
+  city.add(shared.uPhotoRange.value, 'x', 0, 1000, 10).name('wall photos from (m)');
+  city.add(shared.uPhotoRange.value, 'y', 10, 2000, 10).name('wall photos full at (m)');
+  city.add(state, 'photo').name('aerial photo on the ground').listen();
+  city.add(state, 'season', ['summer', 'autumn', 'spring']);
+  withReset(city);
+
+  // the abstract model, and the switch in the corner that shows the city it changes to
+  const model = gui.addFolder('Abstract model');
+  const abstractSwitch = model.add(state, 'abstract').name('abstract model');
+  const modeButton = document.getElementById('mode');
+  const showMode = () => {
+    modeButton.style.backgroundImage = `url(assets/ui/mode-${variant.abstract ? 'photo' : 'abstract'}.jpg)`;
+    modeButton.title = variant.abstract ? 'Photorealistic city' : 'Abstract model';
+  };
+  modeButton.addEventListener('click', () => abstractSwitch.setValue(!variant.abstract));
+  abstractSwitch.onChange(() => { showMode(); previewMode.stale = previewMode.now = true; });
+  showMode();
+  model.add(state, 'landmarks').name('landmarks in detail');
+  model.add(previewMode, 'live').name('live preview on the switch');
+  withReset(model);
+  gui.onChange(() => { previewMode.stale = true; }); // (any setting may change the picture)
+
+  const streets = gui.addFolder('Traffic');
+  streets.add(state, 'traffic').name('cars');
+  streets.add(traffic, 'count', 0, MAX_CARS, 10).name('how many cars');
+  streets.add(traffic, 'highway', 0, 20, 0.5).name('highway traffic');
+  streets.add(state, 'trains');
+  streets.add(birds.geometry, 'instanceCount', 0, MAX_BIRDS, 10).name('birds');
+  withReset(streets);
+
+  const night = gui.addFolder('Night lights');
+  night.add(props, 'streetLights', 0, 3, 0.05).name('street lights');
+  night.add(props, 'parkLights', 0, 3, 0.05).name('park lights');
+  night.add(traffic, 'headlights', 0, 20, 0.5).name('car headlights');
+  night.add(shared.uRoomLight, 'value', 0, 4, 0.05).name('window light');
+  night.add(shared.uSoft, 'value', 0, 1, 0.05).name('window light softness');
+  night.add(shared.uWindowLife.value, 'x', 0, 1, 0.05).name('rooms that change');
+  night.add(state, 'windowPace', 0, 60, 0.5).name('pace of the change');
+  night.add(shared.uCityGlass, 'value', 0, 3, 0.05).name('drawn city lights in tower glass');
+  night.add(shared.uNightBlue, 'value', 0, 1, 0.05).name('blue lights');
+  withReset(night);
+
   const quality = gui.addFolder('Rendering');
   quality.add(state, 'whole').name('whole city');
   quality.add(state, 'radius', 300, 3000, 50).name('view radius (m), if not');
+  quality.add(atmosphere, 'antialias', ['off', 'smaa', 'msaa', 'both']).name('smooth edges');
   quality.add(atmosphere, 'reflect').name('window and water reflections');
-  quality.add(state, 'shadows');
-  quality.add(state, 'occlusion').name('ambient occlusion');
-  quality.add(state, 'bloom');
+  quality.add(state, 'info').name('info panel');
+  withReset(quality);
+  for (const folder of gui.folders) if (folder !== time) folder.close(); // (the list of folders is the panel: one is opened at a time)
 
   // The panel's settings are kept (in this browser) and are the same for every city: what is switched off in
   // one is off in the next. A URL that sets something itself (?time=, ?cars=, ...) is taken as it stands.
-  const KEY = 'procedural-tokyo:settings:10'; // (a new number when the defaults change: what was kept before is left behind)
+  const KEY = 'procedural-tokyo:settings:11'; // (a new number when the defaults change: what was kept before is left behind)
   const explicit = [...params.keys()].some((k) => k !== 'area');
   // (the city is the page's, not a setting; and the abstract model is never kept: the page always opens on the city as it is)
-  const strip = (saved) => { delete saved.controllers?.city; delete saved.controllers?.['abstract model']; return saved; };
+  const strip = (saved) => { delete saved.controllers?.city; delete saved.folders?.['Abstract model']?.controllers?.['abstract model']; return saved; };
   if (!explicit) {
     try {
       const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null');
@@ -579,9 +607,60 @@ function previewDue() {
   m.stale = false; p.hour = clockTime.hour;
   return true;
 }
+// The histogram: how the picture's pixels are spread from dark (left) to bright (right) — red, green and blue each,
+// and their brightness in white. A few times a second the frame just drawn is scaled down on the graphics card,
+// read back small and counted. A pile at either end is what is lost: black shadows on the left, burnt-out lights
+// on the right (the marks in the corners light up when more than a little of the picture is there).
+const HISTOGRAM = { w: 256, h: 144, every: 8 };
+histogram.target = new THREE.WebGLRenderTarget(HISTOGRAM.w, HISTOGRAM.h, { depthBuffer: false });
+histogram.target.texture.generateMipmaps = false;
+renderer.initRenderTarget(histogram.target);
+histogram.pixels = new Uint8Array(HISTOGRAM.w * HISTOGRAM.h * 4);
+histogram.bins = [0, 1, 2, 3].map(() => new Float32Array(256));
+function drawHistogram() {
+  const h = histogram, c = renderer.domElement;
+  if (h.count++ % HISTOGRAM.every || !h.canvas.offsetParent) return; // (not while the folder is closed)
+  const gl = renderer.getContext(), state = renderer.state;
+  // (the screen's own buffer is multisampled: copied as it lies first, then scaled down — as for the switch's picture)
+  if (preview.whole.width !== c.width || preview.whole.height !== c.height) { preview.whole.setSize(c.width, c.height); renderer.initRenderTarget(preview.whole); }
+  const whole = renderer.properties.get(preview.whole).__webglFramebuffer, small = renderer.properties.get(h.target).__webglFramebuffer;
+  state.setScissorTest(false);
+  state.bindFramebuffer(gl.READ_FRAMEBUFFER, null); state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, whole);
+  gl.blitFramebuffer(0, 0, c.width, c.height, 0, 0, c.width, c.height, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+  state.bindFramebuffer(gl.READ_FRAMEBUFFER, whole); state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, small);
+  gl.blitFramebuffer(0, 0, c.width, c.height, 0, 0, HISTOGRAM.w, HISTOGRAM.h, gl.COLOR_BUFFER_BIT, gl.LINEAR);
+  state.bindFramebuffer(gl.READ_FRAMEBUFFER, small);
+  gl.readPixels(0, 0, HISTOGRAM.w, HISTOGRAM.h, gl.RGBA, gl.UNSIGNED_BYTE, h.pixels);
+  state.bindFramebuffer(gl.READ_FRAMEBUFFER, null); state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+
+  const [red, green, blue, light] = h.bins, px = h.pixels;
+  for (const b of h.bins) b.fill(0);
+  for (let i = 0; i < px.length; i += 4) { red[px[i]]++; green[px[i + 1]]++; blue[px[i + 2]]++; light[Math.round(0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2])]++; }
+  const g = h.canvas.getContext('2d'), W = h.canvas.width, H = h.canvas.height, n = px.length / 4;
+  g.globalCompositeOperation = 'source-over';
+  g.clearRect(0, 0, W, H);
+  g.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+  for (let k = 1; k < 4; k++) { g.beginPath(); g.moveTo((k * W) / 4, 0); g.lineTo((k * W) / 4, H); g.stroke(); }
+  // (the ends are left out of the scale — a burnt-out sky would flatten all the rest — and tall piles are drawn lower: a root)
+  let top = 1;
+  for (const b of h.bins) for (let i = 2; i < 254; i++) top = Math.max(top, b[i]);
+  const curve = (b, fill) => {
+    g.beginPath(); g.moveTo(0, H);
+    for (let i = 0; i < 256; i++) g.lineTo((i / 255) * W, H - Math.min(1, Math.sqrt(b[i] / top)) * (H - 4));
+    g.lineTo(W, H); g.closePath(); g.fillStyle = fill; g.fill();
+  };
+  g.globalCompositeOperation = 'lighter';
+  curve(red, 'rgba(235, 60, 60, 0.75)'); curve(green, 'rgba(60, 210, 80, 0.75)'); curve(blue, 'rgba(70, 110, 255, 0.75)');
+  g.globalCompositeOperation = 'source-over';
+  curve(light, 'rgba(255, 255, 255, 0.28)');
+  // lost at the ends: more than half a percent of the picture quite black, or quite white
+  const lost = (b) => (b[0] + b[1]) / n, burnt = (b) => (b[254] + b[255]) / n, mark = (x, on) => { g.fillStyle = on ? '#ffd24a' : 'rgba(255, 255, 255, 0.18)'; g.beginPath(); g.moveTo(x, 4); g.lineTo(x + (x < W / 2 ? 14 : -14), 4); g.lineTo(x, 18); g.closePath(); g.fill(); };
+  mark(4, lost(light) > 0.005); mark(W - 4, Math.max(burnt(red), burnt(green), burnt(blue)) > 0.005);
+}
 function frame() {
   if (previewDue()) drawOtherMode();
   tick();
+  drawHistogram();
   drawPreview();
   requestAnimationFrame(frame);
 }
