@@ -137,7 +137,7 @@ atmosphere.fog = params.get('fog') != null ? Number(params.get('fog')) : 0.01; /
 shared.uGlintOn.value = params.get('glint') != null ? Number(params.get('glint')) : 2; // (1: as it was designed; brighter by default)
 env.brightness = Number(params.get('brightness')) || 1;
 if (params.get('abstract') === '1') setAbstract(true);
-if (params.get('landmarks') === '1') setVariant({ landmarks: true });
+if (params.get('landmarks') !== '0') setVariant({ landmarks: true }); // (the abstract model keeps its landmarks in detail, unless ?landmarks=0)
 if (params.get('windows') === '0') setVariant({ windows: false });
 if (params.get('relief') !== '0') setVariant({ relief: true }); // (on, unless asked not to)
 // clouds, unless ?clouds=0 (a number: on, with that cover)
@@ -333,7 +333,7 @@ const previewMode = { on: params.get('preview') !== '0', live: params.get('previ
 
   // The panel's settings are kept (in this browser) and are the same for every city: what is switched off in
   // one is off in the next. A URL that sets something itself (?time=, ?cars=, ...) is taken as it stands.
-  const KEY = 'procedural-tokyo:settings:11'; // (a new number when the defaults change: what was kept before is left behind)
+  const KEY = 'procedural-tokyo:settings:12'; // (a new number when the defaults change: what was kept before is left behind)
   const explicit = [...params.keys()].some((k) => k !== 'area');
   // (the city is the page's, not a setting; and the abstract model is never kept: the page always opens on the city as it is)
   const strip = (saved) => { delete saved.controllers?.city; delete saved.folders?.['Abstract model']?.controllers?.['abstract model']; return saved; };
