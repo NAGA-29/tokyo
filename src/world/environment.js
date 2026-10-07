@@ -20,6 +20,7 @@ const LIGHT = 10;
 // exposure's limits (at noon, and in the night).
 const EXPOSURE = { target: 1.8, least: 0.38, most: 1.7 };
 const BLOOM = { day: 0.12, night: 0.45 };
+const DAYLIGHT = new THREE.Vector3(0.83, 1, 1.2); // what daylight is multiplied by to be white on the screen
 const MOON = { strength: 0.2, color: new THREE.Color(0x9fb4e0) };
 const GLOW = { strength: 0.16, sky: new THREE.Color(0x8f9bc0), ground: new THREE.Color(0x8a7a66) }; // the night's even light
 const MOON_STAND_IN = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 40), THREE.MathUtils.degToRad(205));
@@ -39,6 +40,13 @@ export class Environment {
     this.dark = 0;   // how dark it is: this follows the sun all the way down through twilight
     this.daylight = 1; this.moonlight = 0; this.warmth = 0; this.elevation = 40;
     this.brightness = 1; // of the whole picture (the exposure is multiplied by it)
+    // The sun's light and the sky's, against what the atmosphere gives (1: as it is in nature). More of the sky's
+    // lights the shade and colours it blue; the reflections of the sky (in glass, on water) go with it.
+    this.sunStrength = 1; this.skyStrength = 1;
+    // Sunlight that the ground and the walls send on (bounceStrength: 1 as worked out below): without it the shade is
+    // lit by the blue sky alone, and is as blue as the sky and darker than it is in a city of pale stone and concrete.
+    this.bounceStrength = 1;
+    this.balance = new THREE.Vector3(1, 1, 1); // (see apply)
     this.sunDir = new THREE.Vector3(0.3, 0.8, 0.5).normalize(); // where the light comes from: the sun, or the moon by night
     this.bloom = BLOOM.day;
 
@@ -54,7 +62,8 @@ export class Environment {
     this.skyLight = new SkyLightProbe();
     this.skyLight.intensity = 0;
     this.glow = new THREE.HemisphereLight(GLOW.sky, GLOW.ground, 0);
-    scene.add(this.sun, this.sun.target, this.skyLight, this.glow);
+    this.bounce = new THREE.HemisphereLight(0x000000, 0x000000, 1);
+    scene.add(this.sun, this.sun.target, this.skyLight, this.glow, this.bounce);
 
     // the sky as an environment map (see lightFromSky)
     this.pmrem = new THREE.PMREMGenerator(renderer);
@@ -117,13 +126,18 @@ export class Environment {
       this.sun.sunDirection.copy(sunECEF);
       this.sun.update();
       this.sunColor.copy(this.sun.color);
-      if (sunUp) this.sun.intensity = LIGHT;
+      if (sunUp) this.sun.intensity = LIGHT * this.sunStrength;
       else { this.sun.color.copy(MOON.color); this.sun.intensity = MOON.strength * this.moonlight; }
+      // the sunlight sent on by the city itself: what falls on the ground, a third of it sent back (the city's
+      // albedo), reaches a wall from below and from the side — most of it what faces down, least what faces up
+      const sent = sunUp ? 0.3 * this.sun.intensity * Math.max(sun.y, 0) * this.bounceStrength : 0;
+      this.bounce.groundColor.copy(this.sunColor).multiplyScalar(0.8 * sent);
+      this.bounce.color.copy(this.sunColor).multiplyScalar(0.2 * sent);
       // the sky
       this.skyLight.sunDirection.copy(sunECEF);
       this.skyLight.position.copy(this.sun.target.position);
       this.skyLight.update();
-      this.skyLight.intensity = LIGHT;
+      this.skyLight.intensity = LIGHT * this.skyStrength;
       shared.uSunGlint.value.copy(this.sunColor).multiplyScalar(LIGHT * 0.9);
       const now = performance.now();
       if (now - this.bakedAt > 200 && (this.baked < 0 || sun.angleTo(this.bakedSun) > 0.006 || Math.abs(this.dark - this.baked) > 0.04)) this.bakeEnvironment(sun);
@@ -159,6 +173,8 @@ export class Environment {
     const light = 0.3 * lum(this.sun.color) * this.sun.intensity * Math.max(this.sunDir.y, 0.05) + 2.5 * (0.2126 * sh.x + 0.7152 * sh.y + 0.0722 * sh.z) * this.skyLight.intensity + 1.5 * t * t * t;
     this.renderer.toneMappingExposure = THREE.MathUtils.clamp(EXPOSURE.target / Math.max(light, 1e-3), EXPOSURE.least, EXPOSURE.most) * this.brightness;
     this.bloom = lerp(BLOOM.day, BLOOM.night);
+    // the white balance: for daylight — the sun's light a warm white, here cooled to the screen's — and none by night
+    this.balance.set(1, 1, 1).lerp(DAYLIGHT, this.daylight);
     shared.uNight.value = this.night;
     shared.uDark.value = t;
   }

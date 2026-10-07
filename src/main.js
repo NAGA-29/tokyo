@@ -135,7 +135,7 @@ const contact = new ContactShadows(renderer);
 if (Number(params.get('contact')) > 0) { shared.uContact.value = Number(params.get('contact')); setVariant({ contact: true }); }
 if (Number(params.get('fog')) > 0) atmosphere.fog = Number(params.get('fog'));
 shared.uGlintOn.value = params.get('glint') != null ? Number(params.get('glint')) : 2; // (1: as it was designed; brighter by default)
-env.brightness = Number(params.get('brightness')) || 1.15; // (a little brighter than the exposure was chosen for; 1: as it was)
+env.brightness = Number(params.get('brightness')) || 1.3;
 if (params.get('abstract') === '1') setAbstract(true);
 if (params.get('landmarks') === '1') setVariant({ landmarks: true });
 if (params.get('windows') === '0') setVariant({ windows: false });
@@ -252,6 +252,12 @@ const previewMode = { on: params.get('preview') !== '0', live: params.get('previ
   gui.add(state, 'photo').name('aerial photo').listen();
   gui.add(birds.geometry, 'instanceCount', 0, MAX_BIRDS, 10).name('birds');
   gui.add(state, 'info').name('info panel');
+  // the light itself: each against what the atmosphere gives
+  const light = gui.addFolder('Light');
+  light.add(env, 'sunStrength', 0, 2, 0.01).name('sun');
+  light.add(env, 'skyStrength', 0, 3, 0.01).name('sky (blue fill)');
+  light.add(env, 'bounceStrength', 0, 3, 0.01).name('sunlight sent on by the city');
+  light.add({ reset() { light.reset(); } }, 'reset').name('back to the defaults');
   // the finished picture, as in a photo editor
   const picture = gui.addFolder('Picture'), look = atmosphere.picture;
   picture.add(atmosphere, 'curve', ['agx', 'aces', 'neutral']).name('tone curve');
@@ -294,7 +300,7 @@ const previewMode = { on: params.get('preview') !== '0', live: params.get('previ
 
   // The panel's settings are kept (in this browser) and are the same for every city: what is switched off in
   // one is off in the next. A URL that sets something itself (?time=, ?cars=, ...) is taken as it stands.
-  const KEY = 'procedural-tokyo:settings:8'; // (a new number when the defaults change: what was kept before is left behind)
+  const KEY = 'procedural-tokyo:settings:9'; // (a new number when the defaults change: what was kept before is left behind)
   const explicit = [...params.keys()].some((k) => k !== 'area');
   // (the city is the page's, not a setting; and the abstract model is never kept: the page always opens on the city as it is)
   const strip = (saved) => { delete saved.controllers?.city; delete saved.controllers?.['abstract model']; return saved; };
@@ -479,6 +485,7 @@ function tick() {
   contact.update(scene, controls.target, camera.position, [birds]);
   shared.uTreeGlow.value.setRGB(...ABSTRACT.night.tree).multiplyScalar(variant.abstract ? env.dark : 0);
   atmosphere.bloom.intensity = guiState.bloom ? env.bloom * 3 : 0;
+  atmosphere.balance.uniforms.get('gain').value.copy(env.balance);
   waterMirror.enabled = atmosphere.reflect && !variant.abstract; // (the abstract model's water mirrors nothing)
   waterMirror.update(scene, camera, streamer.tiles, controls.target, [traffic.group.parent ? null : traffic.group]);
   atmosphere.lightFog(env.dark, env.warmth * env.daylight, controls.target.y);

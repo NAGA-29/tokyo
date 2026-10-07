@@ -65,6 +65,15 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   }
 }
 
+// White balance, as a camera sets it: the light of the scene is multiplied so that what the sun and the sky light
+// together comes out white (sunlight alone is yellow against the screen's white, and leaves sunlit ground peach).
+class Balance extends Effect {
+  constructor() {
+    super('Balance', 'uniform vec3 gain; void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) { outputColor = vec4(inputColor.rgb * gain, inputColor.a); }',
+      { uniforms: new Map([['gain', new THREE.Uniform(new THREE.Vector3(1, 1, 1))]]) });
+  }
+}
+
 class Scale extends Effect {
   constructor(k) {
     super('Scale', 'uniform float k; void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) { outputColor = vec4(inputColor.rgb * k, inputColor.a); }',
@@ -227,7 +236,8 @@ export class Atmosphere {
     this.pictureEffect = new Picture();
     // (the picture's settings by name: contrast, highlights, shadows, saturation, vibrance, temperature, tint, vignette)
     this.picture = Object.fromEntries([...this.pictureEffect.uniforms].map(([k, u]) => [k, u]));
-    this.finalPass = new EffectPass(camera, this.bloom, this.toneMapping, this.gradeEffect, this.pictureEffect, new DitheringEffect());
+    this.balance = new Balance(); // (its gain: the white balance, set by whoever knows the light — main.js)
+    this.finalPass = new EffectPass(camera, this.balance, this.bloom, this.toneMapping, this.gradeEffect, this.pictureEffect, new DitheringEffect());
     this.composer.addPass(this.finalPass);
     // smooth edges (see `antialias`): a pass over the finished picture that finds the stair-steps and blends
     // them (SMAA), and/or several samples per pixel when the scene is drawn (MSAA)
