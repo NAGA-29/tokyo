@@ -59,7 +59,7 @@ scene.matrixWorldAutoUpdate = false;
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 1, 60000);
 const controls = new MapControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.dampingFactor = 0.12;
+controls.dampingFactor = 0.06; // (less: the view glides on longer after a drag)
 controls.maxPolarAngle = THREE.MathUtils.degToRad(88);
 controls.minDistance = 8;
 controls.maxDistance = 3500;
@@ -339,7 +339,7 @@ renderer.domElement.addEventListener('wheel', (e) => {
 }, { passive: false });
 function wheelZoom(dt) {
   if (Math.abs(zoom.pending) < 1e-4) { zoom.pending = 0; return; }
-  const step = zoom.pending * (1 - Math.exp(-dt * 9));
+  const step = zoom.pending * (1 - Math.exp(-dt * 6));
   zoom.pending -= step;
   const dist = camera.position.distanceTo(controls.target), scale = THREE.MathUtils.clamp(Math.exp(step), controls.minDistance / dist, controls.maxDistance / dist);
   camera.position.sub(zoom.pivot).multiplyScalar(scale).add(zoom.pivot);
