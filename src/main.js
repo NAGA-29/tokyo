@@ -336,7 +336,11 @@ const previewMode = { on: params.get('preview') !== '0', live: params.get('previ
   const KEY = 'procedural-tokyo:settings:13'; // (a new number when the defaults change: what was kept before is left behind)
   const explicit = [...params.keys()].some((k) => k !== 'area');
   // (the city is the page's, not a setting; and the abstract model is never kept: the page always opens on the city as it is)
-  const strip = (saved) => { delete saved.controllers?.city; delete saved.folders?.['Abstract model']?.controllers?.['abstract model']; return saved; };
+  const strip = (saved) => { delete saved.controllers?.city; delete saved.folders?.['Abstract model']?.controllers?.['abstract model'];
+    // (nor is the hour: the page always opens on Tokyo's own time, the live clock running)
+    for (const k of ['live clock', 'auto play', 'time']) delete saved.folders?.['Time (Tokyo)']?.controllers?.[k];
+    return saved;
+  };
   if (!explicit) {
     try {
       const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null');
