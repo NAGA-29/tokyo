@@ -576,6 +576,12 @@ const GROUND_MAIN = /* glsl */ `
   vec3 b = texture(uGroundAlb, vec3(st / (sc * 3.7) + 0.37, layer)).rgb * 2.0;
   float blotch = vnoise(st * 0.045);
   diffuseColor.rgb *= mix(a, b, 0.4) * (0.86 + 0.28 * blotch);
+  // (grass: the green of its texture on the green of its tint is an emerald no lawn has — it is brought back to the
+  // yellower, greyer green of real turf, lighter and darker in patches)
+  if (layer > 1.5 && layer < 2.5 && !water) {
+    float turf = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
+    diffuseColor.rgb = mix(vec3(turf), diffuseColor.rgb, 0.58) * vec3(1.12, 1.0, 0.8) * (0.9 + 0.2 * vnoise(st * 0.011 + 3.7));
+  }
   gNm = texture(uGroundNor, vec3(st / sc, layer)).xyz * 2.0 - 1.0;
   gNm = normalize(vec3(gNm.xy * 0.8, gNm.z));
   gRough = layer < 0.5 ? 0.86 - 0.12 * blotch : 0.93;
@@ -609,7 +615,9 @@ const GROUND_MAIN = /* glsl */ `
     // Water: dark and a little green in itself (what is seen of it is mostly what it mirrors, see the end of the
     // shader); its ripples flatten out with distance, where they are smaller than a pixel.
     diffuseColor.rgb = tint * 0.5;
-    float t = uTime, e = 0.12, amp = 0.045 * clamp(260.0 / distance(cameraPosition, vWPos), 0.25, 1.0);
+    // (from far off the water is a calm mirror: ripples left standing there break what it mirrors — the trees on
+    // the bank — into green specks)
+    float t = uTime, e = 0.12, amp = 0.045 * clamp(170.0 / distance(cameraPosition, vWPos) - 0.12, 0.0, 1.0);
     vec2 slope = vec2(ripple(vWPos.xz + vec2(e, 0.0), t) - ripple(vWPos.xz - vec2(e, 0.0), t), ripple(vWPos.xz + vec2(0.0, e), t) - ripple(vWPos.xz - vec2(0.0, e), t)) * (amp / (2.0 * e));
     gWaveN = normalize(vec3(-slope.x, 1.0, -slope.y));
     gNm = vec3(gWaveN.x, gWaveN.z, gWaveN.y);
@@ -729,7 +737,7 @@ function groundMaterial(tex, { fixedLayer = -1, ...params } = {}) {
       shader.fragmentShader = part(shader.fragmentShader, '#include <lights_fragment_end>', neutralShade('0.92'));
     }
   };
-  m.customProgramCacheKey = () => 'ground-v17' + (variant.abstract ? 'a' : '') + (variant.contact ? 'c2' : '');
+  m.customProgramCacheKey = () => 'ground-v18' + (variant.abstract ? 'a' : '') + (variant.contact ? 'c2' : '');
   return m;
 }
 

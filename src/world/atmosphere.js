@@ -19,7 +19,7 @@ import { shared } from './materials.js';
 const ASSETS = 'assets/takram'; // cloud shape and weather textures and blue noise, as shipped with the packages
 const UNITS = 0.1;              // scene radiance -> the radiance the atmosphere works in (a sunlit white wall in both)
 const FADE = 500;                // metres beyond the area over which the clouds thin out to nothing
-const CLOUD_GLOW = 0.6, CLOUD_NIGHT = new THREE.Vector3(0.55, 0.6, 0.8); // the clouds' own light at the horizon, and its colour by night
+const CLOUD_GLOW = 0.6, CLOUD_NIGHT = new THREE.Vector3(0.62, 0.56, 0.6); // the clouds' own light at the horizon, and its colour by night
 const FOG_DAY = new THREE.Color(0.72, 0.75, 0.79), HAZE_DAY = new THREE.Color(0.56, 0.68, 0.86), HAZE_WARM = new THREE.Color(1.05, 0.56, 0.3);
 const FOG_WARM = new THREE.Color(0.85, 0.6, 0.45), FOG_NIGHT = new THREE.Color(0.035, 0.04, 0.055); // fog under the low sun, and at night
 export const SHADE = 0.42;             // what is left of a surface's light under a thick cloud: the sky still lights it
@@ -341,7 +341,7 @@ export class Atmosphere {
     // the clouds' own light (see cloudAmbient): from nothing with the sun 14 degrees up to all of it at the
     // horizon, warm while the sun is near it and a dim blue-grey in the night
     const height = THREE.MathUtils.radToDeg(Math.asin(sun.y)), low = 1 - THREE.MathUtils.smoothstep(height, 2, 14), night = 1 - THREE.MathUtils.smoothstep(height, -12, -3);
-    this.cloudAmbient.value.set(1, 0.8, 0.72).lerp(CLOUD_NIGHT, night).multiplyScalar(low * THREE.MathUtils.lerp(CLOUD_GLOW, CLOUD_GLOW * 0.3, night));
+    this.cloudAmbient.value.set(1, 0.8, 0.72).lerp(CLOUD_NIGHT, night).multiplyScalar(low * THREE.MathUtils.lerp(CLOUD_GLOW, CLOUD_GLOW * 0.07, night));
     return { sun, moon: this.moon.clone().applyMatrix3(toWorld), sunECEF: this.sun };
   }
 

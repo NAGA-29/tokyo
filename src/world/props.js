@@ -482,7 +482,8 @@ function blobTreeGeometry() {
   // darker underneath, lighter on top, like a lit canopy
   for (let i = 0; i < n; i++) {
     const t = THREE.MathUtils.clamp((g.attributes.position.getY(i) - 0.25) / 0.75, 0, 1);
-    c[i * 3] = 0.012 + 0.03 * t; c[i * 3 + 1] = 0.032 + 0.07 * t; c[i * 3 + 2] = 0.008 + 0.014 * t;
+    // (the olive green of leaves in the sun, not the blue-green of paint)
+    c[i * 3] = 0.02 + 0.046 * t; c[i * 3 + 1] = 0.034 + 0.074 * t; c[i * 3 + 2] = 0.011 + 0.02 * t;
   }
   g.setAttribute('color', new THREE.BufferAttribute(c, 3));
   return mergeGeometries([g, tube(0.035, 0.03, 0.35, 0, 0, 0, [0.25, 0.2, 0.16], 5)]);
