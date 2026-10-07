@@ -168,7 +168,9 @@ const FACADE_MAIN = /* glsl */ `
     // By night the steel keeps its own paint, dimly: it is the bulbs along its frame that light the tower. The
     // warning lights at the top flash for aircraft: on for half of every 1.6 seconds.
     float beat = fract(uTime / 1.6), flash = mix(1.0, 0.08 + 0.92 * smoothstep(0.0, 0.07, beat) * (1.0 - smoothstep(0.45, 0.58, beat)), lampOn * step(vColor.g, 0.037 * vColor.r));
-    gEmissive = mix(vColor.rgb * 0.24, vColor.rgb * 1.6 * flash, lampOn) * uNight;
+    // (lit up, the painted steel shows a clear red — not the orange of its paint by day — and the white bands a warm gold)
+    vec3 steel = vColor.r > 2.0 * vColor.g ? vec3(0.5, 0.03, 0.012) : vColor.rgb * vec3(0.62, 0.46, 0.22);
+    gEmissive = mix(steel, vColor.rgb * 1.6 * flash, lampOn) * uNight;
   }
 
   if (kind < 0.5 && cellW > 0.5) {
@@ -491,7 +493,7 @@ function facadeMaterial(tex) {
       shader.fragmentShader = part(part(part(shader.fragmentShader, PHOTO_PARS, PHOTO_PARS + ABSTRACT_PARS), PHOTO_MAIN, abstractMain(variant.landmarks)), '#include <lights_fragment_end>', neutralShade('0.92 * gPlain'));
     }
   };
-  m.customProgramCacheKey = () => 'facade-v37' + variantKey();
+  m.customProgramCacheKey = () => 'facade-v38' + variantKey();
   return m;
 }
 
