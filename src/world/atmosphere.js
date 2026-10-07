@@ -41,6 +41,30 @@ void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor)
   }
 }
 
+// The finished picture, adjusted as in a photo editor (the panel's Picture folder): white balance (temperature,
+// tint), contrast, highlights and shadows, saturation and vibrance (which colours the dull more than the vivid),
+// darker corners. (Contrast and saturation 1, the rest 0: the picture passes unchanged.)
+// (as the picture is shown unless set otherwise: a little more contrast and colour than the tone curve leaves)
+const PICTURE = { contrast: 1.12, saturation: 1.2, vibrance: 0.25 };
+class Picture extends Effect {
+  constructor() {
+    super('Picture', `uniform float contrast, highlights, shadows, saturation, vibrance, temperature, tint, vignette;
+void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+  vec3 c = max(inputColor.rgb, 0.0);
+  c *= vec3(1.0 + 0.18 * temperature, 1.0 - 0.1 * tint, 1.0 - 0.18 * temperature) * (1.0 + 0.05 * tint);
+  vec3 g = pow(c, vec3(1.0 / 2.2));
+  float l = dot(g, vec3(0.2126, 0.7152, 0.0722));
+  g += 0.3 * shadows * (1.0 - smoothstep(0.0, 0.5, l)) * (1.0 - l) * g / max(l, 0.05) * 0.5 + 0.3 * highlights * smoothstep(0.5, 1.0, l) * l;
+  g = (g - 0.5) * contrast + 0.5;
+  l = dot(g, vec3(0.2126, 0.7152, 0.0722));
+  float vivid = max(g.r, max(g.g, g.b)) - min(g.r, min(g.g, g.b));
+  g = mix(vec3(l), g, saturation * (1.0 + vibrance * (1.0 - clamp(vivid * 1.6, 0.0, 1.0))));
+  g *= 1.0 - vignette * smoothstep(0.35, 1.0, length(uv - 0.5) * 1.3);
+  outputColor = vec4(pow(max(g, 0.0), vec3(2.2)), inputColor.a);
+}`, { uniforms: new Map(['contrast', 'highlights', 'shadows', 'saturation', 'vibrance', 'temperature', 'tint', 'vignette'].map((k) => [k, new THREE.Uniform(PICTURE[k] ?? 0)])) });
+  }
+}
+
 class Scale extends Effect {
   constructor(k) {
     super('Scale', 'uniform float k; void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) { outputColor = vec4(inputColor.rgb * k, inputColor.a); }',
@@ -199,7 +223,11 @@ export class Atmosphere {
     // the end of the picture as the atmosphere library's own examples have it: the flare of the lens round what is
     // very bright, the AgX tone curve, and a dither against banding in the sky
     this.composer.addPass(new EffectPass(camera, new LensFlareEffect()));
-    this.finalPass = new EffectPass(camera, this.bloom, new ToneMappingEffect({ mode: ToneMappingMode.AGX }), this.gradeEffect, new DitheringEffect());
+    this.toneMapping = new ToneMappingEffect({ mode: ToneMappingMode.AGX });
+    this.pictureEffect = new Picture();
+    // (the picture's settings by name: contrast, highlights, shadows, saturation, vibrance, temperature, tint, vignette)
+    this.picture = Object.fromEntries([...this.pictureEffect.uniforms].map(([k, u]) => [k, u]));
+    this.finalPass = new EffectPass(camera, this.bloom, this.toneMapping, this.gradeEffect, this.pictureEffect, new DitheringEffect());
     this.composer.addPass(this.finalPass);
     // smooth edges (see `antialias`): a pass over the finished picture that finds the stair-steps and blends
     // them (SMAA), and/or several samples per pixel when the scene is drawn (MSAA)
@@ -258,6 +286,9 @@ export class Atmosphere {
     if (this.composer.multisampling !== samples) this.composer.multisampling = samples;
   }
   // How strongly the finished picture is graded (0: not at all).
+  // The tone curve: 'agx' (soft, as the atmosphere library's examples), 'aces' (more contrast) or 'neutral' (keeps colours).
+  get curve() { return { [ToneMappingMode.AGX]: 'agx', [ToneMappingMode.ACES_FILMIC]: 'aces', [ToneMappingMode.NEUTRAL]: 'neutral' }[this.toneMapping.mode]; }
+  set curve(v) { this.toneMapping.mode = { agx: ToneMappingMode.AGX, aces: ToneMappingMode.ACES_FILMIC, neutral: ToneMappingMode.NEUTRAL }[v] ?? ToneMappingMode.AGX; }
   get grade() { return this.gradeEffect.uniforms.get('amount').value; }
   set grade(v) { this.gradeEffect.uniforms.get('amount').value = v; }
   // The fog's colour is the light it stands in: dark (0 day .. 1 night), warm (0 .. 1: the low sun); ground: the

@@ -226,7 +226,6 @@ const previewMode = { on: params.get('preview') !== '0', live: params.get('previ
   gui.add(props, 'streetLights', 0, 3, 0.05).name('street lights');
   gui.add(props, 'parkLights', 0, 3, 0.05).name('park lights');
   gui.add(state, 'trains');
-  gui.add(env, 'brightness', 0.5, 2, 0.05);
   gui.add(atmosphere, 'antialias', ['off', 'smaa', 'msaa', 'both']).name('smooth edges');
   gui.add(env.sun.shadow, 'radius', 0, 12, 0.1).name('shadow softness');
   gui.add(state, 'contact', 0, 1, 0.01).name('contact shadows');
@@ -253,6 +252,19 @@ const previewMode = { on: params.get('preview') !== '0', live: params.get('previ
   gui.add(state, 'photo').name('aerial photo').listen();
   gui.add(birds.geometry, 'instanceCount', 0, MAX_BIRDS, 10).name('birds');
   gui.add(state, 'info').name('info panel');
+  // the finished picture, as in a photo editor
+  const picture = gui.addFolder('Picture'), look = atmosphere.picture;
+  picture.add(atmosphere, 'curve', ['agx', 'aces', 'neutral']).name('tone curve');
+  picture.add(env, 'brightness', 0.4, 2.5, 0.01).name('exposure');
+  picture.add(look.contrast, 'value', 0.6, 1.6, 0.01).name('contrast');
+  picture.add(look.highlights, 'value', -1, 1, 0.01).name('highlights');
+  picture.add(look.shadows, 'value', -1, 1, 0.01).name('shadows');
+  picture.add(look.saturation, 'value', 0, 2, 0.01).name('saturation');
+  picture.add(look.vibrance, 'value', -1, 1, 0.01).name('vibrance');
+  picture.add(look.temperature, 'value', -1, 1, 0.01).name('temperature');
+  picture.add(look.tint, 'value', -1, 1, 0.01).name('tint');
+  picture.add(look.vignette, 'value', 0, 1, 0.01).name('vignette');
+  picture.add({ reset() { picture.reset(); } }, 'reset').name('back to the defaults');
   const sky = gui.addFolder('Clouds');
   sky.add(atmosphere, 'cloudsOn').name('clouds');
   sky.add(atmosphere, 'coverage', 0, 1, 0.05);
