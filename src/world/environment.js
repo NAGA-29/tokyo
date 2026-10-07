@@ -1,23 +1,35 @@
-// Sky, sun, image-based ambient light and the day/night blend. (No fog: the whole area is loaded and seen clearly.)
+// The light of the scene, taken from the atmosphere (@takram/three-atmosphere, as its own examples set it up):
+// the sun is a directional light whose colour and strength are what is left of sunlight after its way through
+// the air — white at noon, orange and weak at the horizon, nothing below it — and the sky is a light probe that
+// holds what the whole dome of the sky sends down at this hour. Both come from the same tables the sky itself is
+// drawn from (atmosphere.js), so the light on the city and the sky above it always agree. The sky is also kept as
+// an environment map, for what mirrors it: glass, water, anything smooth.
+//
+// By night neither gives any light. The directional light is then the moon (dim, blue), and a faint even glow
+// stands for the city's own light on the haze above it.
 import * as THREE from 'three';
-import { createSky, SKY } from './sky.js';
+import { SunDirectionalLight, SkyLightProbe } from '@takram/three-atmosphere';
 import { shared } from './materials.js';
 
 const SHADOW_SIZE = 4096;
-
-const DAY = { hemi: 0.55, sun: 3.4, sunColor: new THREE.Color(0xfff0dc), env: 1.0, exposure: 0.82, bloom: 0.12 };
-const NIGHT = {
-  hemi: 0.42, sun: 0.32, sunColor: new THREE.Color(0x9fb4e0),
-  env: 1.0, exposure: 1.15, bloom: 0.45,
-};
-
-const SUNSET = new THREE.Color(0xff9a52);
-// The golden hour (see `golden`): the sun's colour at the horizon, the light of the sky on what the sun does not
-// reach (peach from above, a cool violet from below: warm light, cool shade), and the colours they have by day.
-const GOLD = { sun: new THREE.Color(0xff6a24), sky: new THREE.Color(0xffb890), ground: new THREE.Color(0x5a4c7c) };
-const REAL = { fill: 0.72, sky: 1.35, sun: 1.12 }; // realistic light: how much of the even fill goes, and the sky's and the sun's share
-const HEMI = { sky: new THREE.Color(0xfff4e6), ground: new THREE.Color(0x8a8172) };
+// The atmosphere's radiance is ten times smaller than the scene's (atmosphere.js: UNITS): its lights are made ten
+// times stronger here, which is what an exposure of 10 does in the library's own examples.
+const LIGHT = 10;
+// The exposure goes by the light, as a camera's (or the eye's) does: a sunlit noon is many times brighter than
+// dusk, and each is shown as well as it can be. target: how bright the picture is meant to be; least, most: the
+// exposure's limits (at noon, and in the night).
+const EXPOSURE = { target: 1.8, least: 0.38, most: 1.7 };
+const BLOOM = { day: 0.12, night: 0.45 };
+const MOON = { strength: 0.2, color: new THREE.Color(0x9fb4e0) };
+const GLOW = { strength: 0.16, sky: new THREE.Color(0x8f9bc0), ground: new THREE.Color(0x8a7a66) }; // the night's even light
 const MOON_STAND_IN = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 40), THREE.MathUtils.degToRad(205));
+
+// Call once, before any material is compiled. The environment map is for reflections only: the sky's even light
+// on a surface comes from the light probe (taking it from the map as well would count the sky twice).
+export function installSkyLight() {
+  THREE.ShaderChunk.envmap_physical_pars_fragment = THREE.ShaderChunk.envmap_physical_pars_fragment.replace(
+    'return PI * envMapColor.rgb * envMapIntensity;', 'return vec3( 0.0 );');
+}
 
 export class Environment {
   constructor(scene, renderer) {
@@ -26,30 +38,11 @@ export class Environment {
     this.night = 0;  // how far the city's lights are on: they come on while it is still light
     this.dark = 0;   // how dark it is: this follows the sun all the way down through twilight
     this.daylight = 1; this.moonlight = 0; this.warmth = 0; this.elevation = 40;
-    this.time = 0;
     this.brightness = 1; // of the whole picture (the exposure is multiplied by it)
-    this.golden = 0;     // how much the low sun colours the city (0: as it was; 1: a golden hour)
-    this.real = 0;       // realistic light (see `realistic`): 0 or 1
-    this.sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 40), THREE.MathUtils.degToRad(205));
+    this.sunDir = new THREE.Vector3(0.3, 0.8, 0.5).normalize(); // where the light comes from: the sun, or the moon by night
+    this.bloom = BLOOM.day;
 
-    this.sky = createSky();
-    this.sky.material.uniforms.uSunDir.value.copy(this.sunDir);
-    scene.add(this.sky);
-
-    // Environment map: the same sky without the sun disc (the sun is the directional light).
-    this.pmrem = new THREE.PMREMGenerator(renderer);
-    this.envScene = new THREE.Scene();
-    this.envSky = createSky({ sunDisc: 0, ground: SKY.ground });
-    this.envSky.material.uniforms.uSunDir.value.copy(this.sunDir);
-    this.envScene.add(this.envSky);
-    // (the other way to light the scene from its sky: see lightFromSky)
-    this.skyLit = false; this.physical = null; this.envScale = 1; this.bakedSun = new THREE.Vector3();
-    this.bakeEnvironment();
-
-    this.hemi = new THREE.HemisphereLight(0xfff4e6, 0x8a8172);
-    scene.add(this.hemi);
-
-    this.sun = new THREE.DirectionalLight();
+    this.sun = new SunDirectionalLight({ distance: 2000 });
     this.sun.castShadow = true;
     this.sun.shadow.mapSize.set(SHADOW_SIZE, SHADOW_SIZE);
     const c = this.sun.shadow.camera;
@@ -57,81 +50,89 @@ export class Environment {
     this.shadowExtent = 0;
     this.sun.shadow.bias = -0.0003;
     this.sun.shadow.normalBias = 0.5;
-    scene.add(this.sun, this.sun.target);
+    this.sun.intensity = 0; // (until the atmosphere's tables are there)
+    this.skyLight = new SkyLightProbe();
+    this.skyLight.intensity = 0;
+    this.glow = new THREE.HemisphereLight(GLOW.sky, GLOW.ground, 0);
+    scene.add(this.sun, this.sun.target, this.skyLight, this.glow);
 
+    // the sky as an environment map (see lightFromSky)
+    this.pmrem = new THREE.PMREMGenerator(renderer);
+    this.envScene = new THREE.Scene();
+    this.physical = null; this.bakedSun = new THREE.Vector3(); this.baked = -1; this.bakedAt = 0;
+    this.sunColor = new THREE.Color(); // the sun's light as it arrives (for the glint in the windows)
     this.apply();
   }
 
-  // Renders the environment map for the sky as dark as it now is (again whenever that has changed a little).
-  bakeEnvironment() {
+  // The atmosphere: its tables (textures: { transmittanceTexture, irradianceTexture }), where the scene sits on
+  // the globe (worldToECEF), its sky for the environment map (sky: { mesh, scale }, Atmosphere.environmentSky())
+  // and whether it can draw yet (ready()).
+  lightFromSky(textures, worldToECEF, sky, ready) {
+    this.sun.transmittanceTexture = textures.transmittanceTexture;
+    this.skyLight.irradianceTexture = textures.irradianceTexture;
+    this.sun.worldToECEFMatrix.copy(worldToECEF);
+    this.skyLight.worldToECEFMatrix.copy(worldToECEF);
+    // (a physical night sky is black: the glow of the city's lights on the haze is put under it)
+    const glow = new THREE.MeshBasicMaterial({ side: THREE.BackSide, depthWrite: false, fog: false });
+    Object.assign(sky.mesh.material, { blending: THREE.AdditiveBlending, transparent: true, depthTest: false, depthWrite: false });
+    sky.mesh.renderOrder = 1;
+    this.envScene.add(new THREE.Mesh(new THREE.SphereGeometry(1, 24, 12), glow), sky.mesh);
+    this.physical = { glow, scale: sky.scale, ready };
+  }
+
+  // Renders the environment map for the sky as it now is (again whenever the sun has moved a little).
+  bakeEnvironment(sun) {
+    if (!this.physical?.ready()) return;
     this.bakedAt = performance.now();
     this.baked = this.dark;
-    this.envSky.material.uniforms.uNight.value = this.baked;
-    const physical = this.skyLit && this.physical && this.physical.ready();
-    if (this.physical) {
-      this.envSky.visible = !physical; this.physical.group.visible = physical;
-      // (a physical night sky is black: the glow of the city's lights on the haze is put under it)
-      this.physical.glow.color.copy(SKY.nightHorizon).multiplyScalar(this.baked / this.physical.scale);
-      this.bakedSun.copy(this.sunWas ?? this.bakedSun);
-    }
-    this.envScale = physical ? this.physical.scale : 1;
+    this.bakedSun.copy(sun);
+    this.physical.glow.color.setRGB(0.05, 0.04, 0.045).multiplyScalar(this.dark / this.physical.scale);
     const old = this.scene.environment;
     this.scene.environment = this.pmrem.fromScene(this.envScene, 0, 0.1, 10).texture;
+    this.scene.environmentIntensity = this.physical.scale;
     old?.dispose();
   }
 
-  // Lights the scene from the sky the atmosphere works out instead of the painted one: the shaded sides and the
-  // glass then take the colours of the hour — the blue of noon, the orange of the low sun — from the same sky
-  // that is seen. sky: { mesh, scale } (Atmosphere.environmentSky()); ready(): whether the atmosphere can draw yet.
-  lightFromSky(sky, ready) {
-    const glow = new THREE.MeshBasicMaterial({ side: THREE.BackSide, depthWrite: false, fog: false });
-    const group = new THREE.Group();
-    Object.assign(sky.mesh.material, { blending: THREE.AdditiveBlending, transparent: true, depthTest: false, depthWrite: false });
-    sky.mesh.renderOrder = 1;
-    group.add(new THREE.Mesh(new THREE.SphereGeometry(1, 24, 12), glow), sky.mesh);
-    group.visible = false;
-    this.envScene.add(group);
-    this.physical = { group, glow, scale: sky.scale, ready };
-  }
-  // Realistic light: the sky itself lights the shade (and so its colour changes with the hour), with little of
-  // the even fill; the sun a little stronger against it.
-  get realistic() { return this.real > 0; }
-  set realistic(v) { this.real = v ? 1 : 0; this.skyLight = !!v; this.apply(); }
-  get skyLight() { return this.skyLit; }
-  set skyLight(v) { if (v !== this.skyLit) { this.skyLit = v; this.bakeEnvironment(); this.apply(); } }
-
-  // sun, moon: unit vectors towards them (world space). The light is the sun by day — dimmer and warmer as it
-  // sinks — and the moon by night (or a stand-in for it while the moon is down); the change of direction
-  // happens around sunset, when neither casts a shadow to speak of.
-  setSky(sun, moon) {
+  // sun, moon: unit vectors towards them in the scene's frame; sunECEF: the sun's in the globe's (for the
+  // atmosphere's lights). The light is the sun as long as any of it arrives, then the moon (or a stand-in for it
+  // while the moon is down); the change of direction happens in deep twilight, when neither casts a shadow to speak of.
+  setSky(sun, moon, sunECEF) {
     const deg = THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(sun.y, -1, 1))), step = THREE.MathUtils.smoothstep;
     this.elevation = deg;
     // Dusk in order: the lights come on as the sun nears the horizon and are all on when it sets; the dark
     // then comes slowly, with the sun, until the end of nautical twilight (and the other way round at dawn).
     this.night = 1 - step(deg, 0, 9);
     this.dark = 1 - step(deg, -13, 5);
-    this.daylight = step(deg, -5, 9);          // how much of the sun's light arrives (the afterglow included)
+    this.daylight = step(deg, -5, 9);
     this.moonlight = 1 - step(deg, -14, -5.5);
-    this.warmth = 1 - step(deg, 3, 24);        // 1 at the horizon: orange light
-    if (deg > -5.5) this.sunDir.copy(sun).setY(Math.max(sun.y, 0.06)).normalize(); // (never quite grazing: shadows stay finite)
+    this.warmth = 1 - step(deg, 3, 24);
+    const sunUp = deg > -5.5;
+    if (sunUp) this.sunDir.copy(sun).setY(Math.max(sun.y, 0.06)).normalize(); // (never quite grazing: shadows stay finite)
     else if (moon.y > 0.2) this.sunDir.copy(moon);
     else this.sunDir.copy(MOON_STAND_IN);
     shared.uSunDir.value.copy(sun);
-    shared.uSunGlint.value.copy(DAY.sunColor).lerp(SUNSET, this.warmth).multiplyScalar(this.daylight * 3);
+
+    if (this.physical?.ready()) {
+      // the sun: its colour and strength from the atmosphere, for where the view is
+      this.sun.sunDirection.copy(sunECEF);
+      this.sun.update();
+      this.sunColor.copy(this.sun.color);
+      if (sunUp) this.sun.intensity = LIGHT;
+      else { this.sun.color.copy(MOON.color); this.sun.intensity = MOON.strength * this.moonlight; }
+      // the sky
+      this.skyLight.sunDirection.copy(sunECEF);
+      this.skyLight.position.copy(this.sun.target.position);
+      this.skyLight.update();
+      this.skyLight.intensity = LIGHT;
+      shared.uSunGlint.value.copy(this.sunColor).multiplyScalar(LIGHT * 0.9);
+      const now = performance.now();
+      if (now - this.bakedAt > 200 && (this.baked < 0 || sun.angleTo(this.bakedSun) > 0.006 || Math.abs(this.dark - this.baked) > 0.04)) this.bakeEnvironment(sun);
+    }
     this.apply();
-    this.sunWas = sun;
-    // (the map is baked again as the light changes — not more often than a few times a second, however fast the
-    // day is played through)
-    const now = performance.now(), due = now - (this.bakedAt ?? 0) > 200;
-    if (!due) { /* soon */ }
-    else if (Math.abs(this.dark - this.baked) > 0.04 || (this.dark !== this.baked && (this.dark === 0 || this.dark === 1))) this.bakeEnvironment();
-    // lit from the physical sky, the map follows the sun (and waits for the atmosphere's tables to be ready)
-    else if (this.skyLit && this.physical && this.physical.ready() && (this.envScale === 1 || sun.angleTo(this.bakedSun) > 0.006)) this.bakeEnvironment();
   }
 
-  // The sky follows the camera; the shadow frustum follows the focus, snapped to texels so shadows do not shimmer.
+  // The shadow frustum follows the focus, snapped to texels so shadows do not shimmer.
   follow(focus, camera) {
-    this.sky.position.copy(camera.position);
     // Shadow coverage grows with the viewing distance (in coarse steps, so it rarely changes).
     const want = THREE.MathUtils.clamp(camera.position.distanceTo(focus) * 1.1, 220, 1800);
     const extent = 220 * 1.3 ** Math.ceil(Math.log(want / 220) / Math.log(1.3));
@@ -148,27 +149,16 @@ export class Environment {
     this.sun.position.copy(this.sun.target.position).addScaledVector(this.sunDir, 2000);
   }
 
-  update(dt) {
-    this.time += dt;
-    this.sky.material.uniforms.uTime.value = this.time;
-  }
+  update() {}
 
   apply() {
     const t = this.dark, lerp = (a, b) => a + (b - a) * t;
-    this.sky.material.uniforms.uNight.value = t;
-    // (realistic light: what the sun does not reach is lit by the sky itself, through the environment map; of the
-    // even fill from above only a little is left)
-    this.hemi.intensity = lerp(DAY.hemi, NIGHT.hemi) * (1 - 0.3 * this.golden * this.warmth * this.warmth * this.daylight) * (1 - REAL.fill * this.real * (1 - t));
-    // the golden hour: with the sun low, its light is a deeper orange and stronger against the fill, and the fill
-    // takes the colours of the evening sky (nothing of this by day, when warmth is 0, or once the sun is gone)
-    const gold = this.golden * this.warmth * this.warmth * this.daylight;
-    this.sun.intensity = DAY.sun * this.daylight * (1 + 0.35 * gold) * (1 + (REAL.sun - 1) * this.real) + NIGHT.sun * this.moonlight;
-    this.sun.color.copy(DAY.sunColor).lerp(SUNSET, this.warmth).lerp(GOLD.sun, 0.75 * gold).lerp(NIGHT.sunColor, this.moonlight);
-    this.hemi.color.copy(HEMI.sky).lerp(GOLD.sky, gold);
-    this.hemi.groundColor.copy(HEMI.ground).lerp(GOLD.ground, gold);
-    this.scene.environmentIntensity = lerp(DAY.env, NIGHT.env) * this.envScale * (1 + (REAL.sky - 1) * this.real * (this.envScale > 1 ? 1 : 0)); // (the map itself darkens with the sky)
-    this.renderer.toneMappingExposure = lerp(DAY.exposure, NIGHT.exposure) * this.brightness;
-    this.bloom = lerp(DAY.bloom, NIGHT.bloom);
+    this.glow.intensity = GLOW.strength * t;
+    // (how much light there is: the sun on the ground, the sky, the night's own glow)
+    const lum = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b, sh = this.skyLight.sh.coefficients[0];
+    const light = 0.3 * lum(this.sun.color) * this.sun.intensity * Math.max(this.sunDir.y, 0.05) + 2.5 * (0.2126 * sh.x + 0.7152 * sh.y + 0.0722 * sh.z) * this.skyLight.intensity + 1.5 * t * t * t;
+    this.renderer.toneMappingExposure = THREE.MathUtils.clamp(EXPOSURE.target / Math.max(light, 1e-3), EXPOSURE.least, EXPOSURE.most) * this.brightness;
+    this.bloom = lerp(BLOOM.day, BLOOM.night);
     shared.uNight.value = this.night;
     shared.uDark.value = t;
   }

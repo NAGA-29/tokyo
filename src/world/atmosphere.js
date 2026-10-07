@@ -13,6 +13,7 @@ import { FogEffect } from './fog.js';
 import { AerialPerspectiveEffect, PrecomputedTexturesGenerator, SkyMaterial, getSunDirectionECEF, getMoonDirectionECEF } from '@takram/three-atmosphere';
 import { CloudsEffect, CLOUD_SHAPE_TEXTURE_SIZE, CLOUD_SHAPE_DETAIL_TEXTURE_SIZE } from '@takram/three-clouds';
 import { DataTextureLoader, Ellipsoid, Geodetic, parseUint8Array, radians, STBNLoader } from '@takram/three-geospatial';
+import { DitheringEffect, LensFlareEffect } from '@takram/three-geospatial-effects';
 import { shared } from './materials.js';
 
 const ASSETS = 'assets/takram'; // cloud shape and weather textures and blue noise, as shipped with the packages
@@ -91,7 +92,10 @@ export class Atmosphere {
     // ---- clouds: rendered into buffers that the aerial perspective composites
     const clouds = this.clouds = new CloudsEffect(camera);
     clouds.worldToECEFMatrix.copy(this.worldToECEF);
-    clouds.coverage = 0.25;
+    clouds.coverage = 0.3;
+    // (the clouds' shadows, as the library's examples set them)
+    Object.assign(clouds.shadow, { farScale: 0.25, maxFar: 1e5, cascadeCount: 2, splitMode: 'practical', splitLambda: 0.71 });
+    clouds.shadow.mapSize.set(512, 512);
     this.quality = 'high';
     clouds.localWeatherVelocity.set(0.001, 0);
     this.base = 450; // metres: the foot of the low clouds (the library's default is 750)
@@ -192,7 +196,10 @@ export class Atmosphere {
     this.composer.addPass(this.fogPass);
     this.bloom = new BloomEffect({ intensity: 0.5, luminanceThreshold: 0.9, luminanceSmoothing: 0.2, mipmapBlur: true });
     this.gradeEffect = new Grade();
-    this.finalPass = new EffectPass(camera, this.bloom, new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC }), this.gradeEffect);
+    // the end of the picture as the atmosphere library's own examples have it: the flare of the lens round what is
+    // very bright, the AgX tone curve, and a dither against banding in the sky
+    this.composer.addPass(new EffectPass(camera, new LensFlareEffect()));
+    this.finalPass = new EffectPass(camera, this.bloom, new ToneMappingEffect({ mode: ToneMappingMode.AGX }), this.gradeEffect, new DitheringEffect());
     this.composer.addPass(this.finalPass);
     // smooth edges (see `antialias`): a pass over the finished picture that finds the stair-steps and blends
     // them (SMAA), and/or several samples per pixel when the scene is drawn (MSAA)
@@ -294,7 +301,7 @@ export class Atmosphere {
     // horizon, warm while the sun is near it and a dim blue-grey in the night
     const height = THREE.MathUtils.radToDeg(Math.asin(sun.y)), low = 1 - THREE.MathUtils.smoothstep(height, 2, 14), night = 1 - THREE.MathUtils.smoothstep(height, -12, -3);
     this.cloudAmbient.value.set(1, 0.8, 0.72).lerp(CLOUD_NIGHT, night).multiplyScalar(low * THREE.MathUtils.lerp(CLOUD_GLOW, CLOUD_GLOW * 0.3, night));
-    return { sun, moon: this.moon.clone().applyMatrix3(toWorld) };
+    return { sun, moon: this.moon.clone().applyMatrix3(toWorld), sunECEF: this.sun };
   }
 
   setSize(w, h) { this.composer.setSize(w, h); }

@@ -15,7 +15,7 @@ import { buildFlyovers } from './world/flyovers.js';
 import { Traffic, MAX_CARS } from './world/traffic.js';
 import { buildStructures } from './world/structures.js';
 import { loadOrtho } from './world/ortho.js';
-import { Environment } from './world/environment.js';
+import { Environment, installSkyLight } from './world/environment.js';
 import { Atmosphere } from './world/atmosphere.js';
 import { createBirds, MAX_BIRDS } from './world/birds.js';
 import { loadBackdrop } from './world/backdrop.js';
@@ -24,6 +24,7 @@ import { ContactShadows, asGround } from './world/contact.js';
 import { LampLight, installLampLight } from './world/lamplight.js';
 
 installLampLight(); // (before any material is compiled)
+installSkyLight();
 
 const params = new URLSearchParams(location.search);
 const AREA = params.get('area') || 'tokyo'; // (the first of the city switch)
@@ -118,7 +119,6 @@ const lampLight = new LampLight(renderer);
 const waterMirror = new WaterMirror(renderer);
 // post-processing: ambient occlusion, sky, aerial perspective, volumetric clouds, bloom, tone mapping
 const atmosphere = new Atmosphere(renderer, scene, camera, manifest.origin, manifest.bounds);
-env.sky.visible = false; // the atmosphere draws the sky (the environment map keeps its own)
 const ao = atmosphere.ao;
 if (params.get('reflect') === '0') atmosphere.reflect = false;
 // the abstract model (see materials.js): the city as a plain model of itself, with the light as it is
@@ -128,16 +128,13 @@ if (params.get('reflect') === '0') atmosphere.reflect = false;
 let cloudShadow = 0.58, shadeTimer = 0;
 const applyShade = () => { atmosphere.shade = Math.round((1 - cloudShadow) * (variant.abstract ? 0.6 : 1) * 100) / 100; };
 const setAbstract = (on) => { setVariant({ abstract: on }); streamer.setAbstract(on); applyShade(); };
-env.lightFromSky(atmosphere.environmentSky(), () => atmosphere.ready);
-if (params.get('skylight') === '1') env.skyLight = true;
+env.lightFromSky(atmosphere.textures, atmosphere.worldToECEF, atmosphere.environmentSky(), () => atmosphere.ready);
 shared.uSeason.value = Math.max(0, ['summer', 'autumn', 'spring'].indexOf(params.get('season')));
 atmosphere.antialias = params.get('aa') ?? 'smaa';
 const contact = new ContactShadows(renderer);
 if (Number(params.get('contact')) > 0) { shared.uContact.value = Number(params.get('contact')); setVariant({ contact: true }); }
-if (params.get('realistic') === '1') { env.realistic = true; atmosphere.haze = 1; atmosphere.grade = 1; }
 if (Number(params.get('fog')) > 0) atmosphere.fog = Number(params.get('fog'));
 shared.uGlintOn.value = params.get('glint') != null ? Number(params.get('glint')) : 2; // (1: as it was designed; brighter by default)
-env.golden = params.get('golden') != null ? Number(params.get('golden')) : 1;
 env.brightness = Number(params.get('brightness')) || 1.15; // (a little brighter than the exposure was chosen for; 1: as it was)
 if (params.get('abstract') === '1') setAbstract(true);
 if (params.get('landmarks') === '1') setVariant({ landmarks: true });
@@ -188,8 +185,6 @@ const previewMode = { on: params.get('preview') !== '0', live: params.get('previ
     // (the number is written into a shader: it is set a moment after the slider has come to rest)
     get cloudShadow() { return cloudShadow; }, set cloudShadow(v) { cloudShadow = v; clearTimeout(shadeTimer); shadeTimer = setTimeout(applyShade, 250); },
     windowPace: 6, // how fast the lit rooms come and go (1: a room may change every 1.5 to 5.5 minutes)
-    // realistic lighting: the shade lit by the sky, the distance in the colour of the hour, the picture graded
-    get realistic() { return env.realistic; }, set realistic(v) { env.realistic = v; atmosphere.haze = v ? 1 : 0; atmosphere.grade = v ? 1 : 0; },
     // contact shadows: the soft dark on the ground round the foot of things (0: none, and nothing is drawn for it)
     get contact() { return shared.uContact.value; }, set contact(v) { shared.uContact.value = v; if ((v > 0) !== variant.contact) setVariant({ contact: v > 0 }); },
     // facade relief: windows set back into the wall (materials.js)
@@ -232,16 +227,13 @@ const previewMode = { on: params.get('preview') !== '0', live: params.get('previ
   gui.add(props, 'parkLights', 0, 3, 0.05).name('park lights');
   gui.add(state, 'trains');
   gui.add(env, 'brightness', 0.5, 2, 0.05);
-  gui.add(state, 'realistic').name('realistic lighting');
   gui.add(atmosphere, 'antialias', ['off', 'smaa', 'msaa', 'both']).name('smooth edges');
   gui.add(env.sun.shadow, 'radius', 0, 12, 0.1).name('shadow softness');
   gui.add(state, 'contact', 0, 1, 0.01).name('contact shadows');
   gui.add(contact, 'softness', 0.5, 20, 0.1).name('contact shadow blur (m)');
-  gui.add(env, 'skyLight').name('light from the real sky').listen();
   gui.add(shared.uGlintOn, 'value', 0, 5, 0.1).name('sun in the windows (strength)');
   gui.add(shared.uGlass, 'value', 0, 3, 0.05).name('window glass');
   gui.add(atmosphere, 'fog', 0, 1, 0.01);
-  gui.add(env, 'golden', 0, 1.5, 0.05).name('golden hour').onChange(() => env.apply());
   const abstractSwitch = gui.add(state, 'abstract').name('abstract model');
   // the same switch as a button in the corner, showing the city it changes to
   const modeButton = document.getElementById('mode');
@@ -290,7 +282,7 @@ const previewMode = { on: params.get('preview') !== '0', live: params.get('previ
 
   // The panel's settings are kept (in this browser) and are the same for every city: what is switched off in
   // one is off in the next. A URL that sets something itself (?time=, ?cars=, ...) is taken as it stands.
-  const KEY = 'procedural-tokyo:settings:6'; // (a new number when the defaults change: what was kept before is left behind)
+  const KEY = 'procedural-tokyo:settings:8'; // (a new number when the defaults change: what was kept before is left behind)
   const explicit = [...params.keys()].some((k) => k !== 'area');
   // (the city is the page's, not a setting; and the abstract model is never kept: the page always opens on the city as it is)
   const strip = (saved) => { delete saved.controllers?.city; delete saved.controllers?.['abstract model']; return saved; };
