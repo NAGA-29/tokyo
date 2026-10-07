@@ -440,7 +440,70 @@ function tick() {
       `${picked.storeys ? `, ${picked.storeys} floors` : ''}, base ${picked.base.toFixed(1)} m\n` : '') +
     `\ndrag pan · right-drag rotate · wheel zoom\nWASD move (shift fast) · N day/night · click building`;
 }
-function frame() { tick(); requestAnimationFrame(frame); }
+// The switch in the corner shows this very view as the other mode draws it, as it moves. Every few frames the
+// city is drawn once more in the other mode (the whole picture, where the frame is about to be drawn: it is
+// never shown), and the middle of that picture is scaled down into a small texture — all on the graphics card,
+// nothing is read back. Then the frame is drawn as it should be, and the small picture is drawn over the corner
+// of it, under the switch (which is a frame around it and takes the click).
+const PREVIEW_LIVE = params.get('preview') !== '0'; // (?preview=0: the switch keeps a picture made beforehand)
+const PREVIEW_EVERY = 3;                 // the other mode is drawn at one frame in so many
+const PREVIEW_BOX = { left: 14, bottom: 14, size: 64, radius: 10 }; // CSS pixels: the inside of the switch (index.html)
+const preview = { steps: [1152, 576, 288, 144].map((n) => new THREE.WebGLRenderTarget(n, n, { depthBuffer: false })), count: 0, ready: false };
+preview.whole = new THREE.WebGLRenderTarget(4, 4, { depthBuffer: false });
+preview.whole.texture.generateMipmaps = false;
+for (const t of preview.steps) { t.texture.generateMipmaps = false; renderer.initRenderTarget(t); }
+preview.scene = new THREE.Scene();
+preview.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+preview.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+  uniforms: { map: { value: preview.steps.at(-1).texture }, corner: { value: PREVIEW_BOX.radius / PREVIEW_BOX.size } },
+  vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+  // (the picture as it stands: it was scaled down from the finished frame; the corners are rounded like the switch)
+  fragmentShader: `uniform sampler2D map; uniform float corner; varying vec2 vUv;
+    void main() { vec2 q = abs(vUv - 0.5) - (0.5 - corner); if (length(max(q, 0.0)) > corner) discard; gl_FragColor = vec4(texture2D(map, vUv).rgb, 1.0); }`,
+  depthTest: false, depthWrite: false, toneMapped: false,
+}));
+preview.quad.frustumCulled = false;
+preview.scene.add(preview.quad);
+function drawOtherMode() {
+  const on = variant.abstract, set = (abstract) => { setVariant({ abstract }); streamer.setAbstract(abstract); };
+  set(!on);
+  tick(); frames--; // (not a frame of its own)
+  // the middle square of the picture, halved step by step down to the small one
+  const gl = renderer.getContext(), state = renderer.state, c = renderer.domElement, side = Math.min(c.width, c.height);
+  let x0 = (c.width - side) >> 1, y0 = (c.height - side) >> 1, size = side;
+  state.setScissorTest(false);
+  // (the screen's own buffer is multisampled: it can only be copied as it lies, into a buffer of the screen's size)
+  if (preview.whole.width !== c.width || preview.whole.height !== c.height) { preview.whole.setSize(c.width, c.height); renderer.initRenderTarget(preview.whole); }
+  let from = renderer.properties.get(preview.whole).__webglFramebuffer;
+  state.bindFramebuffer(gl.READ_FRAMEBUFFER, null); state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, from);
+  gl.blitFramebuffer(x0, y0, x0 + size, y0 + size, x0, y0, x0 + size, y0 + size, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+  for (const t of preview.steps) {
+    if (t.width * 2 > size && t !== preview.steps.at(-1)) continue; // (the screen is smaller than this step)
+    const to = renderer.properties.get(t).__webglFramebuffer;
+    state.bindFramebuffer(gl.READ_FRAMEBUFFER, from); state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, to);
+    gl.blitFramebuffer(x0, y0, x0 + size, y0 + size, 0, 0, t.width, t.height, gl.COLOR_BUFFER_BIT, gl.LINEAR);
+    from = to; x0 = y0 = 0; size = t.width;
+  }
+  state.bindFramebuffer(gl.READ_FRAMEBUFFER, null); state.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+  set(on);
+  if (!preview.ready) { preview.ready = true; document.getElementById('mode').classList.add('live'); }
+}
+function drawPreview() {
+  if (!preview.ready) return;
+  const auto = renderer.autoClear, b = PREVIEW_BOX;
+  renderer.setRenderTarget(null);
+  renderer.autoClear = false;
+  renderer.setViewport(b.left, b.bottom, b.size, b.size);
+  renderer.render(preview.scene, preview.camera);
+  renderer.setViewport(0, 0, innerWidth, innerHeight);
+  renderer.autoClear = auto;
+}
+function frame() {
+  if (!loading && PREVIEW_LIVE && preview.count++ % PREVIEW_EVERY === 0) drawOtherMode();
+  tick();
+  drawPreview();
+  requestAnimationFrame(frame);
+}
 requestAnimationFrame(frame);
 
 // (for the console and for tools: tick() draws a frame by hand, clockTime sets the hour)
