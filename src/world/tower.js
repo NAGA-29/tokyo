@@ -4,9 +4,10 @@
 // is not drawn); the proportions in between are the tower's own.
 // No three.js here: the caller supplies quad(p, q, r, s, outward, colour) (src/world/meshing.js).
 
-const ORANGE = [0.86, 0.075, 0.012], WHITE = [0.8, 0.8, 0.77], GLASS = [0.05, 0.07, 0.09]; // linear RGB
+const ORANGE = [0.47, 0.1, 0.036], WHITE = [0.72, 0.72, 0.69], GLASS = [0.05, 0.07, 0.09]; // linear RGB
 // Lamps: colours brighter than 1 mark them for the shader, which lights them at night (materials.js).
 const BEACON = [6.0, 0.25, 0.12], BULB = [5.0, 3.3, 1.5];
+const FLASHER = [6.0, 0.2, 0.1]; // the aircraft warning lights at the top: they flash (the shader tells them by their colour)
 
 // Half-width of the tower at a fraction t of its height, as a fraction of the half-width of the foot.
 const PROFILE = [[0, 1], [0.04, 0.86], [0.08, 0.73], [0.12, 0.62], [0.2, 0.46], [0.3, 0.33], [0.4, 0.25], [0.45, 0.22], [0.6, 0.14], [0.75, 0.085], [0.84, 0.06]];
@@ -121,13 +122,15 @@ export function buildTower({ x, z, y0, H, R, angle }, quad) {
     quad(v(-1, -1, -1), v(-1, -1, 1), v(-1, 1, 1), v(-1, 1, -1), [-1, 0, 0], colour);
     quad(v(1, -1, -1), v(1, -1, 1), v(1, 1, 1), v(1, 1, -1), [1, 0, 0], colour);
   };
-  for (let h = 6; h < 0.84 * H; h += 11) for (const su of [-1, 1]) for (const sw of [-1, 1]) lamp(su * (r(h) + 0.5), sw * (r(h) + 0.5), h, 0.9, BULB);
+  // (the bulbs are what lights the tower at night: close together up the corners, and up the middle of each face)
+  for (let h = 6; h < 0.84 * H; h += 5.5) for (const su of [-1, 1]) for (const sw of [-1, 1]) lamp(su * (r(h) + 0.5), sw * (r(h) + 0.5), h, 0.9, BULB);
+  for (let h = 8.75; h < 0.84 * H; h += 11) for (const [su, sw] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) lamp(su * (r(h) + 0.5), sw * (r(h) + 0.5), h, 0.8, BULB);
   for (const t of [MAIN[1], TOP[1], 0.3, 0.6]) for (const su of [-1, 1]) for (const sw of [-1, 1]) {
     const half = t === MAIN[1] ? R * 0.36 : t === TOP[1] ? R * 0.15 : r(t * H) + 0.8;
     lamp(su * half, sw * half, t * H + 0.8, 1.3, BEACON);
   }
-  lamp(0, 0, H + 0.8, 1.6, BEACON);
-  lamp(0, 0, 0.94 * H + 0.5, 1.3, BEACON);
+  lamp(0, 0, H + 0.8, 1.6, FLASHER);
+  lamp(0, 0, 0.94 * H + 0.5, 1.3, FLASHER);
 
   // ---- antenna: a drum, then the mast in two steps
   box(0.84 * H, 0.86 * H, R * 0.075, ORANGE);
